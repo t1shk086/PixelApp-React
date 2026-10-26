@@ -116,7 +116,12 @@ function FuelHistory({rows}) {
 
 function TripDetails({trip,detail,readOnly}) {
  const [section,setSection]=useState('summary');
- useEffect(()=>setSection('summary'),[trip?.id]);
+ const [taskDrafts,setTaskDrafts]=useState([]);
+ const [taskOverrides,setTaskOverrides]=useState({});
+ const [taskName,setTaskName]=useState('');
+ const [taskEditing,setTaskEditing]=useState(null);
+ const [taskEditText,setTaskEditText]=useState('');
+ useEffect(()=>{setSection('summary');setTaskDrafts([]);setTaskOverrides({});setTaskName('');setTaskEditing(null);},[trip?.id]);
  const rows=detail?.expenses||[], settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
@@ -150,7 +155,15 @@ function TripDetails({trip,detail,readOnly}) {
   ['Бюджет',budgetTotal,serverBudget,'€'],
  ];
  const controlOk=controlRows.every(([,a,b])=>near(a,b));
- const done=tasks.filter(t=>['true','1','да','yes'].includes(String(t.done||'').toLowerCase())).length;
+ const taskIsDone=t=>['true','1','да','yes'].includes(String(t.done??'').toLowerCase());
+ const previewTasks=tasks.map((t,i)=>({...t,...(taskOverrides[String(t.item_id??`old-${i}`)]||{}),_previewKey:String(t.item_id??`old-${i}`)})).concat(taskDrafts);
+ const done=previewTasks.filter(taskIsDone).length;
+ const setPreviewTask=(t,changes)=>{
+  if(t._isDraft)setTaskDrafts(items=>items.map(x=>x._previewKey===t._previewKey?{...x,...changes}:x));
+  else setTaskOverrides(old=>({...old,[t._previewKey]:{...(old[t._previewKey]||{}),...changes}}));
+ };
+ const addPreviewTask=e=>{e.preventDefault();const name=taskName.trim();if(!name)return;setTaskDrafts(items=>items.concat([{_previewKey:`test-${Date.now()}-${items.length}`,_isDraft:true,title:name,done:false}]));setTaskName('')};
+ const resetTaskPreview=()=>{setTaskDrafts([]);setTaskOverrides({});setTaskEditing(null);setTaskName('')};
  const validPoints=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180);
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
@@ -159,7 +172,7 @@ function TripDetails({trip,detail,readOnly}) {
  <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
  {section==='summary'&&<>
- <div className="travel-card visual-section"><h3>✨ Пътуването с един поглед</h3><div className="visual-overview-stats"><div className="overview-tile"><span>🧾</span><small>Записи</small><strong>{rows.length}</strong></div><div className="overview-tile"><span>✅</span><small>Задачи</small><strong>{done} <em>/ {tasks.length}</em></strong></div><div className="overview-tile"><span>📍</span><small>Места</small><strong>{validPoints.length}</strong></div><div className="overview-tile"><span>⛽</span><small>Гориво</small><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:1})} <em>л</em></strong></div></div></div>
+ <div className="travel-card visual-section"><h3>✨ Пътуването с един поглед</h3><div className="visual-overview-stats"><div className="overview-tile"><span>🧾</span><small>Записи</small><strong>{rows.length}</strong></div><div className="overview-tile"><span>✅</span><small>Задачи</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><div className="overview-tile"><span>📍</span><small>Места</small><strong>{validPoints.length}</strong></div><div className="overview-tile"><span>⛽</span><small>Гориво</small><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:1})} <em>л</em></strong></div></div></div>
  <div className="travel-card visual-section"><h3>💳 Разходи по категории</h3>{Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,val],i)=>{const ratio=allCosts>0?Math.max(0,Math.min(100,val/allCosts*100)):0;return <div className="visual-category" key={name}><div className="visual-category-head"><span><i className={'visual-category-dot visual-palette-'+i%5}/>{name}</span><strong>{money(val)}</strong></div><div className="visual-category-bar"><span className={'visual-palette-bg-'+i%5} style={{width:ratio+'%'}}/></div><small>{ratio.toFixed(1)}% от общите разходи</small></div>}):<p className="muted">Няма записани разходи.</p>}</div>
  <div className="travel-card visual-section"><h3>🚗 Гориво и път</h3><div className="visual-overview-stats visual-road-stats"><div className="overview-tile"><span>🛣️</span><small>Изминато</small><strong>{km.toLocaleString('bg-BG')} <em>км</em></strong></div><div className="overview-tile"><span>⛽</span><small>Среден разход</small><strong>{avg?avg.toFixed(1):'—'} <em>л/100 км</em></strong></div></div></div>
  </>}
@@ -183,8 +196,17 @@ function TripDetails({trip,detail,readOnly}) {
  <div className="travel-card"><h3>🗂️ Бюджети по категории</h3>{budgetEntries.length?budgetEntries.map((b,i)=>{const spent=number(byCat[b.category]),limit=number(b.budget),percent=limit>0?Math.min(100,spent/limit*100):0;return <div className="budget-visual-row" key={b.category}><div className="budget-visual-head"><strong><span className={'visual-category-dot visual-palette-'+i%5}/>{b.category}</strong><b>{money(spent)} <span>/ {money(limit)}</span></b></div><div className="budget-visual-track"><span style={{width:percent+'%',background:spent>limit?'linear-gradient(90deg,#ee866a,#fd4e77)':'linear-gradient(90deg,#45d0ff,#725cff)'}}/></div><div className="budget-visual-foot"><small>{Math.round(limit>0?spent/limit*100:0)}% от бюджета</small><small>{spent>limit?'Над бюджета: '+money(spent-limit):'Остават: '+money(limit-spent)}</small></div></div>}):<p className="muted">Няма зададени отделни бюджети по категории.</p>}</div>
  </>}
  {section==='tasks'&&<>
- <div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {tasks.length}</em></strong></div><span>{tasks.length?Math.round(done/tasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(tasks.length?done/tasks.length*100:0)+'%'}}/></div></div>
- <div className="travel-card"><h3>📋 Списък със задачи</h3>{tasks.length?tasks.map((t,i)=>{const complete=['true','1','да','yes'].includes(String(t.done||'').toLowerCase());return <div key={t.item_id||i} className={'task-visual-item'+(complete?' task-visual-done':'')}><span className="task-visual-icon">{complete?'✓':'○'}</span><span>{t.title||'Задача'}</span><small>{complete?'Готово':'Предстои'}</small></div>}):<p className="muted">Няма задачи за това пътуване.</p>}</div>
+ <div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>
+ <div className="travel-card task-preview-panel">
+  <div className="task-preview-heading"><h3>📋 Списък със задачи</h3><span className="task-test-label">ТЕСТ · без записване</span></div>
+  <p className="muted">Можеш да добавяш, отбелязваш и редактираш тук. Промените са само временни и не достигат до Google Drive.</p>
+  <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова пробна задача" value={taskName} maxLength={200} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" disabled={!taskName.trim()}>➕ Добави</button></form>
+  {previewTasks.length?previewTasks.map(t=>{const complete=taskIsDone(t);const isEditing=taskEditing===t._previewKey;return <div key={t._previewKey} className={'task-visual-item task-preview-item'+(complete?' task-visual-done':'')}>
+   <button type="button" className="task-preview-check" aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>setPreviewTask(t,{done:!complete})}>{complete?'✓':'○'}</button>
+   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())setPreviewTask(t,{title:taskEditText.trim()});setTaskEditing(null)}}><input autoFocus value={taskEditText} maxLength={200} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit">Запази</button><button type="button" className="ghost" onClick={()=>setTaskEditing(null)}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}{t._isDraft&&<small> · пробна</small>}</span><button type="button" className="task-preview-action" onClick={()=>{setTaskEditing(t._previewKey);setTaskEditText(t.title||'')}} aria-label={'Редактирай '+(t.title||'задача')}>✎</button>{t._isDraft&&<button type="button" className="task-preview-action" aria-label="Премахни пробната задача" onClick={()=>setTaskDrafts(items=>items.filter(x=>x._previewKey!==t._previewKey))}>✕</button>}</>}
+  </div>}):<p className="muted">Няма задачи за това пътуване. Добави пробна задача горе.</p>}
+  {(taskDrafts.length>0||Object.keys(taskOverrides).length>0)&&<button type="button" className="task-preview-reset" onClick={resetTaskPreview}>↺ Изчисти пробните промени</button>}
+ </div>
  </>}
  {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Маршрут и места <span className="map-point-count">{validPoints.length} точки</span></h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div><div className="map-place-list">{validPoints.map((p,i)=><div key={i} className="map-place-row"><span className="map-place-pin">📍</span><div><strong>{p.title||'Място'}</strong><small>{Number(p.lat).toFixed(4)}°, {Number(p.lon).toFixed(4)}°</small></div></div>)}</div></>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
  {section==='check'&&<div className="travel-card visual-section">
