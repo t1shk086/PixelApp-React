@@ -70,6 +70,49 @@ function ExpenseHistory({rows}) {
  </div>;
 }
 
+
+// Fuel history mirrors the original Streamlit comparison: amount/liters versus the immediately previous record.
+function FuelHistory({rows}) {
+ const [expanded,setExpanded]=useState(null);
+ const num=v=>{const n=Number(String(v??'').replace(',','.'));return Number.isFinite(n)?n:0};
+ const manualPattern=/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i;
+ const all=rows.filter(r=>String(r.category)==='Транспорт'&&String(r.type)==='expense').map((r,i)=>{
+  const desc=String(r.description||'');let l=num(r.liters);let manual=manualPattern.test(desc);
+  if(manual){const m=desc.match(/Добавени\s*([0-9]+(?:[.,][0-9]+)?)\s*литра/i);if(m)l=num(m[1]);}
+  return {...r,_index:i,_liters:l,_manual:manual,_price:l>0&&num(r.amount)>0?num(r.amount)/l:0};
+ }).filter(r=>r._liters>0).reverse();
+ const fmt=n=>num(n).toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2});
+ return <div className="travel-card fuel-history-card"><h3>🧾 История на зарежданията <span className="fuel-history-count">{all.length} записа</span></h3>
+ {all.length?all.map((r,i)=>{
+  const prev=all[i+1],prevPrice=prev?prev._price:0,delta=r._price-prevPrice;
+  const label=r._manual?'РЪЧНО ДОБАВЕНО ГОРИВО':/\[ПЪЛНО\s+ЗАРЕЖДАНЕ\]/i.test(String(r.description||''))?'ПЪЛНО ЗАРЕЖДАНЕ':/\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(String(r.description||''))?'ЧАСТИЧНО ЗАРЕЖДАНЕ':'ЗАРЕЖДАНЕ';
+  const clean=String(r.description||'').replace(/^\[(?:ПЪЛНО\s+ЗАРЕЖДАНЕ|ЧАСТИЧНО\s+ЗАРЕЖДАНЕ)\]\s*/i,'').trim();
+  const opened=expanded===r._index;
+  let comparison='Няма предишно зареждане за сравнение.';
+  let tone='neutral';
+  if(prev){if(r._price<=0){comparison='Няма цена за сравнение — въведени са само литрите.';}
+   else if(prevPrice>0){tone=delta<0?'cheaper':delta>0?'dearer':'neutral';comparison=delta<0?`€${fmt(Math.abs(delta))}/л по-евтино · предишно €${fmt(prevPrice)}/л → сега €${fmt(r._price)}/л`:delta>0?`€${fmt(delta)}/л по-скъпо · предишно €${fmt(prevPrice)}/л → сега €${fmt(r._price)}/л`:`Същата цена · €${fmt(r._price)}/л`;}}
+  const real=String(r.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  return <div className={'fuel-history-item'+(opened?' is-open':'')} key={`${r._index}-${r.date}`}>
+    <button type="button" className="fuel-history-summary" aria-expanded={opened} onClick={()=>setExpanded(opened?null:r._index)}>
+     <span className="fuel-history-left"><span className={'fuel-history-kind'+(label==='ПЪЛНО ЗАРЕЖДАНЕ'?' is-full':'')}>{label}</span><strong>{clean||'Гориво'}</strong><small>{r.date||'Без дата'}{!r._manual&&num(r.current_km)>0?' · '+num(r.current_km).toLocaleString('bg-BG')+' км':''}</small></span>
+     <span className="fuel-history-right"><b>{fmt(r._liters)} л</b><strong>{num(r.amount)>0?money(r.amount):'—'}</strong></span><span className="fuel-history-toggle">{opened?'⌃':'⌄'}</span>
+    </button>
+    {opened&&<div className="fuel-history-analysis"><div className="fuel-analysis-grid">
+     <div><small>Литри</small><b className="fuel-blue">{fmt(r._liters)} <em>л</em></b></div>
+     <div><small>Стойност</small><b className="fuel-gold">{num(r.amount)>0?money(r.amount):'—'}</b></div>
+     <div><small>Цена / л</small><b className={r._price>1.8?'fuel-red':'fuel-green'}>{r._price>0?`€${fmt(r._price)}`:'—'}</b></div>
+     <div><small>Километраж</small><b>{!r._manual&&num(r.current_km)>0?num(r.current_km).toLocaleString('bg-BG')+' км':'—'}</b></div>
+    </div>
+    {real&&<p className="fuel-analysis-stage">🚗 Реален разход за етапа: {real[1].replace(',','.')} л/100 км</p>}
+    <div className={'fuel-analysis-compare '+tone}>{comparison}</div>
+    {r._manual&&<small className="fuel-analysis-hint">Ръчно добавено гориво — не е записана стойност или километраж.</small>}
+    </div>}
+   </div>;
+ }):<p className="muted">Няма записани зареждания с литри.</p>}
+ </div>;
+}
+
 function TripDetails({trip,detail,readOnly}) {
  const [section,setSection]=useState('summary');
  useEffect(()=>setSection('summary'),[trip?.id]);
@@ -118,9 +161,7 @@ function TripDetails({trip,detail,readOnly}) {
  <div className="travel-facts"><div><small>Гориво общо</small><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л</strong></div><div><small>Платено гориво</small><strong>{money(fuelSpend)}</strong></div><div><small>Зареждания</small><strong>{fuelRows.length}</strong></div></div>
  {number(settings.manual_fuel)>0&&<p className="fuel-note">В общото количество са включени {number(settings.manual_fuel).toLocaleString('bg-BG')} л ръчно добавено гориво.</p>}
  </div>
- <div className="travel-card"><h3>🧾 История на зарежданията</h3>
- {fuelRows.length?[...fuelRows].reverse().map((r,i)=><div key={`${r.date}-${i}`} className="travel-line fuel-entry"><div><strong>{r.description||'Зареждане'}</strong><small>{r.date||'Без дата'}{number(r.current_km)>0?' · '+number(r.current_km).toLocaleString('bg-BG')+' км':''}</small></div><div><b>{number(r.liters).toLocaleString('bg-BG',{maximumFractionDigits:2})} л</b><small>{money(r.amount)}</small></div></div>):<p className="muted">Няма записани зареждания с литри.</p>}
- </div>
+ <FuelHistory rows={rows}/>
  </>}
  {section==='budget'&&<>
  <div className="travel-card budget-showcase"><h3>🎯 Бюджет на пътуването</h3><div className="budget-showcase-total"><small>ОСТАВАЩ БЮДЖЕТ</small><strong className={budgetTotal>0&&allCosts>budgetTotal?'negative':''}>{budgetTotal?money(budgetTotal-allCosts):'—'}</strong></div><div className="budget-showcase-grid"><div><small>Планирано</small><b>{budgetTotal?money(budgetTotal):'—'}</b></div><div><small>Изразходвано</small><b>{money(allCosts)}</b></div></div>{budgetTotal>0&&<><div className="budget-showcase-progress"><span style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div><div className="budget-showcase-caption"><span>{Math.round(allCosts/budgetTotal*100)}% използвани</span><span>{allCosts>budgetTotal?'Над бюджета':'Остатък'}</span></div></>}</div>
