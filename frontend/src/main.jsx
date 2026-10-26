@@ -1,7 +1,8 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import{createRoot}from'react-dom/client';
 import{ArrowLeft,Plus,Wallet,MapPin,CheckCircle,RefreshCcw,Trash2,CalendarDays,LogOut}from'lucide-react';
-import{MapContainer,TileLayer,Marker,Popup}from'react-leaflet';
+import{MapContainer,TileLayer,Marker,Popup,useMap}from'react-leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './style.css';
 
@@ -15,6 +16,27 @@ function tripState(t){const s=t.settings||{},today=isoDay(new Date()),start=asDa
 const statusText={active:'Активно',upcoming:'Предстоящо',finished:'Приключено'};
 const statusDot={active:'🟢',upcoming:'🟡',finished:'🔴'};
 
+// SVG-free markers: Leaflet's default marker assets need bundler configuration.
+const homePin=L.divIcon({className:'pixel-pin',html:'<span aria-hidden="true">📍</span>',iconSize:[30,36],iconAnchor:[15,32],popupAnchor:[0,-27]});
+function FitPlaces({points}){
+ const map=useMap();
+ useEffect(()=>{
+   if(!points.length)return;
+   const bounds=L.latLngBounds(points.map(p=>[p.lat,p.lon]));
+   if(bounds.isValid()){
+     if(points.length===1)map.setView(bounds.getCenter(),9);
+     else map.fitBounds(bounds,{padding:[25,25],maxZoom:10});
+   }
+ },[map,points]);
+ return null;
+}
+function HomePlaces({points}){
+ const safe=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180).map(p=>({...p,lat:Number(p.lat),lon:Number(p.lon)}));
+ return <section className="home-places"><div className="home-places-head"><b>🌍 МОИТЕ МЕСТА</b><span>{safe.length} места</span></div>
+ {safe.length ? <MapContainer center={[safe[0].lat,safe[0].lon]} zoom={6} scrollWheelZoom={false} className="home-places-map"><TileLayer attribution='&copy; OpenStreetMap contributors' url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'/><FitPlaces points={safe}/>{safe.map((p,i)=><Marker key={`${p.trip_id}-${i}`} position={[p.lat,p.lon]} icon={homePin}><Popup><strong>{p.title||'Място'}</strong><div>{p.trip_name||p.trip_id}</div></Popup></Marker>)}</MapContainer> : <p className="muted">Няма записани места за показване.</p>}
+ </section>;
+}
+
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_api_key')||'');
  const [readOnly,setReadOnly]=useState(true);
@@ -22,9 +44,9 @@ function App(){
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
  const [modal,setModal]=useState('');const [name,setName]=useState('');const [start,setStart]=useState('');const [end,setEnd]=useState('');const [car,setCar]=useState(false);
  const [amount,setAmount]=useState('');const [category,setCategory]=useState(categories[0]);const [desc,setDesc]=useState('');const [task,setTask]=useState('');
- const [budget,setBudget]=useState('');const [tab,setTab]=useState('overview');const [dashboard,setDashboard]=useState(null);const [showFinished,setShowFinished]=useState(false);
+ const [budget,setBudget]=useState('');const [tab,setTab]=useState('overview');const [dashboard,setDashboard]=useState(null);const [showFinished,setShowFinished]=useState(false);const [homePlaces,setHomePlaces]=useState([]);
  async function req(path,method='GET',body){const r=await fetch(`${apiBase}${path}`,{method,headers:{'X-API-Key':key,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json()}
- async function reload(selected=current){if(!key)return;setLoading(true);setError('');try{const all=await req('/trips');setTrips(all);try{setDashboard(await req('/dashboard'))}catch(_){setDashboard(null)}if(selected){const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}}catch(e){setError(String(e.message))}finally{setLoading(false)}}
+ async function reload(selected=current){if(!key)return;setLoading(true);setError('');try{const all=await req('/trips');setTrips(all);try{setDashboard(await req('/dashboard'))}catch(_){setDashboard(null)}try{setHomePlaces(await req('/home/places'))}catch(_){setHomePlaces([])}if(selected){const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}}catch(e){setError(String(e.message))}finally{setLoading(false)}}
  useEffect(()=>{if(key){fetch(`${apiBase}/health`).then(r=>r.json()).then(x=>setReadOnly(x.read_only!==false)).catch(()=>setReadOnly(true));reload()}},[key]);
  const chosen=trips.find(x=>x.id===current);
  async function run(job){if(readOnly){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
@@ -47,11 +69,12 @@ function App(){
  {dashboard?.next_trip&&<div className="home-extra"><div className="home-extra-title">✈️ СЛЕДВАЩО ПЪТУВАНЕ</div><strong>{dashboard.next_trip.name}</strong><small>{dashboard.next_trip.date} · {dashboard.next_trip.days===0?'днес':`след ${dashboard.next_trip.days} дни`}</small></div>}
  {dashboard?.last_activity&&<div className="home-extra"><div className="home-extra-title">🕐 ПОСЛЕДНА АКТИВНОСТ</div><strong>{money(dashboard.last_activity.amount)}</strong><small>{dashboard.last_activity.trip} · {dashboard.last_activity.category} · {dashboard.last_activity.description}</small></div>}
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money(dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
+ <HomePlaces points={homePlaces}/>
  </>: <>{chosen&&<div className="summary"><h2>🚙 {chosen.name}</h2><div className="muted">{chosen.settings.start_date} → {chosen.settings.end_date}</div><div className="summaryrow"><div>Изхарчено<strong>{money(chosen.spent)}</strong></div><div>Бюджет<strong>{chosen.budget?money(chosen.budget):'—'}</strong></div></div></div>}
  <div className="tabs">{[['overview','Разходи'],['tasks','Задачи'],['map','Карта'],['budget','Бюджет']].map(([id,label])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>{label}</button>)}</div>
  {tab==='overview'&&<><button disabled={readOnly} onClick={()=>setModal('expense')}><Plus size={18}/> Бърз разход</button><h4>Записани разходи</h4>{[...(detail?.expenses||[])].reverse().map((r,i)=><div className="line" key={i}><div><b>{r.description}</b><small>{r.date} · {r.category}</small></div><strong>{money(r.amount)}</strong></div>)}</>}
  {tab==='tasks'&&<><form className="inline" onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/tasks`,'POST',{title:task}));setTask('')}}><input value={task} onChange={e=>setTask(e.target.value)} placeholder="Нова задача" required/><button disabled={readOnly}><Plus/></button></form>{(detail?.tasks||[]).map(x=><div className="line" key={x.item_id}><button className="check" disabled={readOnly} onClick={()=>run(()=>req(`/tasks/${encodeURIComponent(x.item_id)}/toggle`,'PUT'))}>{x.done.toLowerCase()==='true'?'✅':'⬜'}</button><span className={x.done.toLowerCase()==='true'?'done':''}>{x.title}</span><button className="check" disabled={readOnly} onClick={()=>run(()=>req(`/tasks/${encodeURIComponent(x.item_id)}`,'DELETE'))}><Trash2 size={15}/></button></div>)}</>}
- {tab==='map'&&<><p className="muted">Точките от съществуващото пътуване. Добавянето и редакцията на маршрути предстоят.</p>{(detail?.points||[]).filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).length>0?<MapContainer center={[Number(detail.points[0].lat),Number(detail.points[0].lon)]} zoom={9} style={{height:390,borderRadius:16}}><TileLayer attribution='&copy; OpenStreetMap contributors' url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'/>{detail.points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]}><Popup>{p.title}</Popup></Marker>)}</MapContainer>:<p>Няма точки.</p>}</>}
+ {tab==='map'&&<><p className="muted">Точките от съществуващото пътуване. Добавянето и редакцията на маршрути предстоят.</p>{(detail?.points||[]).filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).length>0?<MapContainer center={[Number(detail.points[0].lat),Number(detail.points[0].lon)]} zoom={9} style={{height:390,borderRadius:16}}><TileLayer attribution='&copy; OpenStreetMap contributors' url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'/>{detail.points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer>:<p>Няма точки.</p>}</>}
  {tab==='budget'&&<><h4>Общ бюджет</h4><p className="muted">Категорийните бюджети се запазват при импорт; редакторът за тях ще бъде добавен в следващ етап.</p><form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/budget`,'PUT',{mode:'global',total:Number(budget)}));setBudget('')}}><input type="number" min="0.01" step="0.01" value={budget} onChange={e=>setBudget(e.target.value)} placeholder="Общ бюджет в €" required/><button disabled={readOnly}>Запази общ бюджет</button></form></>}
  </>}
  {modal&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
