@@ -185,6 +185,51 @@ def list_trips():
             result.append({'id':tid,'name':tid.replace('_',' ').rsplit(' __ ',1)[0], 'settings':setting,'budget':budget,'spent':spent})
         return result
 
+
+@app.get('/dashboard', dependencies=[Depends(authorize)])
+def dashboard():
+    """Read-only summary for the original PixelApp home screen."""
+    from datetime import date
+    with LOCK:
+        trips=list_trips()
+        entries=load_rows('expenses')
+        today=date.today()
+        next_trip=None
+        km=0.0
+        for trip in trips:
+            s=trip['settings']; tid=trip['id']
+            start=str(s.get('start_date') or '')
+            end=str(s.get('end_date') or '')
+            finished=(float(s.get('end_km') or 0)>0 if s.get('car_trip')=='Да' else str(s.get('trip_finished','')).strip().lower() in ('да','true','yes','1'))
+            try:
+                start_dt=datetime.strptime(start,'%d.%m.%Y').date()
+            except (ValueError,TypeError):
+                start_dt=None
+            if start_dt and not finished and start_dt >= today:
+                days=(start_dt-today).days
+                if next_trip is None or days<next_trip['days']:
+                    next_trip={'name':trip['name'],'date':start,'days':days}
+            try:
+                end_km=float(s.get('end_km') or 0)
+                start_km=float(s.get('start_km') or 0)
+                readings=[float(x.get('current_km') or 0) for x in entries if x.get('trip_id')==tid]
+                maximum=end_km if end_km>0 else max(readings,default=0)
+                km+=max(0,maximum-start_km)
+            except (ValueError,TypeError):
+                pass
+        last=None;last_date=None
+        names={t['id']:t['name'] for t in trips}
+        for row in entries:
+            raw=str(row.get('date') or '').strip()
+            try: stamp=datetime.strptime(raw,'%d.%m.%Y %H:%M:%S')
+            except ValueError:
+                try: stamp=datetime.strptime(raw,'%d.%m.%Y %H:%M')
+                except ValueError: continue
+            if last_date is None or stamp>last_date:
+                last_date=stamp
+                last={'trip':names.get(row.get('trip_id'),row.get('trip_id','')),'amount':float(row.get('amount') or 0),'category':row.get('category',''),'description':row.get('description','')}
+        return {'trips':len(trips),'spent':round(sum(float(t['spent']) for t in trips),2),'km':round(km,1),'next_trip':next_trip,'last_activity':last}
+
 @app.post('/trips',dependencies=[Depends(authorize)])
 def create_trip(payload:TripIn):
     require_writes()
