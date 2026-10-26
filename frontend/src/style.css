@@ -113,3 +113,32 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .task-visual-item{display:flex;align-items:center;gap:12px;padding:13px 11px;margin:9px 0;border:1px solid #314454;background:#152330;border-radius:12px;font-size:12px}.task-visual-icon{flex:0 0 28px;height:28px;display:grid;place-items:center;border:1px solid #5caac4;color:#80d9f4;border-radius:50%;font-size:17px}.task-visual-item>span:nth-child(2){flex:1;min-width:0;overflow-wrap:anywhere}.task-visual-item small{flex:0 0 auto;font-size:10px;color:#a9bdce}.task-visual-done .task-visual-icon{background:#163d36;border-color:#4ce0b2;color:#80f9cd}.task-visual-done>span:nth-child(2){color:#8eaaa9;text-decoration:line-through}
 .map-showcase h3{display:flex;align-items:center;justify-content:space-between;gap:12px}.map-point-count{font-size:10px;padding:6px 9px;border:1px solid #386074;border-radius:20px;background:#174052;color:#8ee1ff;white-space:nowrap}.map-place-list{max-height:370px;overflow:auto}.map-place-row{display:flex;align-items:center;gap:11px;margin:8px 0;padding:11px;background:#152430;border:1px solid #2f4858;border-radius:12px}.map-place-pin{font-size:20px}.map-place-row>div{flex:1;min-width:0}.map-place-row strong{display:block;font-size:12px;overflow-wrap:anywhere}.map-place-row small{display:block;font-size:10px;margin-top:4px}
 @media(max-width:480px){.visual-overview-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.overview-tile{padding:11px 5px}.overview-tile strong{font-size:17px}.budget-showcase-grid b{font-size:13px}.visual-category-head{font-size:11px}}
+
+/* Patch 10: compact expandable fuel history, calculations preserved from Streamlit. */
+.fuel-history-card h3{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.fuel-history-count{font-size:10px;font-weight:700;color:#85dff1;background:#153546;border:1px solid #2b5565;padding:5px 9px;border-radius:30px;white-space:nowrap}
+.fuel-history-item{margin:9px 0;border:1px solid #30495c;border-radius:14px;background:linear-gradient(135deg,#152533,#101c28);overflow:hidden}
+.fuel-history-item.is-open{border-color:#3587a0;box-shadow:0 0 0 1px #237e9822}
+.fuel-history-summary{display:flex;gap:10px;align-items:center;width:100%;border:0;background:transparent;color:#ebf6ff;padding:14px 12px;cursor:pointer;text-align:left;font:inherit}
+.fuel-history-summary:focus-visible{outline:2px solid #50d5f3;outline-offset:-3px}
+.fuel-history-left{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.fuel-history-kind{color:#eebc74;font-size:10px;font-weight:850;letter-spacing:.45px}
+.fuel-history-kind.is-full{color:#5de1ab}
+.fuel-history-left strong{font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.fuel-history-left small{color:#94afc1;font-size:10px}
+.fuel-history-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;white-space:nowrap}
+.fuel-history-right b{color:#49d6ef;font-size:15px}
+.fuel-history-right strong{color:#f3cd75;font-size:12px}
+.fuel-history-toggle{color:#8cbfd0;font-size:22px;width:16px;text-align:center}
+.fuel-history-analysis{padding:0 12px 13px;border-top:1px solid #2d4657}
+.fuel-analysis-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:12px}
+.fuel-analysis-grid>div{padding:12px 10px;background:#192633;border:1px solid #2c4050;border-radius:12px;min-width:0}
+.fuel-analysis-grid small{display:block;color:#99b0c2;font-size:10px;font-weight:700;margin-bottom:7px}
+.fuel-analysis-grid b{font-size:clamp(14px,3vw,20px);color:#f8fcff;overflow-wrap:anywhere}
+.fuel-analysis-grid em{font-size:11px;font-style:normal;font-weight:500}
+.fuel-analysis-grid .fuel-blue{color:#3bd6f7}.fuel-analysis-grid .fuel-gold{color:#ffcc6d}.fuel-analysis-grid .fuel-green{color:#64db9f}.fuel-analysis-grid .fuel-red{color:#ff737c}
+.fuel-analysis-stage{font-size:11px;color:#c3d9e8;margin:12px 0 6px}
+.fuel-analysis-compare{font-size:11px;font-weight:700;background:#101c27;border:1px solid #263744;border-radius:10px;padding:10px;margin-top:11px;line-height:1.5}
+.fuel-analysis-compare.cheaper{color:#67dea5}.fuel-analysis-compare.dearer{color:#ffc078}.fuel-analysis-compare.neutral{color:#aebdc9}
+.fuel-analysis-hint{display:block;margin-top:8px;font-size:10px;color:#9db6c8}
+@media(max-width:480px){.fuel-history-summary{padding:11px 9px;gap:7px}.fuel-history-right b{font-size:13px}.fuel-history-left strong{font-size:11px}.fuel-history-analysis{padding:0 9px 11px}}
