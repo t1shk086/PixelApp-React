@@ -178,3 +178,22 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .quick-demo-list>div span small{color:#9fb6c8}
 .quick-demo-list>div strong{color:#f4c969;white-space:nowrap}
 @media(max-width:440px){.quick-demo-dialog{width:96vw;padding:13px}.quick-demo-grid strong{font-size:15px}}
+
+/* PATCH 16 — temporary task editor; no Drive writes */
+.task-preview-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.task-preview-heading h3{margin:0}
+.task-test-label{font-size:11px;color:#82e7c1;background:rgba(48,185,136,.13);border:1px solid rgba(48,185,136,.33);border-radius:99px;padding:5px 10px;font-weight:700}
+.task-preview-panel .muted{font-size:13px;line-height:1.5}
+.task-preview-form{display:flex;gap:9px;margin:12px 0 15px;flex-wrap:wrap}
+.task-preview-form input,.task-preview-edit input{flex:1 1 180px;min-width:0;border:1px solid #36536a;background:#12222d;color:#f5faff;border-radius:10px;padding:11px 12px}
+.task-preview-form button,.task-preview-edit button{border:0;border-radius:10px;padding:9px 13px;background:#17678a;color:white;font-weight:700;cursor:pointer}
+.task-preview-form button:disabled{opacity:.45;cursor:default}
+.task-preview-item{display:flex;align-items:center;gap:10px;min-width:0}
+.task-preview-check{flex:0 0 37px;width:37px;height:37px;border-radius:50%;border:1px solid #3b6374;background:#193341;color:#4de2c2;font-size:23px;cursor:pointer}
+.task-preview-name{flex:1;min-width:0;overflow-wrap:anywhere}
+.task-preview-name small{font-weight:400;color:#7cd8ac}
+.task-preview-action{border:1px solid #355365;border-radius:9px;color:#c7dae9;background:#142a39;min-width:34px;height:34px;cursor:pointer}
+.task-preview-edit{display:flex;align-items:center;gap:7px;flex:1;flex-wrap:wrap}
+.task-preview-edit .ghost{border:1px solid #36536a;background:transparent}
+.task-preview-reset{background:transparent;border:1px solid #3c6576;border-radius:10px;padding:10px 12px;color:#9ce6f2;margin-top:14px;cursor:pointer}
+@media(max-width:480px){.task-preview-form{flex-wrap:nowrap}.task-preview-form button{font-size:12px;padding:9px}.task-preview-item{gap:6px}.task-preview-edit{flex-basis:100%}}
