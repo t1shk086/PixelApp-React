@@ -156,3 +156,25 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .task-view-filter button{padding:9px 12px;border:1px solid #355568;border-radius:11px;background:#152331;color:#bdd4e4;font-size:12px;cursor:pointer}
 .task-view-filter button.active{border-color:#4bdcca;background:#19433e;color:#8af9d1;font-weight:700}
 @media(max-width:400px){.task-view-filter button{font-size:11px;padding:8px 9px}}
+
+
+/* Пач 15 — безопасен тест на Бърз разход */
+.quick-demo-dialog{max-width:620px;width:min(94vw,620px);max-height:88vh;overflow-y:auto}
+.quick-demo-alert{margin:8px 0 16px;padding:12px;border:1px solid #2e7a91;border-radius:12px;background:#14303b;color:#8ce8f8;font-size:13px;line-height:1.5}
+.quick-demo-form{display:grid;gap:10px}
+.quick-demo-form label,.quick-demo-dialog>label{display:grid;gap:6px}
+.quick-demo-note{font-size:12px;color:#9fc9da;line-height:1.5}
+.quick-demo-summary{padding:14px;margin-top:18px;background:#111f2c;border:1px solid #355064;border-radius:14px}
+.quick-demo-summary h4,.quick-demo-list h4{margin:0 0 12px}
+.quick-demo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.quick-demo-grid>div{padding:12px;background:#182b3a;border:1px solid #345164;border-radius:10px;display:flex;flex-direction:column;gap:7px;min-width:0}
+.quick-demo-grid small{color:#a8c1cf;font-size:11px}
+.quick-demo-grid strong{color:#5be0fb;font-size:18px}
+.quick-demo-meter{height:8px;background:#293a49;border-radius:20px;overflow:hidden;margin:12px 0}
+.quick-demo-meter span{display:block;height:100%;background:linear-gradient(90deg,#32c6f6,#7d79fc)}
+.quick-demo-list{margin-top:16px}
+.quick-demo-list>div{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #314a5d;border-radius:10px;padding:9px;margin:6px 0}
+.quick-demo-list>div span{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.quick-demo-list>div span small{color:#9fb6c8}
+.quick-demo-list>div strong{color:#f4c969;white-space:nowrap}
+@media(max-width:440px){.quick-demo-dialog{width:96vw;padding:13px}.quick-demo-grid strong{font-size:15px}}
