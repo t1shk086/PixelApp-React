@@ -116,7 +116,6 @@ function FuelHistory({rows}) {
 
 function TripDetails({trip,detail,readOnly}) {
  const [section,setSection]=useState('summary');
- const [taskFilter,setTaskFilter]=useState('all');
  useEffect(()=>setSection('summary'),[trip?.id]);
  const rows=detail?.expenses||[], settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
@@ -137,9 +136,23 @@ function TripDetails({trip,detail,readOnly}) {
  const lastFull=fullFuelRows.at(-1);
  const realMatch=lastFull&&String(lastFull.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
  const realConsumption=realMatch?number(realMatch[1].replace(',','.')):0;
+ // Контролна справка — не променя основните изчисления или данните.
+ const budgetCats=new Set(budgetEntries.map(b=>b.category));
+ const budgetScopedCosts=globalBudget>0||!budgetCats.size?allCosts:rows.reduce((sum,r)=>{
+   if(r.type==='expense'&&budgetCats.has(r.category))return sum+number(r.amount);
+   if(r.type==='deposit'&&budgetCats.has('Нощувки/Хотел'))return sum+number(r.amount);
+   return sum;
+ },0);
+ const serverSpent=number(trip?.spent),serverBudget=number(trip?.budget);
+ const near=(a,b)=>Math.abs(a-b)<0.011;
+ const controlRows=[
+  ['Разходи — същият бюджетен обхват',budgetScopedCosts,serverSpent,'€'],
+  ['Бюджет',budgetTotal,serverBudget,'€'],
+ ];
+ const controlOk=controlRows.every(([,a,b])=>near(a,b));
  const done=tasks.filter(t=>['true','1','да','yes'].includes(String(t.done||'').toLowerCase())).length;
  const validPoints=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180);
- const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта']];
+ const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
  <div className="travel-hero"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
@@ -171,9 +184,25 @@ function TripDetails({trip,detail,readOnly}) {
  </>}
  {section==='tasks'&&<>
  <div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {tasks.length}</em></strong></div><span>{tasks.length?Math.round(done/tasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(tasks.length?done/tasks.length*100:0)+'%'}}/></div></div>
- <div className="travel-card"><h3>📋 Списък със задачи</h3><div className="task-view-filter" role="group" aria-label="Филтър на задачите">{[["all","Всички"],["pending","Предстоящи"],["done","Изпълнени"]].map(([value,label])=><button type="button" key={value} className={taskFilter===value?"active":""} aria-pressed={taskFilter===value} onClick={()=>setTaskFilter(value)}>{label}</button>)}</div>{tasks.length?tasks.filter(t=>{const complete=["true","1","да","yes"].includes(String(t.done||"").toLowerCase());return taskFilter==="all"||(taskFilter==="done"?complete:!complete)}).map((t,i)=>{const complete=['true','1','да','yes'].includes(String(t.done||'').toLowerCase());return <div key={t.item_id||i} className={'task-visual-item'+(complete?' task-visual-done':'')}><span className="task-visual-icon">{complete?'✓':'○'}</span><span>{t.title||'Задача'}</span><small>{complete?'Готово':'Предстои'}</small></div>}):<p className="muted">Няма задачи за това пътуване.</p>}{tasks.length>0&&tasks.filter(t=>{const complete=['true','1','да','yes'].includes(String(t.done||'').toLowerCase());return taskFilter==='all'||(taskFilter==='done'?complete:!complete)}).length===0&&<p className="muted">Няма задачи с този статус.</p>}</div>
+ <div className="travel-card"><h3>📋 Списък със задачи</h3>{tasks.length?tasks.map((t,i)=>{const complete=['true','1','да','yes'].includes(String(t.done||'').toLowerCase());return <div key={t.item_id||i} className={'task-visual-item'+(complete?' task-visual-done':'')}><span className="task-visual-icon">{complete?'✓':'○'}</span><span>{t.title||'Задача'}</span><small>{complete?'Готово':'Предстои'}</small></div>}):<p className="muted">Няма задачи за това пътуване.</p>}</div>
  </>}
  {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Маршрут и места <span className="map-point-count">{validPoints.length} точки</span></h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div><div className="map-place-list">{validPoints.map((p,i)=><div key={i} className="map-place-row"><span className="map-place-pin">📍</span><div><strong>{p.title||'Място'}</strong><small>{Number(p.lat).toFixed(4)}°, {Number(p.lon).toFixed(4)}°</small></div></div>)}</div></>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
+ {section==='check'&&<div className="travel-card visual-section">
+ <h3>🧮 Контрол на изчисленията</h3>
+ <p className="muted">Проверка между обобщението на API и детайлните записи, заредени от Google Drive. Това не е още пълно сравнение с всички формули в стария Streamlit.</p>
+ <div className="visual-overview-stats">
+  <div className="overview-tile"><small>Всички разходи</small><strong>{money(allCosts)}</strong></div>
+  <div className="overview-tile"><small>Разходи в бюджетния обхват</small><strong>{money(budgetScopedCosts)}</strong></div>
+  <div className="overview-tile"><small>Брой плащания</small><strong>{rows.filter(r=>r.type==='expense'||r.type==='deposit').length}</strong></div>
+  <div className="overview-tile"><small>Изминати километри</small><strong>{km.toLocaleString('bg-BG')} км</strong></div>
+ </div>
+ <h3>Сверка с API</h3>
+ {controlRows.map(([label,local,remote,unit])=><div key={label} className="travel-line" style={{alignItems:'center',gap:12}}><div><strong>{label}</strong><small>Детайлно: {unit==='€'?money(local):local} · Обобщение: {unit==='€'?money(remote):remote}</small></div><b style={{color:near(local,remote)?'#41d6a5':'#ffc267'}}>{near(local,remote)?'✓ Съвпада':'⚠ Разлика'}</b></div>)}
+ <p style={{color:controlOk?'#41d6a5':'#ffc267',fontWeight:700}}>{controlOk?'✓ Обобщените суми съвпадат.':'⚠ Има разлика между обобщението и подробните данни.'}</p>
+ {globalBudget<=0&&budgetCats.size>0&&<p className="muted">Пътуването използва бюджети по категории. „Всички разходи“ може да е повече от „Разходи в бюджетния обхват“, защото извънбюджетните категории не се броят в бюджетното обобщение.</p>}
+ <p className="muted">Среден разход по всички записани литри: {avg>0?avg.toFixed(1)+' л/100 км':'няма достатъчно данни'}. Реален разход от записано пълно зареждане: {realConsumption>0?realConsumption.toFixed(1)+' л/100 км':'няма записан резултат'}.</p>
+ <p className="muted">Тези проверки не гарантират пълна идентичност със Streamlit. Записването остава изключено.</p>
+ </div>}
  {readOnly&&<p className="travel-safety">🔒 Само преглед. Оригиналните данни в Google Drive не се променят.</p>}
  </>}
  </div>;
