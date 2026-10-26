@@ -142,3 +142,17 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .fuel-analysis-compare.cheaper{color:#67dea5}.fuel-analysis-compare.dearer{color:#ffc078}.fuel-analysis-compare.neutral{color:#aebdc9}
 .fuel-analysis-hint{display:block;margin-top:8px;font-size:10px;color:#9db6c8}
 @media(max-width:480px){.fuel-history-summary{padding:11px 9px;gap:7px}.fuel-history-right b{font-size:13px}.fuel-history-left strong{font-size:11px}.fuel-history-analysis{padding:0 9px 11px}}
+
+/* Patch 12 — single-record fuel pager and task filters. */
+.fuel-history-pager{display:flex;align-items:center;justify-content:center;gap:16px;padding:13px 0 7px}
+.fuel-history-pager button{width:42px;height:40px;border:1px solid #3a6a82;border-radius:12px;background:#162b3b;color:#8fe8ff;font-size:28px;line-height:1;cursor:pointer}
+.fuel-history-pager button:disabled{opacity:.3;cursor:default}
+.fuel-history-pager button:not(:disabled):hover{background:#20475a}
+.fuel-history-pager span{min-width:90px;display:flex;flex-direction:column;align-items:center;gap:1px}
+.fuel-history-pager strong{font-size:16px;color:#6adff8;font-variant-numeric:tabular-nums}
+.fuel-history-pager small{font-size:10px;color:#9eb9ce}
+.fuel-history-item .fuel-history-summary{cursor:default}
+.task-view-filter{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0 15px}
+.task-view-filter button{padding:9px 12px;border:1px solid #355568;border-radius:11px;background:#152331;color:#bdd4e4;font-size:12px;cursor:pointer}
+.task-view-filter button.active{border-color:#4bdcca;background:#19433e;color:#8af9d1;font-weight:700}
+@media(max-width:400px){.task-view-filter button{font-size:11px;padding:8px 9px}}
