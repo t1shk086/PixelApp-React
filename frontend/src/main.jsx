@@ -80,13 +80,18 @@ function TripDetails({trip,detail,readOnly}) {
  const budgetEntries=budgets.filter(r=>r.category!=='__GLOBAL__'&&number(r.budget)>0);
  const globalBudget=budgets.filter(r=>r.category==='__GLOBAL__').reduce((a,r)=>a+number(r.budget),0);
  const budgetTotal=globalBudget>0?globalBudget:budgetEntries.reduce((a,r)=>a+number(r.budget),0);
- const fuelRows=rows.filter(r=>number(r.liters)>0);
+ const fuelRows=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.liters)>0);
  const liters=fuelRows.reduce((a,r)=>a+number(r.liters),0)+number(settings.manual_fuel);
- const fuelSpend=fuelRows.reduce((a,r)=>a+number(r.amount),0);
+ const fuelSpend=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&(number(r.liters)>0||/газ|гориво|зареждане|бензин|дизел/i.test(String(r.description||'')))).reduce((a,r)=>a+number(r.amount),0);
  const begin=number(settings.start_km),finish=number(settings.end_km);
  const maxReading=Math.max(0,...rows.map(r=>number(r.current_km)));
- const km=Math.max(0,(finish>0?finish:maxReading)-begin);
+ const effectiveReading=finish>0?finish:maxReading;
+ const km=Math.max(0,effectiveReading-begin);
  const avg=km>0&&liters>0?liters/km*100:0;
+ const fullFuelRows=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.current_km)>begin&&/ПЪЛЕН|ПЪЛНО/i.test(String(r.description||'')));
+ const lastFull=fullFuelRows.at(-1);
+ const realMatch=lastFull&&String(lastFull.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
+ const realConsumption=realMatch?number(realMatch[1].replace(',','.')):0;
  const done=tasks.filter(t=>['true','1','да','yes'].includes(String(t.done||'').toLowerCase())).length;
  const validPoints=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180);
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта']];
@@ -97,7 +102,22 @@ function TripDetails({trip,detail,readOnly}) {
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
  {section==='summary'&&<><div className="travel-card"><h3>📊 Бърз преглед</h3><div className="travel-facts"><div><small>Разходи</small><strong>{rows.length}</strong></div><div><small>Задачи</small><strong>{done}/{tasks.length}</strong></div><div><small>Места</small><strong>{validPoints.length}</strong></div></div></div><div className="travel-card"><h3>💳 Разходи по категории</h3>{Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,val])=><div className="travel-line" key={name}><span>{name}</span><strong>{money(val)}</strong></div>):<p className="muted">Няма записани разходи.</p>}</div><div className="travel-card"><h3>⛽ Гориво и път</h3><div className="travel-facts"><div><small>Гориво</small><strong>{liters.toFixed(1)} л</strong></div><div><small>Среден разход</small><strong>{avg?avg.toFixed(1)+' л/100 км':'—'}</strong></div></div></div></>}
  {section==='expenses'&&<ExpenseHistory rows={rows}/>}
- {section==='fuel'&&<><div className="travel-card"><h3>🚙 Автомобил и километри</h3><div className="travel-facts"><div><small>Начални км</small><strong>{begin||'—'}</strong></div><div><small>Крайни / последни</small><strong>{finish||maxReading||'—'}</strong></div><div><small>Изминати</small><strong>{km.toLocaleString('bg-BG')} км</strong></div></div></div><div className="travel-card"><h3>⛽ Зареждания</h3><div className="travel-facts"><div><small>Литри общо</small><strong>{liters.toFixed(1)} л</strong></div><div><small>Разход за зареждания</small><strong>{money(fuelSpend)}</strong></div><div><small>Среден разход</small><strong>{avg?avg.toFixed(1)+' л/100 км':'—'}</strong></div></div>{fuelRows.length?fuelRows.map((r,i)=><div key={i} className="travel-line"><div><strong>{r.date}</strong><small>{r.description}</small></div><div style={{textAlign:'right'}}><b>{number(r.liters).toFixed(1)} л</b><small>{money(r.amount)}</small></div></div>):<p className="muted">Няма записани зареждания с литри.</p>}</div></>}
+ {section==='fuel'&&<>
+ <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
+ {settings.car_trip==='Не'?<p className="muted">Това пътуване е отбелязано като пътуване без собствен автомобил. Показаните данни са само записаните показания, ако има такива.</p>:null}
+ <div className="fuel-odometer"><div><small>Старт</small><b>{begin?begin.toLocaleString('bg-BG')+' км':'—'}</b></div><div><small>Изминати</small><b className="fuel-accent">{km.toLocaleString('bg-BG')} км</b></div><div><small>{finish>begin?'Краен':'Последни км'}</small><b>{effectiveReading>0?effectiveReading.toLocaleString('bg-BG')+' км':'—'}</b></div></div>
+ <div className="fuel-track"><span>🚗</span><div/></div>
+ {finish>begin&&<p className="fuel-note">Пътуването има записани крайни километри.</p>}
+ </div>
+ <div className="travel-card"><h3>⛽ Разход на гориво</h3>
+ <div className="fuel-metrics"><div><small>Среден разход</small><b>{avg>0?avg.toFixed(2)+' л/100 км':'—'}</b><small>Всички записани литри ÷ изминати километри</small></div><div><small>Реален разход</small><b>{realConsumption>0?realConsumption.toFixed(2)+' л/100 км':'—'}</b><small>{realConsumption>0?'Според последното пълно зареждане':'Няма отчетен реален разход от пълно зареждане'}</small></div></div>
+ <div className="travel-facts"><div><small>Гориво общо</small><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л</strong></div><div><small>Платено гориво</small><strong>{money(fuelSpend)}</strong></div><div><small>Зареждания</small><strong>{fuelRows.length}</strong></div></div>
+ {number(settings.manual_fuel)>0&&<p className="fuel-note">В общото количество са включени {number(settings.manual_fuel).toLocaleString('bg-BG')} л ръчно добавено гориво.</p>}
+ </div>
+ <div className="travel-card"><h3>🧾 История на зарежданията</h3>
+ {fuelRows.length?[...fuelRows].reverse().map((r,i)=><div key={`${r.date}-${i}`} className="travel-line fuel-entry"><div><strong>{r.description||'Зареждане'}</strong><small>{r.date||'Без дата'}{number(r.current_km)>0?' · '+number(r.current_km).toLocaleString('bg-BG')+' км':''}</small></div><div><b>{number(r.liters).toLocaleString('bg-BG',{maximumFractionDigits:2})} л</b><small>{money(r.amount)}</small></div></div>):<p className="muted">Няма записани зареждания с литри.</p>}
+ </div>
+ </>}
  {section==='budget'&&<><div className="travel-card"><h3>💰 Бюджет на пътуването</h3><div className="travel-facts"><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>Платено общо</small><strong>{money(allCosts)}</strong></div><div><small>Остават</small><strong>{budgetTotal?money(budgetTotal-allCosts):'—'}</strong></div></div></div><div className="travel-card"><h3>📋 Бюджети по категории</h3>{budgetEntries.length?budgetEntries.map(b=><div className="travel-line" key={b.category}><div><strong>{b.category}</strong><small>Изхарчено: {money(byCat[b.category]||0)}</small></div><b>{money(b.budget)}</b></div>):<p className="muted">Няма зададени отделни бюджети по категории.</p>}</div></>}
  {section==='tasks'&&<div className="travel-card"><h3>✅ План и задачи · {done}/{tasks.length}</h3>{tasks.length?tasks.map(t=><div key={t.item_id} className="travel-line"><span>{['true','1','да','yes'].includes(String(t.done||'').toLowerCase())?'✅':'⬜'} {t.title}</span></div>):<p className="muted">Няма задачи за това пътуване.</p>}</div>}
  {section==='map'&&<div className="travel-card"><h3>🌍 Маршрут и места · {validPoints.length}</h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div>{validPoints.map((p,i)=><div key={i} className="travel-line"><span>📍 {p.title||'Място'}</span></div>)}</>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
