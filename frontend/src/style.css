@@ -16,3 +16,12 @@
 .home-extra-title{font-size:10px;font-weight:900;letter-spacing:.5px;color:#b2c4d0;margin-bottom:9px}.home-extra>strong{display:block;font-size:17px;color:white}.home-extra>small{display:block;margin-top:5px}
 .home-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.home-stats>div{text-align:center;border:1px solid #304958;border-radius:13px;padding:12px 4px;background:#21344055;min-width:0}.home-stats strong{display:block;font-size:15px;color:#64d9fc;overflow:hidden;text-overflow:ellipsis}.home-stats small{font-size:9px;display:block;margin-top:4px}
 @media(max-width:480px){.home-actions{gap:7px}.home-actions button{padding:12px 9px;font-size:13px;min-height:69px}.home-actions small{font-size:9px}.home-trip{padding:13px 14px 23px}.home-stats{gap:5px}.home-stats strong{font-size:12px}}
+
+/* Patch 04 — home places map, mobile first */
+.home-places{margin:14px 0;padding:12px;border:1px solid #294454;border-radius:18px;background:linear-gradient(145deg,#1a2b38,#0b1821);box-shadow:0 9px 24px #0004;overflow:hidden}
+.home-places-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 12px;font-size:11px;color:#b2c4d0;letter-spacing:.4px}
+.home-places-head span{background:#1a3c4b;color:#b6e9ff;border:1px solid #2b5567;border-radius:999px;padding:5px 10px;font-size:10px;font-weight:700}
+.home-places-map{width:100%;height:300px;border-radius:13px;overflow:hidden;z-index:0;background:#152733}
+.pixel-pin{background:transparent;border:0;filter:drop-shadow(0 2px 3px #0009);text-align:center;font-size:27px;line-height:34px}
+.home-places .leaflet-popup-content{color:#263945;font-size:12px}
+@media(max-width:480px){.home-places{padding:9px}.home-places-map{height:310px}}
