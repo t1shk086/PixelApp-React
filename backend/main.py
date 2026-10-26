@@ -40,6 +40,14 @@ COLUMNS = {
     'labels': ['pet','hotel','deposit','planned_stops_label','saved_place_label','my_location_label','fuel_red_threshold'],
 }
 LOCK = threading.RLock()
+# Safe by default: legacy Streamlit can still write the same CSVs.
+# Do not enable writes until cross-device synchronization and conflict handling are implemented.
+WRITES_ENABLED = os.getenv('PIXELAPP_ENABLE_WRITES', 'false').lower() == 'true'
+
+def require_writes():
+    if not WRITES_ENABLED:
+        raise HTTPException(423, 'Preview is read-only. Google Drive data cannot be modified from React yet.')
+
 
 app = FastAPI(title='PixelApp API', version='0.1.0')
 origins = [x.strip() for x in os.getenv('ALLOWED_ORIGINS','http://localhost:5173').split(',') if x.strip()]
@@ -133,7 +141,7 @@ class TaskIn(BaseModel):
     title: str = Field(min_length=1,max_length=500)
 
 @app.get('/health')
-def health(): return {'ok':True,'drive_configured':bool(os.getenv('GOOGLE_REFRESH_TOKEN'))}
+def health(): return {'ok':True,'drive_configured':bool(os.getenv('GOOGLE_REFRESH_TOKEN')), 'read_only':not WRITES_ENABLED}
 
 @app.post('/sync-from-drive',dependencies=[Depends(authorize)])
 def sync_from_drive():
@@ -179,6 +187,7 @@ def list_trips():
 
 @app.post('/trips',dependencies=[Depends(authorize)])
 def create_trip(payload:TripIn):
+    require_writes()
     with LOCK:
         data=load_rows('settings')
         ids={x.get('trip_id') for x in data}
@@ -200,6 +209,7 @@ def trip_detail(trip_id:str):
 
 @app.post('/trips/{trip_id}/expenses',dependencies=[Depends(authorize)])
 def add_expense(trip_id:str,payload:ExpenseIn):
+    require_writes()
     with LOCK:
         if not any(x.get('trip_id')==trip_id for x in load_rows('settings')): raise HTTPException(404,'Trip not found')
         rows=load_rows('expenses')
@@ -210,6 +220,7 @@ def add_expense(trip_id:str,payload:ExpenseIn):
 
 @app.put('/trips/{trip_id}/budget',dependencies=[Depends(authorize)])
 def put_budget(trip_id:str,payload:BudgetIn):
+    require_writes()
     if payload.mode not in ('global','category'): raise HTTPException(422,'Invalid budget mode')
     with LOCK:
         rows=[x for x in load_rows('budgets') if x.get('trip_id')!=trip_id]
@@ -221,6 +232,7 @@ def put_budget(trip_id:str,payload:BudgetIn):
 
 @app.post('/trips/{trip_id}/tasks',dependencies=[Depends(authorize)])
 def add_task(trip_id:str,payload:TaskIn):
+    require_writes()
     with LOCK:
         rows=load_rows('tasks');item_id=f'{trip_id}_{datetime.now().strftime("%Y%m%d%H%M%S%f")}'
         rows.append({'trip_id':trip_id,'item_id':item_id,'title':payload.title.strip(),'done':False,'created':datetime.now().strftime('%d.%m.%Y %H:%M')})
@@ -229,6 +241,7 @@ def add_task(trip_id:str,payload:TaskIn):
 
 @app.put('/tasks/{item_id}/toggle',dependencies=[Depends(authorize)])
 def toggle_task(item_id:str):
+    require_writes()
     with LOCK:
         rows=load_rows('tasks')
         for row in rows:
@@ -240,6 +253,7 @@ def toggle_task(item_id:str):
 
 @app.delete('/tasks/{item_id}',dependencies=[Depends(authorize)])
 def delete_task(item_id:str):
+    require_writes()
     with LOCK:
         rows=load_rows('tasks');new=[x for x in rows if x.get('item_id')!=item_id]
         save_rows('tasks',new)
