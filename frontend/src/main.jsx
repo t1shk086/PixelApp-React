@@ -38,6 +38,38 @@ function HomePlaces({points}){
 }
 
 
+
+function ExpenseHistory({rows}) {
+ const [search,setSearch]=useState('');
+ const [category,setCategory]=useState('all');
+ const [kind,setKind]=useState('all');
+ const amount=r=>{const n=Number(r.amount);return Number.isFinite(n)?n:0};
+ const isPayment=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
+ const categoryName=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
+ const payments=rows.filter(isPayment);
+ const options=Array.from(new Set(payments.map(categoryName))).sort((a,b)=>a.localeCompare(b,'bg'));
+ const visible=payments.filter(r=>{
+  if(category!=='all'&&categoryName(r)!==category)return false;
+  if(kind!=='all'&&String(r.type)!==kind)return false;
+  if(search.trim()){
+   const text=[r.date,r.description,r.category,categoryName(r),r.amount].join(' ').toLocaleLowerCase('bg');
+   if(!text.includes(search.trim().toLocaleLowerCase('bg')))return false;
+  }
+  return true;
+ });
+ const total=visible.reduce((sum,r)=>sum+amount(r),0);
+ return <div className="travel-card expense-history">
+  <h3>💳 История на разходите</h3>
+  <div className="expense-filters">
+   <label className="expense-search">Търси разход<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Описание, дата или сума" type="search"/></label>
+   <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}><option value="all">Всички категории</option>{options.map(c=><option value={c} key={c}>{c}</option>)}</select></label>
+   <label>Вид<select value={kind} onChange={e=>setKind(e.target.value)}><option value="all">Всички плащания</option><option value="expense">Разходи</option><option value="deposit">Депозити</option></select></label>
+  </div>
+  <div className="expense-overview"><span><b>{visible.length}</b> от {payments.length} плащания</span><strong>Общо: {money(total)}</strong></div>
+  {visible.length?[...visible].reverse().map((r,i)=><div className="travel-line expense-entry" key={`${r.date}-${r.description}-${i}`}><div><strong>{r.description||'Без описание'}</strong><small>{r.date||'Без дата'} · {categoryName(r)}{r.type==='deposit'?' · Депозит':''}</small>{Number(r.liters)>0&&<small>⛽ {Number(r.liters).toLocaleString('bg-BG')} л</small>}</div><b>{money(amount(r))}</b></div>):<p className="muted">{payments.length?'Няма плащания, които отговарят на филтрите.':'Няма записани разходи за това пътуване.'}</p>}
+ </div>;
+}
+
 function TripDetails({trip,detail,readOnly}) {
  const [section,setSection]=useState('summary');
  useEffect(()=>setSection('summary'),[trip?.id]);
@@ -64,7 +96,7 @@ function TripDetails({trip,detail,readOnly}) {
  <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
  {section==='summary'&&<><div className="travel-card"><h3>📊 Бърз преглед</h3><div className="travel-facts"><div><small>Разходи</small><strong>{rows.length}</strong></div><div><small>Задачи</small><strong>{done}/{tasks.length}</strong></div><div><small>Места</small><strong>{validPoints.length}</strong></div></div></div><div className="travel-card"><h3>💳 Разходи по категории</h3>{Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,val])=><div className="travel-line" key={name}><span>{name}</span><strong>{money(val)}</strong></div>):<p className="muted">Няма записани разходи.</p>}</div><div className="travel-card"><h3>⛽ Гориво и път</h3><div className="travel-facts"><div><small>Гориво</small><strong>{liters.toFixed(1)} л</strong></div><div><small>Среден разход</small><strong>{avg?avg.toFixed(1)+' л/100 км':'—'}</strong></div></div></div></>}
- {section==='expenses'&&<div className="travel-card"><h3>💳 История на разходите</h3>{rows.length?[...rows].reverse().map((r,i)=><div className="travel-line" key={i}><div><strong>{r.description||'Без описание'}</strong><small>{r.date} · {r.category}{r.type==='deposit'?' · Депозит':''}</small></div><b>{money(r.amount)}</b></div>):<p className="muted">Няма записани разходи.</p>}</div>}
+ {section==='expenses'&&<ExpenseHistory rows={rows}/>}
  {section==='fuel'&&<><div className="travel-card"><h3>🚙 Автомобил и километри</h3><div className="travel-facts"><div><small>Начални км</small><strong>{begin||'—'}</strong></div><div><small>Крайни / последни</small><strong>{finish||maxReading||'—'}</strong></div><div><small>Изминати</small><strong>{km.toLocaleString('bg-BG')} км</strong></div></div></div><div className="travel-card"><h3>⛽ Зареждания</h3><div className="travel-facts"><div><small>Литри общо</small><strong>{liters.toFixed(1)} л</strong></div><div><small>Разход за зареждания</small><strong>{money(fuelSpend)}</strong></div><div><small>Среден разход</small><strong>{avg?avg.toFixed(1)+' л/100 км':'—'}</strong></div></div>{fuelRows.length?fuelRows.map((r,i)=><div key={i} className="travel-line"><div><strong>{r.date}</strong><small>{r.description}</small></div><div style={{textAlign:'right'}}><b>{number(r.liters).toFixed(1)} л</b><small>{money(r.amount)}</small></div></div>):<p className="muted">Няма записани зареждания с литри.</p>}</div></>}
  {section==='budget'&&<><div className="travel-card"><h3>💰 Бюджет на пътуването</h3><div className="travel-facts"><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>Платено общо</small><strong>{money(allCosts)}</strong></div><div><small>Остават</small><strong>{budgetTotal?money(budgetTotal-allCosts):'—'}</strong></div></div></div><div className="travel-card"><h3>📋 Бюджети по категории</h3>{budgetEntries.length?budgetEntries.map(b=><div className="travel-line" key={b.category}><div><strong>{b.category}</strong><small>Изхарчено: {money(byCat[b.category]||0)}</small></div><b>{money(b.budget)}</b></div>):<p className="muted">Няма зададени отделни бюджети по категории.</p>}</div></>}
  {section==='tasks'&&<div className="travel-card"><h3>✅ План и задачи · {done}/{tasks.length}</h3>{tasks.length?tasks.map(t=><div key={t.item_id} className="travel-line"><span>{['true','1','да','yes'].includes(String(t.done||'').toLowerCase())?'✅':'⬜'} {t.title}</span></div>):<p className="muted">Няма задачи за това пътуване.</p>}</div>}
