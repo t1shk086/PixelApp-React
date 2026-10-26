@@ -208,6 +208,69 @@ function TripDetails({trip,detail,readOnly}) {
  </div>;
 }
 
+
+// Безопасен прототип: изчисленията са само локални, без POST към API.
+function QuickExpensePreview({trips,loadTrip,onClose}){
+ const available=trips;
+ const [tripId,setTripId]=useState(available[0]?.id||'');
+ const [details,setDetails]=useState(null);
+ const [fetchError,setFetchError]=useState('');
+ const [busy,setBusy]=useState(false);
+ const [amount,setAmount]=useState('');
+ const [category,setCategory]=useState('Храна и напитки');
+ const [description,setDescription]=useState('');
+ const [added,setAdded]=useState([]);
+ useEffect(()=>{let active=true;setDetails(null);setAdded([]);setFetchError('');if(!tripId)return;
+  setBusy(true);loadTrip(tripId).then(d=>{if(active)setDetails(d)}).catch(e=>{if(active)setFetchError(e.message||String(e))}).finally(()=>{if(active)setBusy(false)});
+  return()=>{active=false};
+ },[tripId]);
+ const trip=available.find(t=>t.id===tripId);
+ const budgets=details?.budgets||[];
+ const rows=details?.expenses||[];
+ const val=v=>{const n=Number(v);return Number.isFinite(n)?n:0};
+ const budgetItems=budgets.filter(b=>b.category!=='__GLOBAL__'&&val(b.budget)>0);
+ const globalBudget=budgets.filter(b=>b.category==='__GLOBAL__').reduce((a,b)=>a+val(b.budget),0);
+ const budgetTotal=globalBudget>0?globalBudget:budgetItems.reduce((a,b)=>a+val(b.budget),0);
+ const budgetCats=new Set(budgetItems.map(b=>b.category));
+ const included=c=>globalBudget>0||!budgetCats.size||budgetCats.has(c);
+ const costCategory=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
+ const existing=rows.filter(r=>['expense','deposit'].includes(r.type));
+ const totalOld=existing.reduce((a,r)=>a+val(r.amount),0);
+ const budgetOld=existing.reduce((a,r)=>a+(included(costCategory(r))?val(r.amount):0),0);
+ const demoTotal=added.reduce((a,r)=>a+r.amount,0);
+ const demoBudget=added.reduce((a,r)=>a+(included(r.category)?r.amount:0),0);
+ const possibleCategories=[...new Set([...categories.filter(c=>c!=='Депозит/Резервация'),...budgetItems.map(b=>b.category),...existing.map(costCategory)])].filter(Boolean);
+ const fuelNote=category==='Транспорт'&&/газ|гориво|зареждане|бензин|дизел/i.test(description);
+ function addTest(e){e.preventDefault();const n=Number(String(amount).replace(',','.'));if(!Number.isFinite(n)||n<=0)return;
+  setAdded(prev=>[...prev,{id:Date.now()+Math.random(),amount:Math.round(n*100)/100,category,description:description.trim()}]);setAmount('');setDescription('');
+ }
+ return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog" onClick={e=>e.stopPropagation()}>
+  <div className="dialoghead"><h3>➕ Бърз разход · ТЕСТ</h3><button className="ghost" type="button" onClick={onClose}>✕</button></div>
+  <div className="quick-demo-alert">🧪 Пробен режим — нищо не се записва в Google Drive. Тестовите разходи изчезват при затваряне или смяна на пътуване.</div>
+  {!available.length?<p>Няма заредени пътувания. Прочети данните от Google Drive и опитай отново.</p>:<>
+   <label>Пътуване за симулацията<select value={tripId} onChange={e=>setTripId(e.target.value)}>{available.map(t=><option key={t.id} value={t.id}>{t.name}{tripState(t)!=='active'?' · само тест':''}</option>)}</select></label>
+   {trip&&tripState(trip)!=='active'&&<p className="quick-demo-note">ℹ️ Избраното пътуване не е активно. В стария PixelApp реалният „Бърз разход“ не го допуска, но тук можеш да го използваш за безопасна симулация.</p>}
+   {busy&&<p className="muted">Зареждане на текущите данни…</p>}
+   {fetchError&&<p className="error">{fetchError}</p>}
+   {details&&<><form className="quick-demo-form" onSubmit={addTest}>
+    <label>Сума (€)<input autoFocus inputMode="decimal" type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Например 12.50" required/></label>
+    <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{possibleCategories.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
+    <label>Описание<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Обяд, паркинг…"/></label>
+    {fuelNote&&<p className="quick-demo-note">⛽ В оригиналния PixelApp зареждането изисква допълнителни данни (литри и километраж). Тук тестваме само отражението на сумата върху бюджета — не реалния алгоритъм за гориво.</p>}
+    <button type="submit">Добави пробен разход</button>
+   </form>
+   <section className="quick-demo-summary"><h4>📊 Стъпка 2 · Как се променя бюджетът?</h4>
+    <div className="quick-demo-grid"><div><small>Всички разходи · преди</small><strong>{money(totalOld)}</strong></div><div><small>След тестовите разходи</small><strong>{money(totalOld+demoTotal)}</strong></div><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'Не е зададен'}</strong></div><div><small>Остава по бюджетния обхват</small><strong>{budgetTotal?money(budgetTotal-budgetOld-demoBudget):'—'}</strong></div></div>
+    {budgetTotal>0&&<div className="quick-demo-meter"><span style={{width:Math.min(100,Math.max(0,(budgetOld+demoBudget)/budgetTotal*100))+'%'}}/></div>}
+    {globalBudget===0&&budgetCats.size>0&&<p className="quick-demo-note">ℹ️ При бюджет по категории пробните разходи извън бюджетните категории се броят във „Всички разходи“, но не намаляват показания бюджетен остатък.</p>}
+    <small className="muted">Контролна симулация върху текущите записи; окончателната логика ще се сравни със Streamlit преди включване на записването.</small>
+   </section>
+   {added.length>0&&<section className="quick-demo-list"><h4>Пробни разходи · {added.length}</h4>{added.map(a=><div key={a.id}><span><b>{a.category}</b><small>{a.description||'Без описание'}</small></span><strong>{money(a.amount)}</strong><button className="ghost" type="button" title="Премахни пробния разход" onClick={()=>setAdded(x=>x.filter(z=>z.id!==a.id))}>✕</button></div>)}<button className="ghost" type="button" onClick={()=>setAdded([])}>Изчисти пробните разходи</button></section>}
+   </>}
+  </>}
+ </div></div>;
+}
+
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_api_key')||'');
  const [readOnly,setReadOnly]=useState(true);
@@ -229,7 +292,7 @@ function App(){
  <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([])}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button><button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
  {!current?<>
- <div className="actions home-actions"><button disabled={readOnly} onClick={()=>setModal('expense')}>➕ <span><b>Бърз разход</b><small>Добави разход за секунди</small></span></button><button disabled={readOnly} onClick={()=>setModal('trip')}>✈️ <span><b>Ново пътуване</b><small>Създай ново приключение</small></span></button></div>
+ <div className="actions home-actions"><button onClick={()=>setModal('quick-demo')}>➕ <span><b>Бърз разход · ТЕСТ</b><small>Пробвай без записване</small></span></button><button disabled={readOnly} onClick={()=>setModal('trip')}>✈️ <span><b>Ново пътуване</b><small>Създай ново приключение</small></span></button></div>
  <div className="home-sync"><button className="ghost" onClick={async()=>{setLoading(true);setError('');try{await req('/sync-from-drive','POST');await reload()}catch(e){setError(String(e.message))}finally{setLoading(false)}}}><RefreshCcw size={15}/> Прочети данните от Google Drive</button></div>
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
  {(() => {const ranked=[...trips].sort((a,b)=>{const rank={active:0,upcoming:1,finished:2},sa=tripState(a),sb=tripState(b);if(rank[sa]!==rank[sb])return rank[sa]-rank[sb];const da=asDate(sa==='finished'?a.settings?.end_date:sa==='upcoming'?a.settings?.start_date:a.settings?.end_date);const db=asDate(sb==='finished'?b.settings?.end_date:sb==='upcoming'?b.settings?.start_date:b.settings?.end_date);return sa==='finished'?(db?.getTime()||0)-(da?.getTime()||0):(da?.getTime()||Infinity)-(db?.getTime()||Infinity)});const ended=ranked.filter(t=>tripState(t)==='finished');const visible=ranked.filter(t=>tripState(t)!=='finished').concat(showFinished?ended:ended.slice(0,1));return <>
@@ -242,7 +305,8 @@ function App(){
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money(dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly}/>}</>}
- {modal&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
+ {modal==='quick-demo'&&<QuickExpensePreview trips={trips} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
+ {modal&&modal!=='quick-demo'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
  <footer>PixelApp React · Етап 1 · Данните остават в Google Drive</footer></main>
 }
 
