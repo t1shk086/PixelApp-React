@@ -173,6 +173,7 @@ function TripDetails({trip,detail,readOnly}) {
  </>}
  {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Маршрут и места <span className="map-point-count">{validPoints.length} точки</span></h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div><div className="map-place-list">{validPoints.map((p,i)=><div key={i} className="map-place-row"><span className="map-place-pin">📍</span><div><strong>{p.title||'Място'}</strong><small>{Number(p.lat).toFixed(4)}°, {Number(p.lon).toFixed(4)}°</small></div></div>)}</div></>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
  {readOnly&&<p className="travel-safety">🔒 Само преглед. Оригиналните данни в Google Drive не се променят.</p>}
+ </>}
  </div>;
 }
 
