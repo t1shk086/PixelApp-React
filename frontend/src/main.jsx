@@ -73,7 +73,7 @@ function ExpenseHistory({rows}) {
 
 // Fuel history mirrors the original Streamlit comparison: amount/liters versus the immediately previous record.
 function FuelHistory({rows}) {
- const [expanded,setExpanded]=useState(null);
+ const [selected,setSelected]=useState(0);
  const num=v=>{const n=Number(String(v??'').replace(',','.'));return Number.isFinite(n)?n:0};
  const manualPattern=/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i;
  const all=rows.filter(r=>String(r.category)==='Транспорт'&&String(r.type)==='expense').map((r,i)=>{
@@ -83,21 +83,22 @@ function FuelHistory({rows}) {
  }).filter(r=>r._liters>0).reverse();
  const fmt=n=>num(n).toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2});
  return <div className="travel-card fuel-history-card"><h3>🧾 История на зарежданията <span className="fuel-history-count">{all.length} записа</span></h3>
- {all.length?all.map((r,i)=>{
+ {all.length?<><nav className="fuel-history-pager" aria-label="Преглед на зареждания"><button type="button" aria-label="Предишно зареждане" disabled={selected===0} onClick={()=>setSelected(i=>Math.max(0,i-1))}>‹</button><span><strong>{Math.min(selected+1,all.length)} / {all.length}</strong><small>Зареждане</small></span><button type="button" aria-label="Следващо зареждане" disabled={selected>=all.length-1} onClick={()=>setSelected(i=>Math.min(all.length-1,i+1))}>›</button></nav>{all.slice(selected,selected+1).map((r,offset)=>{
+  const i=selected+offset;
   const prev=all[i+1],prevPrice=prev?prev._price:0,delta=r._price-prevPrice;
   const label=r._manual?'РЪЧНО ДОБАВЕНО ГОРИВО':/\[ПЪЛНО\s+ЗАРЕЖДАНЕ\]/i.test(String(r.description||''))?'ПЪЛНО ЗАРЕЖДАНЕ':/\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(String(r.description||''))?'ЧАСТИЧНО ЗАРЕЖДАНЕ':'ЗАРЕЖДАНЕ';
   const clean=String(r.description||'').replace(/^\[(?:ПЪЛНО\s+ЗАРЕЖДАНЕ|ЧАСТИЧНО\s+ЗАРЕЖДАНЕ)\]\s*/i,'').trim();
-  const opened=expanded===r._index;
+  const opened=true;
   let comparison='Няма предишно зареждане за сравнение.';
   let tone='neutral';
   if(prev){if(r._price<=0){comparison='Няма цена за сравнение — въведени са само литрите.';}
    else if(prevPrice>0){tone=delta<0?'cheaper':delta>0?'dearer':'neutral';comparison=delta<0?`€${fmt(Math.abs(delta))}/л по-евтино · предишно €${fmt(prevPrice)}/л → сега €${fmt(r._price)}/л`:delta>0?`€${fmt(delta)}/л по-скъпо · предишно €${fmt(prevPrice)}/л → сега €${fmt(r._price)}/л`:`Същата цена · €${fmt(r._price)}/л`;}}
   const real=String(r.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
   return <div className={'fuel-history-item'+(opened?' is-open':'')} key={`${r._index}-${r.date}`}>
-    <button type="button" className="fuel-history-summary" aria-expanded={opened} onClick={()=>setExpanded(opened?null:r._index)}>
+    <div className="fuel-history-summary">
      <span className="fuel-history-left"><span className={'fuel-history-kind'+(label==='ПЪЛНО ЗАРЕЖДАНЕ'?' is-full':'')}>{label}</span><strong>{clean||'Гориво'}</strong><small>{r.date||'Без дата'}{!r._manual&&num(r.current_km)>0?' · '+num(r.current_km).toLocaleString('bg-BG')+' км':''}</small></span>
-     <span className="fuel-history-right"><b>{fmt(r._liters)} л</b><strong>{num(r.amount)>0?money(r.amount):'—'}</strong></span><span className="fuel-history-toggle">{opened?'⌃':'⌄'}</span>
-    </button>
+     <span className="fuel-history-right"><b>{fmt(r._liters)} л</b><strong>{num(r.amount)>0?money(r.amount):'—'}</strong></span>
+    </div>
     {opened&&<div className="fuel-history-analysis"><div className="fuel-analysis-grid">
      <div><small>Литри</small><b className="fuel-blue">{fmt(r._liters)} <em>л</em></b></div>
      <div><small>Стойност</small><b className="fuel-gold">{num(r.amount)>0?money(r.amount):'—'}</b></div>
@@ -109,12 +110,13 @@ function FuelHistory({rows}) {
     {r._manual&&<small className="fuel-analysis-hint">Ръчно добавено гориво — не е записана стойност или километраж.</small>}
     </div>}
    </div>;
- }):<p className="muted">Няма записани зареждания с литри.</p>}
+ })}</>:<p className="muted">Няма записани зареждания с литри.</p>}
  </div>;
 }
 
 function TripDetails({trip,detail,readOnly}) {
  const [section,setSection]=useState('summary');
+ const [taskFilter,setTaskFilter]=useState('all');
  useEffect(()=>setSection('summary'),[trip?.id]);
  const rows=detail?.expenses||[], settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
@@ -169,7 +171,7 @@ function TripDetails({trip,detail,readOnly}) {
  </>}
  {section==='tasks'&&<>
  <div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {tasks.length}</em></strong></div><span>{tasks.length?Math.round(done/tasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(tasks.length?done/tasks.length*100:0)+'%'}}/></div></div>
- <div className="travel-card"><h3>📋 Списък със задачи</h3>{tasks.length?tasks.map((t,i)=>{const complete=['true','1','да','yes'].includes(String(t.done||'').toLowerCase());return <div key={t.item_id||i} className={'task-visual-item'+(complete?' task-visual-done':'')}><span className="task-visual-icon">{complete?'✓':'○'}</span><span>{t.title||'Задача'}</span><small>{complete?'Готово':'Предстои'}</small></div>}):<p className="muted">Няма задачи за това пътуване.</p>}</div>
+ <div className="travel-card"><h3>📋 Списък със задачи</h3><div className="task-view-filter" role="group" aria-label="Филтър на задачите">{[["all","Всички"],["pending","Предстоящи"],["done","Изпълнени"]].map(([value,label])=><button type="button" key={value} className={taskFilter===value?"active":""} aria-pressed={taskFilter===value} onClick={()=>setTaskFilter(value)}>{label}</button>)}</div>{tasks.length?tasks.filter(t=>{const complete=["true","1","да","yes"].includes(String(t.done||"").toLowerCase());return taskFilter==="all"||(taskFilter==="done"?complete:!complete)}).map((t,i)=>{const complete=['true','1','да','yes'].includes(String(t.done||'').toLowerCase());return <div key={t.item_id||i} className={'task-visual-item'+(complete?' task-visual-done':'')}><span className="task-visual-icon">{complete?'✓':'○'}</span><span>{t.title||'Задача'}</span><small>{complete?'Готово':'Предстои'}</small></div>}):<p className="muted">Няма задачи за това пътуване.</p>}{tasks.length>0&&tasks.filter(t=>{const complete=['true','1','да','yes'].includes(String(t.done||'').toLowerCase());return taskFilter==='all'||(taskFilter==='done'?complete:!complete)}).length===0&&<p className="muted">Няма задачи с този статус.</p>}</div>
  </>}
  {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Маршрут и места <span className="map-point-count">{validPoints.length} точки</span></h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div><div className="map-place-list">{validPoints.map((p,i)=><div key={i} className="map-place-row"><span className="map-place-pin">📍</span><div><strong>{p.title||'Място'}</strong><small>{Number(p.lat).toFixed(4)}°, {Number(p.lon).toFixed(4)}°</small></div></div>)}</div></>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
  {readOnly&&<p className="travel-safety">🔒 Само преглед. Оригиналните данни в Google Drive не се променят.</p>}
