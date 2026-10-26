@@ -28,7 +28,18 @@ function App(){
  {readOnly&&<aside className="muted" style={{padding:'9px 12px',border:'1px solid #355',borderRadius:10,marginBottom:12}}>🔒 Безопасен преглед: данните в Google Drive са само за четене. Добавянето и редакциите ще бъдат активирани след настройване на синхронизацията.</aside>}
  <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([])}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button><button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
- {!current?<><div className="actions"><button disabled={readOnly} onClick={()=>setModal('trip')}><Plus/> Ново пътуване</button><button className="outline" onClick={()=>run(()=>req('/sync-from-drive','POST'))}><RefreshCcw/> Зареди от Google Drive</button></div><h4>Моите пътувания <span>{trips.length}</span></h4>{trips.map(t=><button key={t.id} className="trip" onClick={async()=>{setCurrent(t.id);setTab('overview');setDetail(null);try{setDetail(await req(`/trips/${encodeURIComponent(t.id)}`))}catch(e){setError(e.message)}}}><div className="triptitle">🚙 {t.name}</div><div className="muted">{t.settings.start_date||'Без дата'} {t.settings.end_date?'→ '+t.settings.end_date:''}</div><div className="numbers">{money(t.spent)} {t.budget>0?`/ ${money(t.budget)}`:'· Без бюджет'}</div>{t.budget>0&&<div className="track"><div style={{width:`${Math.min(100,Math.max(0,t.spent/t.budget*100))}%`}}/></div>}</button>)}{!trips.length&&!loading&&<p className="muted">Няма заредени пътувания. Първо импортирай съществуващите CSV файлове от Google Drive или създай ново пътуване.</p>}</>:
+ {!current?<><div className="actions"><button disabled={readOnly} onClick={()=>setModal('trip')}><Plus/> Ново пътуване</button><button className="outline" onClick={async()=>{
+  setLoading(true);
+  setError('');
+  try {
+    await req('/sync-from-drive','POST');
+    await reload();
+  } catch(e) {
+    setError(String(e.message));
+  } finally {
+    setLoading(false);
+  }
+}}><RefreshCcw/> Зареди от Google Drive</button></div><h4>Моите пътувания <span>{trips.length}</span></h4>{trips.map(t=><button key={t.id} className="trip" onClick={async()=>{setCurrent(t.id);setTab('overview');setDetail(null);try{setDetail(await req(`/trips/${encodeURIComponent(t.id)}`))}catch(e){setError(e.message)}}}><div className="triptitle">🚙 {t.name}</div><div className="muted">{t.settings.start_date||'Без дата'} {t.settings.end_date?'→ '+t.settings.end_date:''}</div><div className="numbers">{money(t.spent)} {t.budget>0?`/ ${money(t.budget)}`:'· Без бюджет'}</div>{t.budget>0&&<div className="track"><div style={{width:`${Math.min(100,Math.max(0,t.spent/t.budget*100))}%`}}/></div>}</button>)}{!trips.length&&!loading&&<p className="muted">Няма заредени пътувания. Първо импортирай съществуващите CSV файлове от Google Drive или създай ново пътуване.</p>}</>:
  <>{chosen&&<div className="summary"><h2>🚙 {chosen.name}</h2><div className="muted">{chosen.settings.start_date} → {chosen.settings.end_date}</div><div className="summaryrow"><div>Изхарчено<strong>{money(chosen.spent)}</strong></div><div>Бюджет<strong>{chosen.budget?money(chosen.budget):'—'}</strong></div></div></div>}
  <div className="tabs">{[['overview','Разходи'],['tasks','Задачи'],['map','Карта'],['budget','Бюджет']].map(([id,label])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>{label}</button>)}</div>
  {tab==='overview'&&<><button disabled={readOnly} onClick={()=>setModal('expense')}><Plus size={18}/> Бърз разход</button><h4>Записани разходи</h4>{[...(detail?.expenses||[])].reverse().map((r,i)=><div className="line" key={i}><div><b>{r.description}</b><small>{r.date} · {r.category}</small></div><strong>{money(r.amount)}</strong></div>)}</>}
