@@ -186,6 +186,33 @@ def list_trips():
         return result
 
 
+
+@app.get('/home/places', dependencies=[Depends(authorize)])
+def home_places():
+    """All saved places from the imported map CSV; read-only, no geocoding."""
+    import math
+    with LOCK:
+        settings=load_rows('settings')
+        valid_ids={str(x.get('trip_id','')).strip() for x in settings if str(x.get('trip_id','')).strip()}
+        places=[]
+        for point in load_rows('points'):
+            tid=str(point.get('trip_id') or '').strip()
+            if not tid or (valid_ids and tid not in valid_ids):
+                continue
+            try:
+                lat=float(point.get('lat'))
+                lon=float(point.get('lon'))
+            except (ValueError, TypeError):
+                continue
+            if not math.isfinite(lat) or not math.isfinite(lon) or abs(lat)>90 or abs(lon)>180:
+                continue
+            display_name=tid.replace('_',' ').rsplit(' __ ',1)[0]
+            places.append({'trip_id':tid,'trip_name':display_name,'lat':lat,'lon':lon,
+                           'title':str(point.get('title') or 'Място'),
+                           'color':str(point.get('color') or ''),
+                           'stop_type':str(point.get('stop_type') or '')})
+        return places
+
 @app.get('/dashboard', dependencies=[Depends(authorize)])
 def dashboard():
     """Read-only summary for the original PixelApp home screen."""
