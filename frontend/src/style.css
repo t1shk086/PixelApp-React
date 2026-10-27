@@ -363,3 +363,10 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p29-auto-fuel>small,.p29-stage small{font-size:11px;color:#a4c5d6}
 .p29-stage{display:flex;flex-direction:column;gap:4px;padding:10px;border-radius:9px;background:#102838}
 @media(max-width:600px){.p29-category-head{padding:11px;gap:9px}.p29-category-entries{padding:0 11px}.p29-expense-item{gap:8px}.p29-expense-item>b{font-size:12px}.p29-expense-heading h3{font-size:20px}.p29-expense-filters{display:grid;grid-template-columns:1fr 1fr}.p29-expense-filters .expense-search{grid-column:1/-1}}
+
+/* Patch 30: edit fuel in the same temporary expense workflow, mobile-first. */
+.p30-fuel-edit { display:grid; gap:11px; padding:14px; margin:10px 0; border:1px solid #3a6071; border-radius:14px; background:rgba(37,77,94,.18); }
+.p30-fuel-edit > strong { color:#94e1fa; }
+.p30-fuel-edit > small { color:#aebdca; line-height:1.5; }
+.p30-fuel-edit label { min-width:0; }
+.p30-fuel-edit input,.p30-fuel-edit select { max-width:100%; }
