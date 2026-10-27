@@ -287,3 +287,11 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p23-consumption-grid>div:last-child{grid-column:1/-1}
 .p23-consumption-grid em{font-size:12px;font-style:normal;color:#b8c5d1}
 @media(max-width:550px){.p23-stats-grid,.p23-consumption-grid{grid-template-columns:1fr}.p23-consumption-grid>div:last-child{grid-column:auto}}
+
+/* Пач 24: контекстни пробни действия в нормалните екрани. */
+.p24-trip-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0 8px}
+.p24-trip-actions button,.p24-section-actions button{min-height:42px;background:#1d3c4d;border:1px solid #38667a;border-radius:12px;color:#e5f8fc;padding:10px 14px;font-size:12px;font-weight:750;cursor:pointer}
+.p24-trip-actions>span,.p24-section-actions>small{font-size:11px;color:#91acbb;line-height:1.45}
+.p24-section-actions{display:flex;flex-wrap:wrap;gap:9px;margin:12px 0;padding:12px;background:#122633;border:1px solid #315064;border-radius:14px}
+.p24-section-actions>small{flex-basis:100%}
+@media(max-width:480px){.p24-section-actions button{flex:1 1 170px}.p24-trip-actions button{max-width:100%}}
