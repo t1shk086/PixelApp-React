@@ -197,3 +197,12 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .task-preview-edit .ghost{border:1px solid #36536a;background:transparent}
 .task-preview-reset{background:transparent;border:1px solid #3c6576;border-radius:10px;padding:10px 12px;color:#9ce6f2;margin-top:14px;cursor:pointer}
 @media(max-width:480px){.task-preview-form{flex-wrap:nowrap}.task-preview-form button{font-size:12px;padding:9px}.task-preview-item{gap:6px}.task-preview-edit{flex-basis:100%}}
+
+/* Patch 17 — expense trial editing */
+.p17-row{display:flex!important;align-items:center;gap:10px;flex-wrap:wrap}
+.p17-row>span:first-child{flex:1 1 135px;min-width:0}
+.p17-row>strong{white-space:nowrap}
+.p17-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.p17-actions .ghost{padding:7px 10px;min-width:34px}
+.p17-edit{position:sticky;bottom:0;z-index:2;background:#142430;border:1px solid #3a6778;border-radius:14px;padding:14px;margin-top:12px;box-shadow:0 -8px 25px #0005}
+.p17-edit h4{margin:0 0 10px}
