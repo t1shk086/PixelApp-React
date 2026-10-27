@@ -258,3 +258,21 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p21-number{background:#10202c;border:1px solid #305066;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}.p21-number small{color:#a2b9cb}.p21-number strong{color:#51d9f0;font-size:19px}.p21-wide{grid-column:1/-1}
 .p21-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.p21-actions button{flex:1;min-width:170px}.p21-actions button:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:540px){.p21-grid{grid-template-columns:1fr}.p21-dialog{width:calc(100vw - 28px);max-height:90dvh}.p21-actions button{min-width:100%}}
+
+
+/* Patch 22 — manual missed fuel, local simulation only */
+.p22-manual{border-color:#337d7d;background:linear-gradient(135deg,#142c36,#13222f)}
+.p22-form{display:flex;flex-direction:column;gap:8px}
+.p22-form>button{align-self:flex-start}
+.p22-check{display:flex!important;flex-direction:row!important;align-items:center;gap:9px;cursor:pointer}
+.p22-check input{width:18px!important;height:18px;flex-shrink:0;accent-color:#42ddb5}
+.p22-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:15px 0}
+.p22-stats>div,.p22-existing-fuel{display:flex;flex-direction:column;gap:8px;background:#101f2b;border:1px solid #315369;border-radius:12px;padding:12px;min-width:0}
+.p22-stats small,.p22-existing-fuel small{color:#a6c1d0;font-size:11px;line-height:1.4}
+.p22-stats strong,.p22-existing-fuel strong{color:#55dfbe;font-size:18px;overflow-wrap:anywhere}
+.p22-entry-list{display:grid;gap:8px;margin-bottom:10px}
+.p22-entry{display:flex;align-items:center;gap:9px;border:1px solid #36576a;padding:10px;border-radius:11px;background:#12222e}
+.p22-entry>span{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0}
+.p22-entry small{color:#aac3d0;font-size:11px;overflow-wrap:anywhere}
+.p22-entry>b{color:#eec577;white-space:nowrap}
+@media(max-width:580px){.p22-stats{grid-template-columns:1fr}.p22-entry{flex-wrap:wrap}}
