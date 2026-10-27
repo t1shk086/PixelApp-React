@@ -370,3 +370,18 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p30-fuel-edit > small { color:#aebdca; line-height:1.5; }
 .p30-fuel-edit label { min-width:0; }
 .p30-fuel-edit input,.p30-fuel-edit select { max-width:100%; }
+
+/* Patch 31: единствена форма за пропуснато гориво в настройките. */
+.p31-manual-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.p31-manual-icon{width:44px;height:44px;flex:0 0 44px;display:grid;place-items:center;border-radius:13px;background:rgba(71,183,167,.15);font-size:22px}
+.p31-manual-head h4{margin:0 0 4px;font-size:19px}
+.p31-manual-head small{color:#a5c3d0;font-size:12px}
+.p22-manual{padding:16px;border-radius:15px}
+.p22-manual .p22-form{gap:13px}
+.p22-manual .p22-form>button{align-self:stretch;border-radius:11px;min-height:45px}
+.p31-manual-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+.p31-fuel-details{border-top:1px solid #355768;padding-top:12px;margin-top:12px}
+.p31-fuel-details>summary{cursor:pointer;color:#9edbee;font-size:13px;font-weight:650;padding:6px 0}
+.p31-fuel-details>.p23-consumption-preview{margin-top:12px}
+.p31-compact-note{font-size:12px;margin:0}
+@media(max-width:580px){.p31-manual-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.p31-manual-stats>div{padding:10px}}
