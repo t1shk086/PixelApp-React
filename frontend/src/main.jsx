@@ -261,8 +261,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
- <div className="travel-hero"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
- <div className="p24-trip-actions"><button type="button" onClick={()=>onOpenPreview('trip-demo')}>⚙️ Настройки на пътуването</button></div>{hasExpenseChanges(expenseDraft)&&<p className="p27-draft-note">● Временни разходи включени в сумите · без запис в Google Drive</p>}
+ <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon" type="button" onClick={()=>onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването">⚙️</button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
+ {readOnly&&<p className="p34-read-only-note">🔒 Тестов режим · Промените са временни и не се записват в Google Drive</p>}
  <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
  {section==='summary'&&<>
@@ -320,7 +320,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  <p className="muted">Среден разход по всички записани литри: {avg>0?avg.toFixed(1)+' л/100 км':'няма достатъчно данни'}. Реален разход от записано пълно зареждане: {realConsumption>0?realConsumption.toFixed(1)+' л/100 км':'няма записан резултат'}.</p>
  <p className="muted">Тези проверки не гарантират пълна идентичност със Streamlit. Записването остава изключено.</p>
  </div>}
- {readOnly&&<p className="travel-safety">🔒 Само преглед. Оригиналните данни в Google Drive не се променят.</p>}
+
  </>}
  </div>;
 }
@@ -740,7 +740,7 @@ function App(){
  function logout(){sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({});}
  if(!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager — React preview</p><section className="panel"><h3>Личен достъп</h3><p>Въведи ключа от <code>PIXELAPP_API_KEY</code> на твоя Python сървър. Google токените никога не се въвеждат тук.</p><form onSubmit={connect}><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ"/><button>Влез</button></form></section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
- {readOnly&&<aside className="muted" style={{padding:'9px 12px',border:'1px solid #355',borderRadius:10,marginBottom:12}}>🔒 Режим без запис — данните от Google Drive не се променят. Въведеното във формите е временно.</aside>}
+ {readOnly&&!current&&<aside className="p34-global-read-only">🔒 Тестов режим · Промените не се записват в Google Drive</aside>}
  <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({})}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button><button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
  {!current?<>

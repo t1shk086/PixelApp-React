@@ -399,3 +399,10 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p33-manual-footer{border-top:1px solid #335163;padding-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px;color:#a5bdcd}
 .p33-manual-footer strong{color:#eecb88;font-size:13px}
 @media(max-width:480px){.p33-manual-card{padding:14px}.p33-manual-amount{font-size:27px}.fuel-history-count{white-space:normal;text-align:right;line-height:1.4}}
+
+/* Patch 34: compact trip settings and single read-only notice */
+.p34-hero-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.p34-settings-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;padding:0;border:1px solid #36586a;border-radius:12px;background:#1b3443;color:#def7ff;font-size:20px;cursor:pointer;line-height:1}
+.p34-settings-icon:hover,.p34-settings-icon:focus-visible{border-color:#5bcee9;background:#25495d;outline-offset:2px}
+.p34-read-only-note{font-size:11px;line-height:1.5;color:#91b4c5;margin:5px 3px 10px;overflow-wrap:anywhere}
+.p34-global-read-only{font-size:11px;line-height:1.5;color:#91b4c5;margin:3px 2px 12px}
