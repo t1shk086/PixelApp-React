@@ -295,3 +295,11 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p24-section-actions{display:flex;flex-wrap:wrap;gap:9px;margin:12px 0;padding:12px;background:#122633;border:1px solid #315064;border-radius:14px}
 .p24-section-actions>small{flex-basis:100%}
 @media(max-width:480px){.p24-section-actions button{flex:1 1 170px}.p24-trip-actions button{max-width:100%}}
+
+/* Пач 25 — мобилна навигация във формата за пътуване. */
+.p25-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:12px 0 16px}
+.p25-tabs button{background:#142b3b;border:1px solid #34586b;border-radius:12px;padding:11px 5px;min-height:46px;color:#b8cfdb;font-size:12px;font-weight:750;cursor:pointer;line-height:1.3}
+.p25-tabs button.p25-selected{background:#1b4b60;color:#fff;border-color:#5cbed2;box-shadow:inset 0 0 0 1px #327a97}
+.p25-tabs button:focus-visible{outline:2px solid #69d8ef;outline-offset:2px}
+.p21-dialog .p21-safe{position:relative;margin:9px 0}
+@media(max-width:510px){.p25-tabs{gap:5px}.p25-tabs button{font-size:11px;min-height:51px;padding:8px 3px}.p21-dialog{width:min(100%,640px)}}
