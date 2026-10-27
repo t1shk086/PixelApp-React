@@ -385,3 +385,7 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p31-fuel-details>.p23-consumption-preview{margin-top:12px}
 .p31-compact-note{font-size:12px;margin:0}
 @media(max-width:580px){.p31-manual-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.p31-manual-stats>div{padding:10px}}
+
+/* Patch 32: fuel history navigation below the active refill card. */
+.fuel-history-card>.fuel-history-pager{margin-top:12px;padding:10px 0 2px;border-top:1px solid #2b4252}
+@media(max-width:480px){.fuel-history-card>.fuel-history-pager{gap:18px}.fuel-history-card>.fuel-history-pager button{min-width:48px;min-height:44px}}
