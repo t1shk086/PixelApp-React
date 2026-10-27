@@ -114,7 +114,7 @@ function FuelHistory({rows}) {
  </div>;
 }
 
-function TripDetails({trip,detail,readOnly}) {
+function TripDetails({trip,detail,readOnly,onOpenPreview}) {
  const [section,setSection]=useState('summary');
  const [taskDrafts,setTaskDrafts]=useState([]);
  const [taskOverrides,setTaskOverrides]=useState({});
@@ -170,6 +170,7 @@ function TripDetails({trip,detail,readOnly}) {
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
  <div className="travel-hero"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
+ <div className="p24-trip-actions"><button type="button" onClick={()=>onOpenPreview('trip-demo')}>⚙️ Настройки · пробно</button><span>🔒 Само преглед — без запис</span></div>
  <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
  {section==='summary'&&<>
@@ -177,8 +178,9 @@ function TripDetails({trip,detail,readOnly}) {
  <div className="travel-card visual-section"><h3>💳 Разходи по категории</h3>{Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,val],i)=>{const ratio=allCosts>0?Math.max(0,Math.min(100,val/allCosts*100)):0;return <div className="visual-category" key={name}><div className="visual-category-head"><span><i className={'visual-category-dot visual-palette-'+i%5}/>{name}</span><strong>{money(val)}</strong></div><div className="visual-category-bar"><span className={'visual-palette-bg-'+i%5} style={{width:ratio+'%'}}/></div><small>{ratio.toFixed(1)}% от общите разходи</small></div>}):<p className="muted">Няма записани разходи.</p>}</div>
  <div className="travel-card visual-section"><h3>🚗 Гориво и път</h3><div className="visual-overview-stats visual-road-stats"><div className="overview-tile"><span>🛣️</span><small>Изминато</small><strong>{km.toLocaleString('bg-BG')} <em>км</em></strong></div><div className="overview-tile"><span>⛽</span><small>Среден разход</small><strong>{avg?avg.toFixed(1):'—'} <em>л/100 км</em></strong></div></div></div>
  </>}
- {section==='expenses'&&<ExpenseHistory rows={rows}/>}
+ {section==='expenses'&&<><div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>➕ Добави или редактирай разход · пробно</button><small>Промените са локални и няма да се запазят.</small></div><ExpenseHistory rows={rows}/></>}
  {section==='fuel'&&<>
+ <div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('fuel-demo')}>⛽ Ново зареждане · пробно</button><button type="button" onClick={()=>onOpenPreview('trip-demo')}>➕ Пропуснато гориво / настройки · пробно</button><small>Формите използват това пътуване, но не записват в Google Drive.</small></div>
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
  {settings.car_trip==='Не'?<p className="muted">Това пътуване е отбелязано като пътуване без собствен автомобил. Показаните данни са само записаните показания, ако има такива.</p>:null}
  <div className="fuel-road" aria-hidden="true"><span className="fuel-road-node fuel-road-start">S</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-current">🚗</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-finish">F</span></div>
@@ -233,8 +235,8 @@ function TripDetails({trip,detail,readOnly}) {
 
 
 // Безопасен прототип: изчисленията са само локални, без POST към API.
-function FuelEntryPreview({trips,loadTrip,onClose}){
- const [tripId,setTripId]=useState(trips[0]?.id||'');
+function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
+ const [tripId,setTripId]=useState(initialTripId||trips[0]?.id||'');
  const [detail,setDetail]=useState(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -339,8 +341,8 @@ function FuelEntryPreview({trips,loadTrip,onClose}){
   </div></div>;
 }
 
-function QuickExpensePreview({trips,loadTrip,onClose}){
- const [tripId,setTripId]=useState(trips[0]?.id||'');
+function QuickExpensePreview({trips,loadTrip,onClose,initialTripId}){
+ const [tripId,setTripId]=useState(initialTripId||trips[0]?.id||'');
  const [details,setDetails]=useState(null);
  const [fetchError,setFetchError]=useState('');
  const [busy,setBusy]=useState(false);
@@ -424,9 +426,9 @@ function QuickExpensePreview({trips,loadTrip,onClose}){
 
 
 // Пач 21: изцяло локален тест на настройките и приключването; без API записи.
-function TripManagementPreview({trips,onClose,loadTrip}){
+function TripManagementPreview({trips,onClose,loadTrip,initialTripId}){
  const blank=()=>({name:'',startDate:'',endDate:'',car:true,trackFuel:'Да',startKm:'',endKm:'',manualFuel:'',finished:false});
- const [source,setSource]=useState('__new');
+ const [source,setSource]=useState(initialTripId||'__new');
  const [form,setForm]=useState(blank);
  const [initial,setInitial]=useState(blank);
  const [confirmed,setConfirmed]=useState(false);
@@ -454,6 +456,7 @@ function TripManagementPreview({trips,onClose,loadTrip}){
  const toISO=value=>{const m=String(value||'').match(/^(\d\d)\.(\d\d)\.(\d{4})$/);return m?`${m[3]}-${m[2]}-${m[1]}`:''};
  const dateBG=value=>value?value.split('-').reverse().join('.'):'';
  const load=(id)=>{setSource(id);let next;if(id==='__new'){next=blank()}else{const tr=trips.find(t=>t.id===id)||{};const s=tr.settings||{};next={name:tr.name||tr.id||'',startDate:toISO(s.start_date),endDate:toISO(s.end_date),car:String(s.car_trip||'').toLowerCase()==='да',trackFuel:String(s.track_fuel||'Добави впоследствие'),startKm:String(Number(s.start_km||0)||''),endKm:String(Number(s.end_km||0)||''),manualFuel:String(Number(s.manual_fuel||0)||''),finished:String(s.trip_finished||'').toLowerCase()==='да'||Number(s.end_km||0)>0}}setForm(next);setInitial({...next});setConfirmed(false);setNotice('');resetManual()};
+ useEffect(()=>{if(initialTripId)load(initialTripId)},[initialTripId]);
  const startKm=Number(form.startKm),endKm=Number(form.endKm),kmValid=Number.isFinite(startKm)&&Number.isFinite(endKm)&&endKm>=startKm&&String(form.endKm).trim()!=='';
  const dateValid=!(form.startDate&&form.endDate&&form.endDate<form.startDate);
  const carReady=!form.car||String(form.startKm).trim()!==''&&startKm>=0;
@@ -580,10 +583,10 @@ function App(){
  {dashboard?.last_activity&&<div className="home-extra"><div className="home-extra-title">🕐 ПОСЛЕДНА АКТИВНОСТ</div><strong>{money(dashboard.last_activity.amount)}</strong><small>{dashboard.last_activity.trip} · {dashboard.last_activity.category} · {dashboard.last_activity.description}</small></div>}
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money(dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
- </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly}/>}</>}
- {modal==='trip-demo'&&<TripManagementPreview trips={trips} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
- {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
- {modal==='quick-demo'&&<QuickExpensePreview trips={trips} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
+ </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} onOpenPreview={setModal}/>}</>}
+ {modal==='trip-demo'&&<TripManagementPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
+ {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
+ {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
  <footer>PixelApp React · Етап 1 · Данните остават в Google Drive</footer></main>
 }
