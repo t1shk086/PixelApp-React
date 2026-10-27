@@ -311,3 +311,7 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p26-home-action{max-width:410px}
 .p26-home-action button{width:100%}
 @media(max-width:600px){.p26-return{min-height:36px}.p26-home-action{max-width:none}.p26-modal-safe{font-size:11px;padding:8px}}
+
+/* Пач 27: ненатрапчив индикатор за временните разходи */
+.p27-draft-note,.p27-home-warning{padding:10px 12px;border:1px solid var(--border,#3a5262);border-radius:10px;margin:10px 0;font-size:.84rem;line-height:1.45;opacity:.9}
+.p27-draft-label{font-size:.73rem;opacity:.72;font-weight:400}
