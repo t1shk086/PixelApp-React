@@ -112,7 +112,7 @@ function FuelHistory({rows}) {
  const normalCount=all.filter(r=>!r._manual).length;
  const manualCount=all.length-normalCount;
  const fmt=n=>num(n).toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2});
- return <div className="travel-card fuel-history-card"><h3>🧾 История на горивото <span className="fuel-history-count">{normalCount} зареждания · {manualCount} ръчни</span></h3>
+ return <div className="travel-card fuel-history-card"><h3 className="p35-history-heading">🧾 История на горивото</h3><div className="p35-history-counters"><span>⛽ Зареждания: <b>{normalCount}</b></span><span>✍️ Ръчно: <b>{manualCount}</b></span></div>
  {all.length?<>{all.slice(selected,selected+1).map((r,offset)=>{
   const i=selected+offset;
   const prev=all[i+1],prevPrice=prev?prev._price:0,delta=r._price-prevPrice;
@@ -281,7 +281,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  </div>
  <div className="travel-card"><h3>⛽ Разход на гориво</h3>
  {finish>begin?<div className="fuel-metrics visual-gauges"><div><small className="gauge-label gauge-label-red">РЕАЛЕН РАЗХОД</small><div className="gauge-circle gauge-circle-red"><b>{realConsumption>0?realConsumption.toFixed(1):'—'}</b><em>л/100 км</em></div><small>{realConsumption>0?'Потвърден етап „до горе“':'Няма потвърден етап'}</small></div><div><small className="gauge-label gauge-label-orange">СРЕДЕН РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{avg>0?avg.toFixed(1):'—'}</b><em>л/100 км</em></div><small>Ориентир: всички литри ÷ целия пробег</small></div></div>:<div className="fuel-metrics visual-gauges p20-active-gauge"><div><small className="gauge-label gauge-label-orange">ТЕКУЩ РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{(realConsumption>0?realConsumption:avg)>0?(realConsumption>0?realConsumption:avg).toFixed(1):'—'}</b><em>л/100 км</em></div><small>{realConsumption>0?'Последен потвърден етап „до горе“':'Ориентир до момента по общите литри'}</small></div></div>}
- <div className="travel-facts"><div><small>Гориво общо</small><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л</strong></div><div><small>Платено гориво</small><strong>{money(fuelSpend)}</strong></div><div><small>Зареждания</small><strong>{fuelRows.length}</strong></div></div>
+ <div className="p35-fuel-summary"><div className="p35-fuel-total"><div className="p35-summary-heading"><span className="p35-summary-icon">⛽</span><small>Общо гориво</small></div><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л</strong><small>Всички отчетени литри</small></div><div className="p35-fuel-paid"><div className="p35-summary-heading"><span className="p35-summary-icon">💳</span><small>Платено гориво</small></div><strong>{money(fuelSpend)}</strong><small>Известни разходи за гориво</small></div></div>
  {number(settings.manual_fuel)>0&&<p className="fuel-note">В общото количество са включени {number(settings.manual_fuel).toLocaleString('bg-BG')} л ръчно добавено гориво.</p>}
  </div>
  <FuelHistory rows={rows}/>

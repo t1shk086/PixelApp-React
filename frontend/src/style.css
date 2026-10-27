@@ -406,3 +406,39 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p34-settings-icon:hover,.p34-settings-icon:focus-visible{border-color:#5bcee9;background:#25495d;outline-offset:2px}
 .p34-read-only-note{font-size:11px;line-height:1.5;color:#91b4c5;margin:5px 3px 10px;overflow-wrap:anywhere}
 .p34-global-read-only{font-size:11px;line-height:1.5;color:#91b4c5;margin:3px 2px 12px}
+
+
+/* Patch 35 — presentation only: responsive fuel gauges, two summary cards, compact history counters */
+.visual-gauges.p20-active-gauge{grid-template-columns:minmax(0,1fr);justify-items:center}
+.visual-gauges.p20-active-gauge>div{width:100%;box-sizing:border-box;max-width:none}
+.visual-gauges.p20-active-gauge .gauge-circle{width:clamp(180px,48vw,245px);height:clamp(180px,48vw,245px)}
+.visual-gauges.p20-active-gauge .gauge-circle b{font-size:clamp(29px,7vw,42px)}
+.visual-gauges:not(.p20-active-gauge){grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
+.visual-gauges:not(.p20-active-gauge) .gauge-circle{width:min(170px,34vw);height:min(170px,34vw)}
+.visual-gauges:not(.p20-active-gauge) .gauge-circle b{font-size:clamp(20px,4vw,29px)}
+.p35-fuel-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:17px}
+.p35-fuel-summary>div{min-width:0;border-radius:16px;padding:16px 12px;display:flex;flex-direction:column;gap:9px;box-shadow:inset 0 1px 0 #ffffff0c}
+.p35-fuel-total{border:1px solid #32758a;background:linear-gradient(135deg,#163648,#122733)}
+.p35-fuel-paid{border:1px solid #397763;background:linear-gradient(135deg,#183b36,#142a2a)}
+.p35-summary-heading{display:flex;align-items:center;gap:8px;min-width:0}
+.p35-summary-heading small{font-weight:700;color:#b3cbda;font-size:12px;line-height:1.3}
+.p35-summary-icon{font-size:19px;line-height:1}
+.p35-fuel-summary strong{color:#70dff7;font-size:clamp(20px,4.6vw,30px);line-height:1.2;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.p35-fuel-paid strong{color:#85dfb9}
+.p35-fuel-summary>div>small{font-size:11px;color:#a4bbc7;line-height:1.4}
+.fuel-history-card h3.p35-history-heading{margin-bottom:9px}
+.p35-history-counters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.p35-history-counters span{display:inline-flex;align-items:center;gap:5px;border:1px solid #33576a;border-radius:999px;background:#173142;color:#bfe5f0;padding:7px 11px;font-size:12px;line-height:1.3;white-space:nowrap}
+.p35-history-counters b{font-weight:850;color:#77dcf4}
+@media(max-width:420px){
+ .visual-gauges.p20-active-gauge .gauge-circle{width:min(225px,62vw);height:min(225px,62vw)}
+ .visual-gauges:not(.p20-active-gauge){gap:7px}
+ .visual-gauges:not(.p20-active-gauge)>div{padding:12px 5px}
+ .visual-gauges:not(.p20-active-gauge) .gauge-circle{width:min(145px,34vw);height:min(145px,34vw)}
+ .p35-fuel-summary{gap:8px}
+ .p35-fuel-summary>div{padding:13px 9px}
+ .p35-summary-heading{gap:5px}
+ .p35-summary-heading small{font-size:11px}
+ .p35-fuel-summary strong{font-size:clamp(18px,5vw,24px)}
+ .p35-history-counters span{font-size:11px;padding:7px 9px}
+}
