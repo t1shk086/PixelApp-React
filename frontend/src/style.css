@@ -216,3 +216,18 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .fuel-test-dialog .p18-calc{display:grid;gap:8px;border:1px solid #276c7f;border-radius:12px;padding:14px;background:#122633;margin:12px 0}
 .fuel-test-dialog .p18-calc>b{font-size:24px;color:#43daf4}.fuel-test-dialog .p18-calc small{color:#aac3d2}
 @media(max-width:420px){.fuel-test-dialog .p18-preview-grid{grid-template-columns:1fr 1fr}.fuel-test-dialog .p18-preview-grid strong{font-size:15px}}
+
+/* Пач 19: пробен край на пътуване */
+.p19-trip-end{margin:18px 0;padding:16px;border:1px solid #315669;border-radius:14px;background:#13232e;color:#d9e9f3}
+.p19-trip-end h4{margin:0 0 10px;color:#e7f6ff}
+.p19-trip-end .muted{font-size:.85rem}
+.p19-end-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:13px 0}
+.p19-end-grid>div{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:10px;border:1px solid #355163;background:#1c2e3b}
+.p19-end-grid small,.p19-end-result small{color:#a6bdcb;font-size:.75rem}
+.p19-end-grid strong{color:#49d8f1;font-size:.95rem}
+.p19-trip-end label{display:block;margin:12px 0}
+.p19-trip-end input{width:100%;box-sizing:border-box}
+.p19-end-result{display:flex;flex-direction:column;gap:6px;margin:12px 0;padding:12px;border:1px solid #2c907c;border-radius:10px;background:#14362f}
+.p19-end-result strong{color:#54e5c4;font-size:1.4rem}
+.p19-end-result span{font-size:.83rem;color:#cee8df}
+@media(max-width:390px){.p19-end-grid{grid-template-columns:1fr}}
