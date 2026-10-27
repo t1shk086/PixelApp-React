@@ -136,7 +136,8 @@ function TripDetails({trip,detail,readOnly}) {
  const maxReading=Math.max(0,...rows.map(r=>number(r.current_km)));
  const effectiveReading=finish>0?finish:maxReading;
  const km=Math.max(0,effectiveReading-begin);
- const avg=km>0&&liters>0?liters/km*100:0;
+ const avgLiters=rows.reduce((sum,r)=>sum+number(r.liters),0)+number(settings.manual_fuel);
+ const avg=km>0&&avgLiters>0?avgLiters/km*100:0;
  const fullFuelRows=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.current_km)>begin&&/ПЪЛЕН|ПЪЛНО/i.test(String(r.description||'')));
  const lastFull=fullFuelRows.at(-1);
  const realMatch=lastFull&&String(lastFull.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
@@ -185,7 +186,7 @@ function TripDetails({trip,detail,readOnly}) {
  {finish>begin&&<p className="fuel-note">Пътуването има записани крайни километри.</p>}
  </div>
  <div className="travel-card"><h3>⛽ Разход на гориво</h3>
- <div className="fuel-metrics visual-gauges"><div><small className="gauge-label gauge-label-orange">СРЕДЕН РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{avg>0?avg.toFixed(1):'—'}</b><em>л/100 км</em></div><small>По всички записани литри и километри</small></div><div><small className="gauge-label gauge-label-red">РЕАЛЕН РАЗХОД</small><div className="gauge-circle gauge-circle-red"><b>{realConsumption>0?realConsumption.toFixed(1):'—'}</b><em>л/100 км</em></div><small>{realConsumption>0?'От последното пълно зареждане':'Няма записано пълно зареждане с разход'}</small></div></div>
+ {finish>begin?<div className="fuel-metrics visual-gauges"><div><small className="gauge-label gauge-label-red">РЕАЛЕН РАЗХОД</small><div className="gauge-circle gauge-circle-red"><b>{realConsumption>0?realConsumption.toFixed(1):'—'}</b><em>л/100 км</em></div><small>{realConsumption>0?'Потвърден етап „до горе“':'Няма потвърден етап'}</small></div><div><small className="gauge-label gauge-label-orange">СРЕДЕН РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{avg>0?avg.toFixed(1):'—'}</b><em>л/100 км</em></div><small>Ориентир: всички литри ÷ целия пробег</small></div></div>:<div className="fuel-metrics visual-gauges p20-active-gauge"><div><small className="gauge-label gauge-label-orange">ТЕКУЩ РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{(realConsumption>0?realConsumption:avg)>0?(realConsumption>0?realConsumption:avg).toFixed(1):'—'}</b><em>л/100 км</em></div><small>{realConsumption>0?'Последен потвърден етап „до горе“':'Ориентир до момента по общите литри'}</small></div></div>}
  <div className="travel-facts"><div><small>Гориво общо</small><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л</strong></div><div><small>Платено гориво</small><strong>{money(fuelSpend)}</strong></div><div><small>Зареждания</small><strong>{fuelRows.length}</strong></div></div>
  {number(settings.manual_fuel)>0&&<p className="fuel-note">В общото количество са включени {number(settings.manual_fuel).toLocaleString('bg-BG')} л ръчно добавено гориво.</p>}
  </div>
@@ -282,6 +283,15 @@ function FuelEntryPreview({trips,loadTrip,onClose}){
  const trialEndValid=trialEndKm!==null&&Number.isInteger(trialEndKm)&&trialEndKm>=lastKm&&trialEndKm>=start;
  const trialDistance=trialEndValid?trialEndKm-start:null;
  const currentDistance=Math.max(0,lastKm-start);
+ // Същият ориентировъчен показател като в Streamlit: всички записани литри / текущ пробег.
+ // За пробно приключване пробегът стига до въведения краен километраж.
+ const totalFuelLiters=(detail?.expenses||[]).reduce((sum,r)=>sum+num(r.liters),0)+manual+mock.reduce((sum,r)=>sum+num(r.liters),0);
+ const previewDistance=trialEndValid?trialDistance:(recordedEnd>start?recordedEnd-start:currentDistance);
+ const averagePreview=previewDistance>0&&totalFuelLiters>0?totalFuelLiters/previewDistance*100:null;
+ // Етапният разход е отделен — използва се записаният резултат от последното пълно зареждане.
+ const lastConfirmed=[...valid].reverse().find(r=>/\[ПЪЛНО\s+ЗАРЕЖДАНЕ\]/i.test(String(r.description||''))&&/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i.test(String(r.description||'')));
+ const confirmedMatch=lastConfirmed&&String(lastConfirmed.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
+ const confirmedReal=confirmedMatch?num(confirmedMatch[1]):null;
  function addMock(e){e.preventDefault();
   if(!Number.isFinite(valMoney)||valMoney<=0||!Number.isFinite(valLiters)||valLiters<=0){setError('Въведи положителна сума и литри.');return;}
   if(!Number.isInteger(valKm)||valKm<=lastKm){setError(`Километражът трябва да е цяло число, по-голямо от ${lastKm.toLocaleString('bg-BG')} км.`);return;}
@@ -314,6 +324,14 @@ function FuelEntryPreview({trips,loadTrip,onClose}){
       <label>Пробен краен километраж<input type="number" inputMode="numeric" step="1" min={Math.ceil(lastKm)} placeholder={`Не по-малко от ${lastKm.toLocaleString('bg-BG')} км`} value={endKmTest} onChange={e=>setEndKmTest(e.target.value)}/></label>
       {endKmTest.trim()&&(trialEndValid?<div className="p19-end-result"><small>Общ пробег при приключване</small><strong>{trialDistance.toLocaleString('bg-BG')} км</strong><span>Допълнително след последното зареждане: {(trialEndKm-lastKm).toLocaleString('bg-BG')} км</span></div>:<p className="error">Крайният километраж трябва да е цяло число и не може да е под последния километраж ({lastKm.toLocaleString('bg-BG')} км).</p>)}
       <button className="ghost" type="button" onClick={()=>setEndKmTest('')}>↶ Изчисти пробния краен километраж</button>
+    </section>
+    <section className="p20-fuel-comparison"><h4>📈 Разход на гориво · проверка като в Streamlit</h4>
+      <p className="muted">Двата показателя имат различна цел. Ориентировъчният използва общия пробег, а реалният — последния завършен етап между пълни зареждания.</p>
+      <div className="p20-fuel-summary-grid">
+        <div><small>Реален разход · последен етап</small><strong>{confirmedReal!==null?confirmedReal.toFixed(1)+' л/100 км':'Недостатъчно данни'}</strong><span>Не се изменя от километри след последното пълно зареждане.</span></div>
+        <div><small>Среден разход · ориентир</small><strong>{averagePreview!==null?averagePreview.toFixed(1)+' л/100 км':'Недостатъчно данни'}</strong><span>{totalFuelLiters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л / {previewDistance.toLocaleString('bg-BG')} км общ пробег</span></div>
+      </div>
+      <p className="muted">{trialEndValid?'Пробният краен километраж участва само в ориентировъчния среден разход.':'За тест на приключено пътуване въведи пробен краен километраж по-горе.'} Всичко е локална симулация.</p>
     </section>
     <section className="quick-demo-summary"><h4>📊 Влияние върху разходите</h4><div className="quick-demo-grid"><div><small>Разходи преди</small><strong>{money(spentBefore)}</strong></div><div><small>След пробните зареждания</small><strong>{money(spentBefore+mockTotal)}</strong></div><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'Няма зададен'}</strong></div><div><small>Остатък по бюджетния обхват</small><strong>{budgetTotal?money(budgetTotal-actualScope-(transportInBudget?mockTotal:0)):'—'}</strong></div></div><small className="muted">Проверка по същия принцип като Пач 17; бюджетните правила предстои да се сравнят изцяло със Streamlit.</small></section>
     <section className="quick-demo-list"><h4>⛽ Пробни зареждания · {mock.length}</h4>{mock.length>0&&<button className="ghost" type="button" onClick={()=>{setMock([]);setError('');}}>↶ Изчисти пробните зареждания</button>}{[...mock].reverse().map((r,i)=><div className="p17-row" key={`${r.current_km}-${i}`}><span><b>{r.description}</b><small>{num(r.liters).toLocaleString('bg-BG')} л · {num(r.current_km).toLocaleString('bg-BG')} км · ТЕСТ</small></span><strong>{money(r.amount)}</strong></div>)}</section>
