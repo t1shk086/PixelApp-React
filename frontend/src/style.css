@@ -206,3 +206,13 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p17-actions .ghost{padding:7px 10px;min-width:34px}
 .p17-edit{position:sticky;bottom:0;z-index:2;background:#142430;border:1px solid #3a6778;border-radius:14px;padding:14px;margin-top:12px;box-shadow:0 -8px 25px #0005}
 .p17-edit h4{margin:0 0 10px}
+
+/* PATCH 18: Fuel input preview */
+.fuel-test-dialog .p18-odometer{display:flex;justify-content:space-between;gap:10px;background:#111e2a;border:1px solid #2d536a;border-radius:12px;padding:12px;margin:12px 0;color:#acc6d7;font-size:12px}
+.fuel-test-dialog .p18-odometer span{display:grid;gap:5px}.fuel-test-dialog .p18-odometer b{color:#48d6ef;font-size:16px}
+.fuel-test-dialog .p18-preview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:8px 0}
+.fuel-test-dialog .p18-preview-grid>div{display:grid;gap:7px;background:#192936;border:1px solid #2f4e61;border-radius:12px;padding:12px;min-width:0}
+.fuel-test-dialog .p18-preview-grid small{color:#abc5d3}.fuel-test-dialog .p18-preview-grid strong{color:#45e4aa;font-size:18px;overflow-wrap:anywhere}
+.fuel-test-dialog .p18-calc{display:grid;gap:8px;border:1px solid #276c7f;border-radius:12px;padding:14px;background:#122633;margin:12px 0}
+.fuel-test-dialog .p18-calc>b{font-size:24px;color:#43daf4}.fuel-test-dialog .p18-calc small{color:#aac3d2}
+@media(max-width:420px){.fuel-test-dialog .p18-preview-grid{grid-template-columns:1fr 1fr}.fuel-test-dialog .p18-preview-grid strong{font-size:15px}}
