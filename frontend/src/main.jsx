@@ -233,61 +233,83 @@ function TripDetails({trip,detail,readOnly}) {
 
 // Безопасен прототип: изчисленията са само локални, без POST към API.
 function QuickExpensePreview({trips,loadTrip,onClose}){
- const available=trips;
- const [tripId,setTripId]=useState(available[0]?.id||'');
+ const [tripId,setTripId]=useState(trips[0]?.id||'');
  const [details,setDetails]=useState(null);
  const [fetchError,setFetchError]=useState('');
  const [busy,setBusy]=useState(false);
  const [amount,setAmount]=useState('');
  const [category,setCategory]=useState('Храна и напитки');
  const [description,setDescription]=useState('');
- const [added,setAdded]=useState([]);
- useEffect(()=>{let active=true;setDetails(null);setAdded([]);setFetchError('');if(!tripId)return;
+ const [newRows,setNewRows]=useState([]);
+ const [edits,setEdits]=useState({});
+ const [deleted,setDeleted]=useState([]);
+ const [editing,setEditing]=useState(null);
+ const [editAmount,setEditAmount]=useState('');
+ const [editCategory,setEditCategory]=useState('');
+ const [editDescription,setEditDescription]=useState('');
+ useEffect(()=>{let active=true;setDetails(null);setNewRows([]);setEdits({});setDeleted([]);setEditing(null);setFetchError('');if(!tripId)return;
   setBusy(true);loadTrip(tripId).then(d=>{if(active)setDetails(d)}).catch(e=>{if(active)setFetchError(e.message||String(e))}).finally(()=>{if(active)setBusy(false)});
   return()=>{active=false};
  },[tripId]);
- const trip=available.find(t=>t.id===tripId);
+ const val=v=>{const n=Number(String(v??0).replace(',','.'));return Number.isFinite(n)?n:0};
+ const isExpense=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
+ const expenseCategory=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
+ const isFuel=r=>r.type==='expense'&&r.category==='Транспорт'&&(val(r.liters)>0||/гориво|зареждане|бензин|дизел|газ/i.test(String(r.description||'')));
+ const original=(details?.expenses||[]).filter(isExpense).map((r,i)=>({...r,_key:`old-${i}`,_original:true}));
+ const effectiveOld=original.filter(r=>!deleted.includes(r._key)).map(r=>({...r,...(edits[r._key]||{})}));
+ const allEffective=effectiveOld.concat(newRows);
  const budgets=details?.budgets||[];
- const rows=details?.expenses||[];
- const val=v=>{const n=Number(v);return Number.isFinite(n)?n:0};
  const budgetItems=budgets.filter(b=>b.category!=='__GLOBAL__'&&val(b.budget)>0);
  const globalBudget=budgets.filter(b=>b.category==='__GLOBAL__').reduce((a,b)=>a+val(b.budget),0);
  const budgetTotal=globalBudget>0?globalBudget:budgetItems.reduce((a,b)=>a+val(b.budget),0);
  const budgetCats=new Set(budgetItems.map(b=>b.category));
- const included=c=>globalBudget>0||!budgetCats.size||budgetCats.has(c);
- const costCategory=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
- const existing=rows.filter(r=>['expense','deposit'].includes(r.type));
- const totalOld=existing.reduce((a,r)=>a+val(r.amount),0);
- const budgetOld=existing.reduce((a,r)=>a+(included(costCategory(r))?val(r.amount):0),0);
- const demoTotal=added.reduce((a,r)=>a+r.amount,0);
- const demoBudget=added.reduce((a,r)=>a+(included(r.category)?r.amount:0),0);
- const possibleCategories=[...new Set([...categories.filter(c=>c!=='Депозит/Резервация'),...budgetItems.map(b=>b.category),...existing.map(costCategory)])].filter(Boolean);
- const fuelNote=category==='Транспорт'&&/газ|гориво|зареждане|бензин|дизел/i.test(description);
- function addTest(e){e.preventDefault();const n=Number(String(amount).replace(',','.'));if(!Number.isFinite(n)||n<=0)return;
-  setAdded(prev=>[...prev,{id:Date.now()+Math.random(),amount:Math.round(n*100)/100,category,description:description.trim()}]);setAmount('');setDescription('');
+ const included=r=>globalBudget>0||!budgetCats.size||budgetCats.has(expenseCategory(r));
+ const totalFor=items=>items.reduce((a,r)=>a+val(r.amount),0);
+ const scopeFor=items=>items.reduce((a,r)=>a+(included(r)?val(r.amount):0),0);
+ const totalBefore=totalFor(original),totalAfter=totalFor(allEffective);
+ const scopeBefore=scopeFor(original),scopeAfter=scopeFor(allEffective);
+ const options=[...new Set([...categories.filter(c=>c!=='Депозит/Резервация'),...budgetItems.map(b=>b.category),...original.map(expenseCategory)])].filter(Boolean);
+ const changes=newRows.length+deleted.length+Object.keys(edits).length;
+ const changeType=(r,c)=>({...r,category:c,type:r.type==='deposit'&&c!=='Нощувки/Хотел'?'expense':r.type});
+ function addTest(e){e.preventDefault();const n=val(amount);if(!(n>0))return;
+  if(category==='Транспорт'&&/гориво|зареждане|бензин|дизел|газ/i.test(description)){setFetchError('За горивото ще използваме отделната форма с литри, километраж и пълно/частично зареждане.');return;}
+  setFetchError('');setNewRows(items=>items.concat([{_key:`new-${Date.now()}-${items.length}`,_original:false,type:'expense',amount:Math.round(n*100)/100,category,description:description.trim(),date:'ТЕСТ'}]));setAmount('');setDescription('');
  }
+ function beginEdit(r){if(isFuel(r))return;setEditing(r._key);setEditAmount(String(val(r.amount)));setEditCategory(expenseCategory(r));setEditDescription(String(r.description||''));}
+ function saveEdit(e){e.preventDefault();const n=val(editAmount);if(!(n>0))return;
+  const row=allEffective.find(r=>r._key===editing);if(!row)return;
+  const update={amount:Math.round(n*100)/100,category:editCategory,description:editDescription.trim()};
+  if(editCategory==='Транспорт'&&/гориво|зареждане|бензин|дизел|газ/i.test(update.description)){setFetchError('Зареждане на гориво се редактира отделно.');return;}
+  setFetchError('');if(row._original)setEdits(prev=>({...prev,[editing]:update}));else setNewRows(prev=>prev.map(r=>r._key===editing?{...r,...update}:r));setEditing(null);
+ }
+ function removeTest(r){if(r._original)setDeleted(prev=>prev.concat(r._key));else setNewRows(prev=>prev.filter(x=>x._key!==r._key));if(editing===r._key)setEditing(null);}
+ function restore(){setNewRows([]);setEdits({});setDeleted([]);setEditing(null);setFetchError('');}
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog" onClick={e=>e.stopPropagation()}>
-  <div className="dialoghead"><h3>➕ Бърз разход · ТЕСТ</h3><button className="ghost" type="button" onClick={onClose}>✕</button></div>
-  <div className="quick-demo-alert">🧪 Пробен режим — нищо не се записва в Google Drive. Тестовите разходи изчезват при затваряне или смяна на пътуване.</div>
-  {!available.length?<p>Няма заредени пътувания. Прочети данните от Google Drive и опитай отново.</p>:<>
-   <label>Пътуване за симулацията<select value={tripId} onChange={e=>setTripId(e.target.value)}>{available.map(t=><option key={t.id} value={t.id}>{t.name}{tripState(t)!=='active'?' · само тест':''}</option>)}</select></label>
-   {trip&&tripState(trip)!=='active'&&<p className="quick-demo-note">ℹ️ Избраното пътуване не е активно. В стария PixelApp реалният „Бърз разход“ не го допуска, но тук можеш да го използваш за безопасна симулация.</p>}
-   {busy&&<p className="muted">Зареждане на текущите данни…</p>}
-   {fetchError&&<p className="error">{fetchError}</p>}
-   {details&&<><form className="quick-demo-form" onSubmit={addTest}>
-    <label>Сума (€)<input autoFocus inputMode="decimal" type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Например 12.50" required/></label>
-    <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{possibleCategories.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
-    <label>Описание<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Обяд, паркинг…"/></label>
-    {fuelNote&&<p className="quick-demo-note">⛽ В оригиналния PixelApp зареждането изисква допълнителни данни (литри и километраж). Тук тестваме само отражението на сумата върху бюджета — не реалния алгоритъм за гориво.</p>}
-    <button type="submit">Добави пробен разход</button>
-   </form>
-   <section className="quick-demo-summary"><h4>📊 Стъпка 2 · Как се променя бюджетът?</h4>
-    <div className="quick-demo-grid"><div><small>Всички разходи · преди</small><strong>{money(totalOld)}</strong></div><div><small>След тестовите разходи</small><strong>{money(totalOld+demoTotal)}</strong></div><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'Не е зададен'}</strong></div><div><small>Остава по бюджетния обхват</small><strong>{budgetTotal?money(budgetTotal-budgetOld-demoBudget):'—'}</strong></div></div>
-    {budgetTotal>0&&<div className="quick-demo-meter"><span style={{width:Math.min(100,Math.max(0,(budgetOld+demoBudget)/budgetTotal*100))+'%'}}/></div>}
-    {globalBudget===0&&budgetCats.size>0&&<p className="quick-demo-note">ℹ️ При бюджет по категории пробните разходи извън бюджетните категории се броят във „Всички разходи“, но не намаляват показания бюджетен остатък.</p>}
-    <small className="muted">Контролна симулация върху текущите записи; окончателната логика ще се сравни със Streamlit преди включване на записването.</small>
-   </section>
-   {added.length>0&&<section className="quick-demo-list"><h4>Пробни разходи · {added.length}</h4>{added.map(a=><div key={a.id}><span><b>{a.category}</b><small>{a.description||'Без описание'}</small></span><strong>{money(a.amount)}</strong><button className="ghost" type="button" title="Премахни пробния разход" onClick={()=>setAdded(x=>x.filter(z=>z.id!==a.id))}>✕</button></div>)}<button className="ghost" type="button" onClick={()=>setAdded([])}>Изчисти пробните разходи</button></section>}
+  <div className="dialoghead"><h3>🧪 Управление на разходи · ТЕСТ</h3><button className="ghost" type="button" onClick={onClose}>✕</button></div>
+  <div className="quick-demo-alert">🔒 Само симулация — добавянето, редактирането и изтриването НЕ записват в Google Drive. При затваряне всичко се възстановява.</div>
+  {!trips.length?<p>Няма заредени пътувания. Прочети данните от Google Drive и опитай отново.</p>:<>
+   <label>Пътуване<select value={tripId} onChange={e=>setTripId(e.target.value)}>{trips.map(t=><option key={t.id} value={t.id}>{t.name}{tripState(t)!=='active'?' · само тест':''}</option>)}</select></label>
+   {busy&&<p className="muted">Зареждане…</p>}{fetchError&&<p className="error">{fetchError}</p>}
+   {details&&<>
+    <form className="quick-demo-form" onSubmit={addTest}>
+     <h4>➕ Пробен разход</h4>
+     <label>Сума (€)<input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></label>
+     <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
+     <label>Описание<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Паркинг, обяд…"/></label>
+     <button type="submit">Добави тестов разход</button>
+    </form>
+    <section className="quick-demo-summary"><h4>📊 Контрол на бюджета</h4>
+     <div className="quick-demo-grid"><div><small>Разходи преди</small><strong>{money(totalBefore)}</strong></div><div><small>Разходи след</small><strong>{money(totalAfter)}</strong></div><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'Не е зададен'}</strong></div><div><small>Остава по бюджетен обхват</small><strong>{budgetTotal?money(budgetTotal-scopeAfter):'—'}</strong></div></div>
+     {budgetTotal>0&&<div className="quick-demo-meter"><span style={{width:Math.min(100,Math.max(0,scopeAfter/budgetTotal*100))+'%'}}/></div>}
+     <p className="quick-demo-note">Разлика на разходите: <b>{money(totalAfter-totalBefore)}</b> · Разлика по бюджетния обхват: <b>{money(scopeAfter-scopeBefore)}</b></p>
+     <small className="muted">При бюджет по категории участват само съответните категории. Това е локална проверка, не окончателно сравнение с оригиналните формули.</small>
+    </section>
+    <section className="quick-demo-list"><h4>📋 История на разходите · {allEffective.length}</h4>
+     {changes>0&&<button type="button" className="ghost" onClick={restore}>↶ Възстанови всичко ({changes} тестови промени)</button>}
+     {[...allEffective].reverse().map(r=><div className="p17-row" key={r._key}><span><b>{expenseCategory(r)}</b><small>{r.description||'Без описание'} · {r.date||'Без дата'}{r._original?'':' · ТЕСТ'}</small></span><strong>{money(r.amount)}</strong>{isFuel(r)?<small title="Зарежданията се редактират в отделен модул">⛽</small>:<span className="p17-actions"><button className="ghost" type="button" onClick={()=>beginEdit(r)} title="Редактирай пробно">✎</button><button className="ghost" type="button" onClick={()=>removeTest(r)} title="Изтрий пробно">✕</button></span>}</div>)}
+     <small className="muted">⛽ Зарежданията са заключени в този тест — необходимо е отделно преизчисляване на горивото.</small>
+    </section>
+    {editing&&<form className="quick-demo-form p17-edit" onSubmit={saveEdit}><h4>✏️ Редакция · ТЕСТ</h4><label>Сума (€)<input type="number" step="0.01" min="0.01" value={editAmount} onChange={e=>setEditAmount(e.target.value)} required/></label><label>Категория<select value={editCategory} onChange={e=>setEditCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Описание<input value={editDescription} onChange={e=>setEditDescription(e.target.value)}/></label><div className="p17-actions"><button type="submit">Запази тестово</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>}
    </>}
   </>}
  </div></div>;
