@@ -205,7 +205,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  </>}
  {section==='expenses'&&<><div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>➕ Добави или редактирай разход</button></div><ExpenseHistory rows={rows}/></>}
  {section==='fuel'&&<>
- <div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('fuel-demo')}>⛽ Ново зареждане</button><button type="button" onClick={()=>onOpenPreview('trip-fuel')}>➕ Пропуснато гориво</button></div>
+ <div className="p24-section-actions p28-car-actions"><button type="button" onClick={()=>onOpenPreview('fuel-demo')}>⛽ Зареди гориво</button><button type="button" onClick={()=>onOpenPreview('trip-fuel')}>➕ Пропуснато гориво</button></div><p className="p28-car-hint">Тук записваш литри, сума, километраж и дали резервоарът е пълен. Обикновените разходи са в „Разходи“.</p>
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
  {settings.car_trip==='Не'?<p className="muted">Това пътуване е отбелязано като пътуване без собствен автомобил. Показаните данни са само записаните показания, ако има такива.</p>:null}
  <div className="fuel-road" aria-hidden="true"><span className="fuel-road-node fuel-road-start">S</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-current">🚗</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-finish">F</span></div>
@@ -422,7 +422,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  function removeTest(r){if(r._original)setDeleted(prev=>prev.concat(r._key));else setNewRows(prev=>prev.filter(x=>x._key!==r._key));if(editing===r._key)setEditing(null);}
  function restore(){setNewRows([]);setEdits({});setDeleted([]);setEditing(null);setFetchError('');}
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog" onClick={e=>e.stopPropagation()}>
-  <div className="dialoghead"><h3>💳 Управление на разходи</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Назад към пътуването</button>
+  <div className="dialoghead"><h3>💳 Управление на разходи</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Затвори разходите</button>
   <div className="p26-modal-safe">🔒 Без запис в Drive · пробните промени се пазят при затваряне на формата, до презареждане на страницата</div>
   {!trips.length?<p>Няма заредени пътувания. Прочети данните от Google Drive и опитай отново.</p>:<>
    <label>Пътуване<select value={tripId} onChange={e=>setTripId(e.target.value)}>{trips.map(t=><option key={t.id} value={t.id}>{t.name}{tripState(t)!=='active'?' · само тест':''}</option>)}</select></label>
@@ -431,7 +431,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
     <form className="quick-demo-form" onSubmit={addTest}>
      <h4>➕ Добави разход</h4>
      <label>Сума (€)<input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></label>
-     <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
+     <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label>{category==='Транспорт'&&<p className="p28-expense-hint">⛽ За зареждане с литри и километраж използвай раздел „Автомобил“ в пътуването. Тук можеш да въведеш паркинг, пътна такса и друг транспортен разход.</p>}
      <label>Описание<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Паркинг, обяд…"/></label>
      <button type="submit">Добави тестов разход</button>
     </form>
@@ -614,7 +614,7 @@ function App(){
  <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({})}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button><button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
  {!current?<>
- <div className="actions home-actions p26-home-action"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button></div>
+ <div className="actions home-actions p28-home-actions"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button><button onClick={()=>setModal('quick-demo')}>💳 <span><b>Бърз разход</b><small>Добави към избрано пътуване</small></span></button></div>
  <div className="home-sync"><button className="ghost" onClick={async()=>{setLoading(true);setError('');try{await req('/sync-from-drive','POST');await reload()}catch(e){setError(String(e.message))}finally{setLoading(false)}}}><RefreshCcw size={15}/> Прочети данните от Google Drive</button></div>
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
  {(() => {const ranked=[...trips].sort((a,b)=>{const rank={active:0,upcoming:1,finished:2},sa=tripState(a),sb=tripState(b);if(rank[sa]!==rank[sb])return rank[sa]-rank[sb];const da=asDate(sa==='finished'?a.settings?.end_date:sa==='upcoming'?a.settings?.start_date:a.settings?.end_date);const db=asDate(sb==='finished'?b.settings?.end_date:sb==='upcoming'?b.settings?.start_date:b.settings?.end_date);return sa==='finished'?(db?.getTime()||0)-(da?.getTime()||0):(da?.getTime()||Infinity)-(db?.getTime()||Infinity)});const ended=ranked.filter(t=>tripState(t)==='finished');const visible=ranked.filter(t=>tripState(t)!=='finished').concat(showFinished?ended:ended.slice(0,1));return <>
