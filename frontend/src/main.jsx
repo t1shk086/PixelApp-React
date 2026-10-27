@@ -243,7 +243,8 @@ function FuelEntryPreview({trips,loadTrip,onClose}){
  const [description,setDescription]=useState('Гориво');
  const [fuelType,setFuelType]=useState('full');
  const [mock,setMock]=useState([]);
- useEffect(()=>{let live=true;setDetail(null);setMock([]);setError('');setAmount('');setLiters('');setKmInput('');if(!tripId)return;
+ const [endKmTest,setEndKmTest]=useState('');
+ useEffect(()=>{let live=true;setDetail(null);setMock([]);setError('');setAmount('');setLiters('');setKmInput('');setEndKmTest('');if(!tripId)return;
   setBusy(true);loadTrip(tripId).then(data=>{if(live)setDetail(data)}).catch(err=>{if(live)setError(String(err.message||err))}).finally(()=>{if(live)setBusy(false)});
   return()=>{live=false};
  },[tripId]);
@@ -262,7 +263,9 @@ function FuelEntryPreview({trips,loadTrip,onClose}){
  const earlierLiters=lastFull?valid.filter(r=>num(r.current_km)>lastFullKm).reduce((sum,r)=>sum+num(r.liters),0):valid.reduce((sum,r)=>sum+num(r.liters),0)+manual;
  const segmentKm=valKm-lastFullKm;
  const segmentLiters=earlierLiters+valLiters;
- const consumption=fuelType==='full'&&valLiters>0&&valKm>lastKm&&segmentKm>0&&segmentLiters>0?segmentLiters/segmentKm*100:null;
+ // First full tank is not a reliable consumption measurement without a known starting fuel baseline.
+ const firstFullUnverified=fuelType==='full'&&!lastFull;
+ const consumption=fuelType==='full'&&!!lastFull&&valLiters>0&&valKm>lastKm&&segmentKm>0&&segmentLiters>0?segmentLiters/segmentKm*100:null;
  const pricePerLiter=valLiters>0&&valMoney>0?valMoney/valLiters:null;
  const pastFuel=valid.filter(r=>num(r.amount)>0&&num(r.liters)>0);
  const oldPrice=pastFuel.length?num(pastFuel[pastFuel.length-1].amount)/num(pastFuel[pastFuel.length-1].liters):null;
@@ -274,6 +277,11 @@ function FuelEntryPreview({trips,loadTrip,onClose}){
  const transportInBudget=globalBudget>0||!budgetCats.length||budgetCats.some(b=>b.category==='Транспорт');
  const actualScope=(detail?.expenses||[]).filter(r=>['expense','deposit'].includes(String(r.type))&&(globalBudget>0||!budgetCats.length||budgetCats.some(b=>b.category===(r.type==='deposit'?'Нощувки/Хотел':r.category)))).reduce((sum,r)=>sum+num(r.amount),0);
  const mockTotal=mock.reduce((sum,r)=>sum+num(r.amount),0);
+ const recordedEnd=num(settings.end_km);
+ const trialEndKm=endKmTest.trim()?num(endKmTest):null;
+ const trialEndValid=trialEndKm!==null&&Number.isInteger(trialEndKm)&&trialEndKm>=lastKm&&trialEndKm>=start;
+ const trialDistance=trialEndValid?trialEndKm-start:null;
+ const currentDistance=Math.max(0,lastKm-start);
  function addMock(e){e.preventDefault();
   if(!Number.isFinite(valMoney)||valMoney<=0||!Number.isFinite(valLiters)||valLiters<=0){setError('Въведи положителна сума и литри.');return;}
   if(!Number.isInteger(valKm)||valKm<=lastKm){setError(`Километражът трябва да е цяло число, по-голямо от ${lastKm.toLocaleString('bg-BG')} км.`);return;}
@@ -297,9 +305,16 @@ function FuelEntryPreview({trips,loadTrip,onClose}){
      <label>Тип зареждане<select value={fuelType} onChange={e=>setFuelType(e.target.value)}><option value="full">Да, до горе — пълен резервоар</option><option value="partial">Не — частично зареждане</option></select></label>
      <label>Текущ километраж<input type="number" min={Math.floor(lastKm)+1} step="1" inputMode="numeric" placeholder={`Над ${lastKm.toLocaleString('bg-BG')} км`} value={kmInput} onChange={e=>setKmInput(e.target.value)} required/></label>
      <div className="p18-preview-grid"><div><small>Цена на литър</small><strong>{pricePerLiter!==null?`${pricePerLiter.toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2})} €/л`:'—'}</strong></div><div><small>Разлика спрямо предишното</small><strong>{pricePerLiter!==null&&oldPrice!==null?`${(pricePerLiter-oldPrice).toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2,signDisplay:'always'})} €/л`:'—'}</strong></div></div>
-     {fuelType==='full'?<section className="p18-calc"><strong>🚗 Реален разход за етапа</strong><b>{consumption!==null?`${consumption.toFixed(1)} л/100 км`:'Въведи литри и нов километраж'}</b><small>{lastFull?`От предишното пълно зареждане на ${lastFullKm.toLocaleString('bg-BG')} км`:`От началните ${start.toLocaleString('bg-BG')} км · включено начално гориво ${manual.toLocaleString('bg-BG')} л`}</small>{consumption!==null&&<small>{segmentLiters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л за {segmentKm.toLocaleString('bg-BG')} км</small>}</section>:<p className="muted">Частично зареждане: литрите участват в изчислението при следващото пълно зареждане.</p>}
+     {fuelType==='full'?<section className="p18-calc"><strong>🚗 Реален разход за етапа</strong><b>{firstFullUnverified?'Недостатъчно данни за реален разход':consumption!==null?`${consumption.toFixed(1)} л/100 км`:'Въведи литри и нов километраж'}</b><small>{lastFull?`От предишното пълно зареждане на ${lastFullKm.toLocaleString('bg-BG')} км`:'Първо пълно зареждане: не знаем надеждно колко гориво е имало в началото.'}</small>{consumption!==null&&<small>{segmentLiters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л за {segmentKm.toLocaleString('bg-BG')} км</small>}</section>:<p className="muted">Частично зареждане: литрите участват в изчислението при следващото пълно зареждане.</p>}
      <button type="submit">➕ Добави пробно зареждане</button>
     </form>
+    <section className="p19-trip-end"><h4>🏁 Край на пътуването · ТЕСТ</h4>
+      <p className="muted">Пробен краен километраж, без реално приключване и без запис в Google Drive. Не променя разхода за завършените горивни етапи.</p>
+      <div className="p19-end-grid"><div><small>Начални километри</small><strong>{start.toLocaleString('bg-BG')} км</strong></div><div><small>Последни заредени километри</small><strong>{lastKm.toLocaleString('bg-BG')} км</strong></div><div><small>Пробег до последното зареждане</small><strong>{currentDistance.toLocaleString('bg-BG')} км</strong></div><div><small>Крайни км в Streamlit</small><strong>{recordedEnd>0?recordedEnd.toLocaleString('bg-BG')+' км':'Няма записани'}</strong></div></div>
+      <label>Пробен краен километраж<input type="number" inputMode="numeric" step="1" min={Math.ceil(lastKm)} placeholder={`Не по-малко от ${lastKm.toLocaleString('bg-BG')} км`} value={endKmTest} onChange={e=>setEndKmTest(e.target.value)}/></label>
+      {endKmTest.trim()&&(trialEndValid?<div className="p19-end-result"><small>Общ пробег при приключване</small><strong>{trialDistance.toLocaleString('bg-BG')} км</strong><span>Допълнително след последното зареждане: {(trialEndKm-lastKm).toLocaleString('bg-BG')} км</span></div>:<p className="error">Крайният километраж трябва да е цяло число и не може да е под последния километраж ({lastKm.toLocaleString('bg-BG')} км).</p>)}
+      <button className="ghost" type="button" onClick={()=>setEndKmTest('')}>↶ Изчисти пробния краен километраж</button>
+    </section>
     <section className="quick-demo-summary"><h4>📊 Влияние върху разходите</h4><div className="quick-demo-grid"><div><small>Разходи преди</small><strong>{money(spentBefore)}</strong></div><div><small>След пробните зареждания</small><strong>{money(spentBefore+mockTotal)}</strong></div><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'Няма зададен'}</strong></div><div><small>Остатък по бюджетния обхват</small><strong>{budgetTotal?money(budgetTotal-actualScope-(transportInBudget?mockTotal:0)):'—'}</strong></div></div><small className="muted">Проверка по същия принцип като Пач 17; бюджетните правила предстои да се сравнят изцяло със Streamlit.</small></section>
     <section className="quick-demo-list"><h4>⛽ Пробни зареждания · {mock.length}</h4>{mock.length>0&&<button className="ghost" type="button" onClick={()=>{setMock([]);setError('');}}>↶ Изчисти пробните зареждания</button>}{[...mock].reverse().map((r,i)=><div className="p17-row" key={`${r.current_km}-${i}`}><span><b>{r.description}</b><small>{num(r.liters).toLocaleString('bg-BG')} л · {num(r.current_km).toLocaleString('bg-BG')} км · ТЕСТ</small></span><strong>{money(r.amount)}</strong></div>)}</section>
    </>}
