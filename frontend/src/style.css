@@ -303,3 +303,11 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p25-tabs button:focus-visible{outline:2px solid #69d8ef;outline-offset:2px}
 .p21-dialog .p21-safe{position:relative;margin:9px 0}
 @media(max-width:510px){.p25-tabs{gap:5px}.p25-tabs button{font-size:11px;min-height:51px;padding:8px 3px}.p21-dialog{width:min(100%,640px)}}
+
+/* Пач 26: компактен режим за четене и ясна навигация към пътуването */
+.p26-return{display:inline-flex;align-items:center;justify-content:flex-start;margin:1px 0 10px;padding:6px 0;background:transparent;color:#a7dfff;border:0;box-shadow:none;font-weight:700;cursor:pointer;font-size:13px}
+.p26-return:hover{text-decoration:underline;background:transparent}
+.p26-modal-safe{border:1px solid #315568;border-radius:9px;background:rgba(10,41,58,.55);color:#d7eef7;padding:8px 11px;font-size:12px;margin:5px 0 14px}
+.p26-home-action{max-width:410px}
+.p26-home-action button{width:100%}
+@media(max-width:600px){.p26-return{min-height:36px}.p26-home-action{max-width:none}.p26-modal-safe{font-size:11px;padding:8px}}
