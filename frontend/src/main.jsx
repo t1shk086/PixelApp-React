@@ -260,7 +260,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  </>}
  {section==='expenses'&&<><div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>➕ Добави или редактирай разход</button></div><ExpenseHistory rows={rows}/></>}
  {section==='fuel'&&<>
- <div className="p24-section-actions p28-car-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>⛽ Разход за гориво</button><button type="button" onClick={()=>onOpenPreview('trip-fuel')}>➕ Пропуснато гориво</button></div><p className="p28-car-hint">Зарежданията се въвеждат като разход в категория „Транспорт“; при описание с „гориво“, „газ“, „бензин“, „дизел“ или „зареждане“ се показват полетата за литри и километраж. Тук виждаш анализа и историята.</p>
+
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
  {settings.car_trip==='Не'?<p className="muted">Това пътуване е отбелязано като пътуване без собствен автомобил. Показаните данни са само записаните показания, ако има такива.</p>:null}
  <div className="fuel-road" aria-hidden="true"><span className="fuel-road-node fuel-road-start">S</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-current">🚗</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-finish">F</span></div>
@@ -639,19 +639,18 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
   <label>Пътуване<select value={source} onChange={e=>load(e.target.value)}><option value="__new">➕ Ново пътуване</option>{trips.map(t=><option key={t.id} value={t.id}>{t.name||t.id}</option>)}</select></label>
   {panel==='basic'&&<><div className="p21-grid"><label>Дестинация<input value={form.name} onChange={e=>patch('name',e.target.value)} placeholder="Напр. Livigno Italy"/></label><label>Тип пътуване<select value={form.car?'car':'other'} onChange={e=>patch('car',e.target.value==='car')}><option value="car">🚗 С автомобил</option><option value="other">✈️ Без автомобил</option></select></label><label>От дата<input type="date" value={form.startDate} onChange={e=>patch('startDate',e.target.value)}/></label><label>До дата<input type="date" value={form.endDate} onChange={e=>patch('endDate',e.target.value)}/></label></div>
   {!dateValid&&<p className="p21-warning">Крайната дата трябва да е след началната.</p>}
-  {form.car&&<section className="p21-section"><h4>🚗 Настройки на автомобила</h4><div className="p21-grid"><label>Начален километраж<input type="number" min="0" step="1" value={form.startKm} onChange={e=>patch('startKm',e.target.value)} placeholder="100000"/></label><div className="p22-existing-fuel"><small>Ръчно гориво в оригиналните настройки</small><strong>{manualBaseKnown.toLocaleString('bg-BG')} л</strong><small>Изходна стойност, само за преглед. Не е задължително наличното гориво при тръгване.</small></div><label>Проследяване на горивото<select value={form.trackFuel} onChange={e=>patch('trackFuel',e.target.value)}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label></div></section>}
+  {form.car&&<section className="p21-section"><h4>🚗 Настройки на автомобила</h4><div className="p21-grid"><label>Начален километраж<input type="number" min="0" step="1" value={form.startKm} onChange={e=>patch('startKm',e.target.value)} placeholder="100000"/></label><label>Проследяване на горивото<select value={form.trackFuel} onChange={e=>patch('trackFuel',e.target.value)}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label></div></section>}
   </>}
-  {panel==='fuel'&&form.car&&<section className="p21-section p22-manual"><h4>⛽ Добави пропуснато гориво</h4>
-   <p className="muted">Както в Streamlit: записваш литрите, а платената сума е по желание. Нормалните зареждания не се засягат.</p>
+  {panel==='fuel'&&form.car&&<section className="p21-section p22-manual"><div className="p31-manual-head"><span className="p31-manual-icon">⛽</span><div><h4>Пропуснато гориво</h4><small>Само забравени литри или зареждания</small></div></div>
    <form onSubmit={addManual} className="p22-form">
     <label>Пропуснато гориво (литри)<input type="number" step="0.01" min="0.01" placeholder="Напр. 25" value={manualLiters} onChange={e=>setManualLiters(e.target.value)} disabled={form.finished}/></label>
     {manualLiters!==''&&Number(manualLiters)>0&&<label className="p22-check"><input type="checkbox" checked={manualHasPrice} onChange={e=>setManualHasPrice(e.target.checked)} disabled={form.finished}/> 💵 Помня и платената сума?</label>}
     {manualHasPrice&&<label>Платена сума (€)<input type="number" step="0.01" min="0.01" placeholder="Напр. 42" value={manualAmount} onChange={e=>setManualAmount(e.target.value)} disabled={form.finished}/></label>}
-    <p className="muted">{manualHasPrice?'При добавяне: сумата ще участва в пробните транспортни разходи; литрите се броят само веднъж.':'При добавяне: ще се отчетат само литрите, без паричен разход.'}</p>
-    <button type="submit" disabled={!manualValid||form.finished}>➕ Добави пропуснато гориво · пробно</button>
+    <p className="muted p31-compact-note">{manualHasPrice?'При добавяне: сумата ще участва в пробните транспортни разходи; литрите се броят само веднъж.':'При добавяне: ще се отчетат само литрите, без паричен разход.'}</p>
+    <button type="submit" disabled={!manualValid||form.finished}>➕ Добави литрите</button>
    </form>
-   <div className="p22-stats"><div><small>Нови ръчни литри</small><strong>{manualAddedLiters.toLocaleString('bg-BG')} л</strong></div><div><small>Пробни разходи</small><strong>{money(manualAddedCost)}</strong></div><div><small>Ръчно гориво (известно от настройките + теста)</small><strong>{(manualBaseKnown+manualAddedLiters).toLocaleString('bg-BG')} л</strong></div></div>
-   <section className="p23-consumption-preview" aria-label="Пробна проверка на средния разход">
+   <div className="p22-stats p31-manual-stats"><div><small>Добавени литри</small><strong>{manualAddedLiters.toLocaleString('bg-BG')} л</strong></div><div><small>Известни разходи</small><strong>{money(manualAddedCost)}</strong></div></div>
+   <details className="p31-fuel-details"><summary>📊 Проверка на изчисленията</summary><section className="p23-consumption-preview" aria-label="Пробна проверка на средния разход">
     <h4>📈 Влияние върху средния разход</h4>
     <p className="muted">Използваме реално записаните литри от избраното пътуване плюс новите пробни количества. Няма двойно броене и няма запис в Drive.</p>
     {detailBusy?<p className="muted">Четем записаните зареждания…</p>:detailError?<p className="p21-warning">Не успях да прочета историята: {detailError}. Изчисление не се показва.</p>:<>
@@ -671,6 +670,7 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
     </>}
    </section>
    <p className="muted">Контрол срещу двойно броене: с известна сума — {manualPaidLiters.toLocaleString('bg-BG')} л към ръчното гориво; без сума — {manualNoCostLiters.toLocaleString('bg-BG')} л в отделни пробни записи. Вече съществуващи записи без цена не се включват в този тестов сбор, ако не са заредени тук.</p>
+</details>
    {manualEntries.length>0&&<><div className="p22-entry-list">{manualEntries.map(entry=><div key={entry.id} className="p22-entry"><span><strong>{entry.hasPrice?'💵 С известна сума':'📝 Само литри'}</strong><small>{entry.liters.toLocaleString('bg-BG')} л · {entry.description}</small></span><b>{entry.hasPrice?money(entry.amount):'Без цена'}</b><button type="button" className="ghost" title="Премахни пробния запис" onClick={()=>setManualEntries(rows=>rows.filter(r=>r.id!==entry.id))}>✕</button></div>)}</div><button type="button" className="ghost" onClick={resetManual}>🗑️ Изчисти само пробното ръчно гориво</button></>}
   </section>}
   {panel==='fuel'&&!form.car&&<p className="p21-warning">За ръчно гориво първо избери „С автомобил“ в „Основни“.</p>}
