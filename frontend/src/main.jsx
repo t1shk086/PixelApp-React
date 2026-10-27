@@ -431,15 +431,36 @@ function TripManagementPreview({trips,onClose}){
  const [initial,setInitial]=useState(blank);
  const [confirmed,setConfirmed]=useState(false);
  const [notice,setNotice]=useState('');
+ // Локален тест: [ПРОПУСНАТО ГОРИВО] с цена се отчита чрез manual_fuel;
+ // [ГОРИВО БЕЗ СТОЙНОСТ] се отчита чрез реда liters — никога и по двата начина.
+ const [manualEntries,setManualEntries]=useState([]);
+ const [manualLiters,setManualLiters]=useState('');
+ const [manualHasPrice,setManualHasPrice]=useState(false);
+ const [manualAmount,setManualAmount]=useState('');
+ const resetManual=()=>{setManualEntries([]);setManualLiters('');setManualHasPrice(false);setManualAmount('')};
  const patch=(key,value)=>{setForm(f=>({...f,[key]:value}));setConfirmed(false);setNotice('')};
  const toISO=value=>{const m=String(value||'').match(/^(\d\d)\.(\d\d)\.(\d{4})$/);return m?`${m[3]}-${m[2]}-${m[1]}`:''};
  const dateBG=value=>value?value.split('-').reverse().join('.'):'';
- const load=(id)=>{setSource(id);let next;if(id==='__new'){next=blank()}else{const tr=trips.find(t=>t.id===id)||{};const s=tr.settings||{};next={name:tr.name||tr.id||'',startDate:toISO(s.start_date),endDate:toISO(s.end_date),car:String(s.car_trip||'').toLowerCase()==='да',trackFuel:String(s.track_fuel||'Добави впоследствие'),startKm:String(Number(s.start_km||0)||''),endKm:String(Number(s.end_km||0)||''),manualFuel:String(Number(s.manual_fuel||0)||''),finished:String(s.trip_finished||'').toLowerCase()==='да'||Number(s.end_km||0)>0}}setForm(next);setInitial({...next});setConfirmed(false);setNotice('')};
+ const load=(id)=>{setSource(id);let next;if(id==='__new'){next=blank()}else{const tr=trips.find(t=>t.id===id)||{};const s=tr.settings||{};next={name:tr.name||tr.id||'',startDate:toISO(s.start_date),endDate:toISO(s.end_date),car:String(s.car_trip||'').toLowerCase()==='да',trackFuel:String(s.track_fuel||'Добави впоследствие'),startKm:String(Number(s.start_km||0)||''),endKm:String(Number(s.end_km||0)||''),manualFuel:String(Number(s.manual_fuel||0)||''),finished:String(s.trip_finished||'').toLowerCase()==='да'||Number(s.end_km||0)>0}}setForm(next);setInitial({...next});setConfirmed(false);setNotice('');resetManual()};
  const startKm=Number(form.startKm),endKm=Number(form.endKm),kmValid=Number.isFinite(startKm)&&Number.isFinite(endKm)&&endKm>=startKm&&String(form.endKm).trim()!=='';
  const dateValid=!(form.startDate&&form.endDate&&form.endDate<form.startDate);
  const carReady=!form.car||String(form.startKm).trim()!==''&&startKm>=0;
  const finishReady=form.name.trim()&&dateValid&&carReady&&(!form.car||kmValid);
  const totalKm=kmValid?endKm-startKm:null;
+ const manualValid=manualLiters.trim()!==''&&Number.isFinite(Number(manualLiters))&&Number(manualLiters)>0&&(!manualHasPrice||(manualAmount.trim()!==''&&Number.isFinite(Number(manualAmount))&&Number(manualAmount)>0));
+ const manualAddedLiters=manualEntries.reduce((v,e)=>v+e.liters,0);
+ const manualAddedCost=manualEntries.reduce((v,e)=>v+e.amount,0);
+ const manualBaseKnown=Number(form.manualFuel)||0;
+ const manualPaidLiters=manualEntries.filter(e=>e.hasPrice).reduce((v,e)=>v+e.liters,0);
+ const manualNoCostLiters=manualEntries.filter(e=>!e.hasPrice).reduce((v,e)=>v+e.liters,0);
+ function addManual(e){e.preventDefault();if(!manualValid||form.finished)return;
+  const liters=Number(manualLiters),amount=manualHasPrice?Number(manualAmount):0;
+  setManualEntries(prev=>[...prev,{id:`m-${prev.length}-${Date.now()}`,liters,amount,hasPrice:manualHasPrice,
+   description:manualHasPrice?`[ПРОПУСНАТО ГОРИВО] Добавени ${liters.toFixed(1)} литра`:`[ГОРИВО БЕЗ СТОЙНОСТ] Добавени ${liters.toFixed(1)} литра`,
+   storedLiters:manualHasPrice?0:liters,manualFuelDelta:manualHasPrice?liters:0}]);
+  setManualLiters('');setManualHasPrice(false);setManualAmount('');setNotice('Добавено само за проба. Google Drive не е променян.');
+ }
+
  function finish(){if(!finishReady)return;setForm(f=>({...f,finished:true}));setConfirmed(true);setNotice('Пробно приключване — НЕ е записано в Google Drive.')}
  return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Управление на пътувания — тест" onClick={e=>e.stopPropagation()}>
   <div className="dialoghead"><h3>✈️ Управление на пътуване · ТЕСТ</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
@@ -447,10 +468,23 @@ function TripManagementPreview({trips,onClose}){
   <label>Избери за проба<select value={source} onChange={e=>load(e.target.value)}><option value="__new">➕ Ново пробно пътуване</option>{trips.map(t=><option key={t.id} value={t.id}>{t.name||t.id} · съществуващо (само проба)</option>)}</select></label>
   <div className="p21-grid"><label>Дестинация<input value={form.name} onChange={e=>patch('name',e.target.value)} placeholder="Напр. Livigno Italy"/></label><label>Тип пътуване<select value={form.car?'car':'other'} onChange={e=>patch('car',e.target.value==='car')}><option value="car">🚗 С автомобил</option><option value="other">✈️ Без автомобил</option></select></label><label>От дата<input type="date" value={form.startDate} onChange={e=>patch('startDate',e.target.value)}/></label><label>До дата<input type="date" value={form.endDate} onChange={e=>patch('endDate',e.target.value)}/></label></div>
   {!dateValid&&<p className="p21-warning">Крайната дата трябва да е след началната.</p>}
-  {form.car&&<section className="p21-section"><h4>🚗 Настройки на автомобила</h4><div className="p21-grid"><label>Начален километраж<input type="number" min="0" step="1" value={form.startKm} onChange={e=>patch('startKm',e.target.value)} placeholder="100000"/></label><label>Краен километраж<input type="number" min="0" step="1" value={form.endKm} onChange={e=>patch('endKm',e.target.value)} placeholder="100950"/></label><label>Начално/ръчно добавено гориво (л)<input type="number" min="0" step="0.01" value={form.manualFuel} onChange={e=>patch('manualFuel',e.target.value)} placeholder="0"/></label><label>Проследяване на горивото<select value={form.trackFuel} onChange={e=>patch('trackFuel',e.target.value)}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label></div></section>}
-  <section className="p21-section"><h4>🏁 Пробен край на пътуването</h4><div className="p21-grid"><div className="p21-number"><small>Начален километраж</small><strong>{form.car&&form.startKm!==''?startKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number"><small>Краен километраж</small><strong>{form.car&&form.endKm!==''?endKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number p21-wide"><small>Общ пробег</small><strong>{form.car&&totalKm!==null?totalKm.toLocaleString('bg-BG')+' км':form.car?'Въведи валидни километри':'Без автомобил'}</strong></div></div>
+  {form.car&&<section className="p21-section"><h4>🚗 Настройки на автомобила</h4><div className="p21-grid"><label>Начален километраж<input type="number" min="0" step="1" value={form.startKm} onChange={e=>patch('startKm',e.target.value)} placeholder="100000"/></label><div className="p22-existing-fuel"><small>Ръчно гориво в оригиналните настройки</small><strong>{manualBaseKnown.toLocaleString('bg-BG')} л</strong><small>Изходна стойност, само за преглед. Не е задължително наличното гориво при тръгване.</small></div><label>Проследяване на горивото<select value={form.trackFuel} onChange={e=>patch('trackFuel',e.target.value)}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label></div></section>}
+  {form.car&&<section className="p21-section p22-manual"><h4>⛽ Добави пропуснато гориво · ТЕСТ</h4>
+   <p className="muted">Както в Streamlit: записваш литрите, а платената сума е по желание. Нормалните зареждания не се засягат.</p>
+   <form onSubmit={addManual} className="p22-form">
+    <label>Пропуснато гориво (литри)<input type="number" step="0.01" min="0.01" placeholder="Напр. 25" value={manualLiters} onChange={e=>setManualLiters(e.target.value)} disabled={form.finished}/></label>
+    {manualLiters!==''&&Number(manualLiters)>0&&<label className="p22-check"><input type="checkbox" checked={manualHasPrice} onChange={e=>setManualHasPrice(e.target.checked)} disabled={form.finished}/> 💵 Помня и платената сума?</label>}
+    {manualHasPrice&&<label>Платена сума (€)<input type="number" step="0.01" min="0.01" placeholder="Напр. 42" value={manualAmount} onChange={e=>setManualAmount(e.target.value)} disabled={form.finished}/></label>}
+    <p className="muted">{manualHasPrice?'При добавяне: сумата ще участва в пробните транспортни разходи; литрите се броят само веднъж.':'При добавяне: ще се отчетат само литрите, без паричен разход.'}</p>
+    <button type="submit" disabled={!manualValid||form.finished}>➕ Добави пропуснато гориво · пробно</button>
+   </form>
+   <div className="p22-stats"><div><small>Нови ръчни литри</small><strong>{manualAddedLiters.toLocaleString('bg-BG')} л</strong></div><div><small>Пробни разходи</small><strong>{money(manualAddedCost)}</strong></div><div><small>Ръчно гориво (известно от настройките + теста)</small><strong>{(manualBaseKnown+manualAddedLiters).toLocaleString('bg-BG')} л</strong></div></div>
+   <p className="muted">Контрол срещу двойно броене: с известна сума — {manualPaidLiters.toLocaleString('bg-BG')} л към ръчното гориво; без сума — {manualNoCostLiters.toLocaleString('bg-BG')} л в отделни пробни записи. Вече съществуващи записи без цена не се включват в този тестов сбор, ако не са заредени тук.</p>
+   {manualEntries.length>0&&<><div className="p22-entry-list">{manualEntries.map(entry=><div key={entry.id} className="p22-entry"><span><strong>{entry.hasPrice?'💵 С известна сума':'📝 Само литри'}</strong><small>{entry.liters.toLocaleString('bg-BG')} л · {entry.description}</small></span><b>{entry.hasPrice?money(entry.amount):'Без цена'}</b><button type="button" className="ghost" title="Премахни пробния запис" onClick={()=>setManualEntries(rows=>rows.filter(r=>r.id!==entry.id))}>✕</button></div>)}</div><button type="button" className="ghost" onClick={resetManual}>🗑️ Изчисти само пробното ръчно гориво</button></>}
+  </section>}
+  <section className="p21-section"><h4>🏁 Пробен край на пътуването</h4>{form.car&&<label>Краен километраж — въвежда се едва при приключване<input type="number" min="0" step="1" value={form.endKm} onChange={e=>patch('endKm',e.target.value)} placeholder="Напр. 100950"/></label>}<div className="p21-grid"><div className="p21-number"><small>Начален километраж</small><strong>{form.car&&form.startKm!==''?startKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number"><small>Краен километраж</small><strong>{form.car&&form.endKm!==''?endKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number p21-wide"><small>Общ пробег</small><strong>{form.car&&totalKm!==null?totalKm.toLocaleString('bg-BG')+' км':form.car?'Въведи валидни километри':'Без автомобил'}</strong></div></div>
    {form.car&&form.endKm!==''&&!kmValid&&<p className="p21-warning">Крайните километри не могат да са по-малко от началните.</p>}
-   <div className="p21-actions"><button type="button" disabled={!finishReady} onClick={finish}>🏁 Приключи пробно</button><button type="button" className="ghost" onClick={()=>{setForm({...initial});setConfirmed(false);setNotice('Пробните промени са върнати.')}}>↶ Възстанови</button></div>
+   <div className="p21-actions"><button type="button" disabled={!finishReady} onClick={finish}>🏁 Приключи пробно</button><button type="button" className="ghost" onClick={()=>{setForm({...initial});setConfirmed(false);setNotice('Пробните промени са върнати.');resetManual()}}>↶ Възстанови</button></div>
    {(confirmed||form.finished)&&<p className="p21-success">✅ {confirmed?'Приключено пробно':'Пътуването е отбелязано като приключено в оригиналните настройки'}. {form.car&&totalKm!==null?`Пробег: ${totalKm.toLocaleString('bg-BG')} км.`:''}</p>}{notice&&<p className="muted">{notice}</p>}
   </section>
   <p className="muted">Това е тест на полетата и пробега, а не създаване или приключване в Google Drive. Оригиналните правила за запис и заключване ще проверим преди активиране.</p>
