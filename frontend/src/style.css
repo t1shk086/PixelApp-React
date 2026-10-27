@@ -315,3 +315,10 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 /* Пач 27: ненатрапчив индикатор за временните разходи */
 .p27-draft-note,.p27-home-warning{padding:10px 12px;border:1px solid var(--border,#3a5262);border-radius:10px;margin:10px 0;font-size:.84rem;line-height:1.45;opacity:.9}
 .p27-draft-label{font-size:.73rem;opacity:.72;font-weight:400}
+
+/* Пач 28: връщане на бързия разход, зарежданията са в Автомобил */
+.p28-home-actions{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr))}
+.p28-home-actions button{width:100%;min-width:0}
+.p28-car-hint,.p28-expense-hint{font-size:.82rem;opacity:.86;line-height:1.5;margin:7px 0 14px}
+.p28-expense-hint{border-left:3px solid #69a8c7;padding:7px 10px;background:rgba(105,168,199,.08);border-radius:0 8px 8px 0}
+@media(max-width:420px){.p28-home-actions{gap:8px}.p28-home-actions button{padding:10px 8px}}
