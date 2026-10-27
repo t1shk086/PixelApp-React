@@ -111,7 +111,7 @@ function FuelHistory({rows}) {
  }).filter(r=>r._liters>0).reverse();
  const fmt=n=>num(n).toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2});
  return <div className="travel-card fuel-history-card"><h3>🧾 История на зарежданията <span className="fuel-history-count">{all.length} записа</span></h3>
- {all.length?<><nav className="fuel-history-pager" aria-label="Преглед на зареждания"><button type="button" aria-label="Предишно зареждане" disabled={selected===0} onClick={()=>setSelected(i=>Math.max(0,i-1))}>‹</button><span><strong>{Math.min(selected+1,all.length)} / {all.length}</strong><small>Зареждане</small></span><button type="button" aria-label="Следващо зареждане" disabled={selected>=all.length-1} onClick={()=>setSelected(i=>Math.min(all.length-1,i+1))}>›</button></nav>{all.slice(selected,selected+1).map((r,offset)=>{
+ {all.length?<>{all.slice(selected,selected+1).map((r,offset)=>{
   const i=selected+offset;
   const prev=all[i+1],prevPrice=prev?prev._price:0,delta=r._price-prevPrice;
   const label=r._manual?'РЪЧНО ДОБАВЕНО ГОРИВО':/\[ПЪЛНО\s+ЗАРЕЖДАНЕ\]/i.test(String(r.description||''))?'ПЪЛНО ЗАРЕЖДАНЕ':/\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(String(r.description||''))?'ЧАСТИЧНО ЗАРЕЖДАНЕ':'ЗАРЕЖДАНЕ';
@@ -138,7 +138,7 @@ function FuelHistory({rows}) {
     {r._manual&&<small className="fuel-analysis-hint">Ръчно добавено гориво — не е записана стойност или километраж.</small>}
     </div>}
    </div>;
- })}</>:<p className="muted">Няма записани зареждания с литри.</p>}
+ })}<nav className="fuel-history-pager" aria-label="Преглед на зареждания"><button type="button" aria-label="Предишно зареждане" disabled={selected===0} onClick={()=>setSelected(i=>Math.max(0,i-1))}>‹</button><span><strong>{Math.min(selected+1,all.length)} / {all.length}</strong><small>Зареждане</small></span><button type="button" aria-label="Следващо зареждане" disabled={selected>=all.length-1} onClick={()=>setSelected(i=>Math.min(all.length-1,i+1))}>›</button></nav></>:<p className="muted">Няма записани зареждания с литри.</p>}
  </div>;
 }
 
@@ -210,13 +210,16 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  const globalBudget=budgets.filter(r=>r.category==='__GLOBAL__').reduce((a,r)=>a+number(r.budget),0);
  const budgetTotal=globalBudget>0?globalBudget:budgetEntries.reduce((a,r)=>a+number(r.budget),0);
  const fuelRows=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.liters)>0);
- const liters=fuelRows.reduce((a,r)=>a+number(r.liters),0)+number(settings.manual_fuel);
+ // Streamlit: paid missing fuel is counted through manual_fuel, not row.liters.
+ // The original settings already include old paid missing fuel; only newly drafted rows add here.
+ const paidManualPreview=(expenseDraft?.newRows||[]).filter(r=>r._manualFromSettings&&r._manualFuelDelta>0).reduce((a,r)=>a+number(r._manualFuelDelta),0);
+ const liters=fuelRows.reduce((a,r)=>a+number(r.liters),0)+number(settings.manual_fuel)+paidManualPreview;
  const fuelSpend=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&(number(r.liters)>0||/газ|гориво|зареждане|бензин|дизел/i.test(String(r.description||'')))).reduce((a,r)=>a+number(r.amount),0);
  const begin=number(settings.start_km),finish=number(settings.end_km);
  const maxReading=Math.max(0,...rows.map(r=>number(r.current_km)));
  const effectiveReading=finish>0?finish:maxReading;
  const km=Math.max(0,effectiveReading-begin);
- const avgLiters=rows.reduce((sum,r)=>sum+number(r.liters),0)+number(settings.manual_fuel);
+ const avgLiters=rows.reduce((sum,r)=>sum+number(r.liters),0)+number(settings.manual_fuel)+paidManualPreview;
  const avg=km>0&&avgLiters>0?avgLiters/km*100:0;
  const fullFuelRows=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.current_km)>begin&&/ПЪЛЕН|ПЪЛНО/i.test(String(r.description||'')));
  const lastFull=[...fullFuelRows].sort((a,b)=>number(a.current_km)-number(b.current_km)).at(-1);
@@ -553,7 +556,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
 
 
 // Пач 21: изцяло локален тест на настройките и приключването; без API записи.
-function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPanel='basic'}){
+function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPanel='basic',expenseDrafts={},onUpdateDraft}){
  const blank=()=>({name:'',startDate:'',endDate:'',car:true,trackFuel:'Да',startKm:'',endKm:'',manualFuel:'',finished:false});
  const [source,setSource]=useState(initialTripId||'__new');
  const [panel,setPanel]=useState(defaultPanel);
@@ -563,7 +566,23 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
  const [notice,setNotice]=useState('');
  // Локален тест: [ПРОПУСНАТО ГОРИВО] с цена се отчита чрез manual_fuel;
  // [ГОРИВО БЕЗ СТОЙНОСТ] се отчита чрез реда liters — никога и по двата начина.
- const [manualEntries,setManualEntries]=useState([]);
+ const [newTripManualEntries,setNewTripManualEntries]=useState([]);
+ // Same draft as quick expenses. Shared across closing/reopening settings for existing trips.
+ const isManualRow=r=>r._manualFromSettings===true;
+ const manualEntries=source==='__new'?newTripManualEntries:(expenseDrafts[source]?.newRows||[]).filter(isManualRow).map(r=>({id:r._key,liters:r._manualLiters,amount:r.amount,hasPrice:r._manualFuelDelta>0,description:r.description,storedLiters:r.liters,manualFuelDelta:r._manualFuelDelta}));
+ const setManualEntries=updater=>{
+  if(source==='__new'){setNewTripManualEntries(updater);return}
+  if(!onUpdateDraft)return;
+  onUpdateDraft(source,'newRows',previous=>{
+   const prev=previous||[];
+   const current=prev.filter(isManualRow).map(r=>({id:r._key,liters:r._manualLiters,amount:r.amount,hasPrice:r._manualFuelDelta>0,description:r.description,storedLiters:r.liters,manualFuelDelta:r._manualFuelDelta}));
+   const next=typeof updater==='function'?updater(current):updater;
+   return prev.filter(r=>!isManualRow(r)).concat(next.map(e=>({
+    _key:e.id,_manualFromSettings:true,_manualLiters:e.liters,_manualFuelDelta:e.manualFuelDelta,
+    type:'expense',category:'Транспорт',description:e.description,amount:e.amount,liters:e.storedLiters,current_km:0,date:new Date().toLocaleDateString('bg-BG'),_original:false
+   })));
+  });
+ };
  const [manualLiters,setManualLiters]=useState('');
  const [manualHasPrice,setManualHasPrice]=useState(false);
  const [manualAmount,setManualAmount]=useState('');
@@ -579,7 +598,7 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
   return ()=>{alive=false};
  },[source]);
 
- const resetManual=()=>{setManualEntries([]);setManualLiters('');setManualHasPrice(false);setManualAmount('')};
+ const resetManual=()=>{if(source==='__new')setNewTripManualEntries([]);setManualLiters('');setManualHasPrice(false);setManualAmount('')};
  const patch=(key,value)=>{setForm(f=>({...f,[key]:value}));setConfirmed(false);setNotice('')};
  const toISO=value=>{const m=String(value||'').match(/^(\d\d)\.(\d\d)\.(\d{4})$/);return m?`${m[3]}-${m[2]}-${m[1]}`:''};
  const dateBG=value=>value?value.split('-').reverse().join('.'):'';
@@ -599,7 +618,10 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
  // Същата база като Streamlit: всички записани liters + manual_fuel.
  // Пропуснато гориво С цена се записва със storedLiters=0 и manualFuelDelta=литрите;
  // без цена — със storedLiters=литрите и manualFuelDelta=0. Всяко количество участва точно веднъж.
- const oldExpenses=sourceDetail?.expenses||[];
+ const oldExpenses=source==='__new'?[]:applyExpenseDraft(sourceDetail?.expenses||[],{
+  ...(expenseDrafts[source]||blankExpenseDraft()),
+  newRows:(expenseDrafts[source]?.newRows||[]).filter(r=>!r._manualFromSettings)
+ });
  const num=x=>{const n=Number(x);return Number.isFinite(n)?n:0};
  const oldStoredLiters=oldExpenses.reduce((sum,r)=>sum+num(r.liters),0);
  const oldManualLiters=num(sourceDetail?.settings?.manual_fuel??manualBaseKnown);
@@ -727,7 +749,7 @@ function App(){
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} expenseDraft={currentExpenseDraft} onOpenPreview={setModal}/>}</>}
- {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
+ {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
