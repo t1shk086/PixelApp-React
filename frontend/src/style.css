@@ -244,3 +244,17 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p20-fuel-summary-grid>div:first-child strong{color:#edb8c7}
 .p20-fuel-summary-grid span{color:#a7b7c7;font-size:12px;line-height:1.5}
 @media(max-width:560px){.p20-fuel-summary-grid{grid-template-columns:1fr}.p20-fuel-summary-grid strong{font-size:18px}}
+
+/* Пач 21: управление на пътуване, само за тест */
+.p21-dialog{max-width:760px;max-height:90vh;overflow-y:auto;overscroll-behavior:contain}
+.p21-dialog label{display:flex;flex-direction:column;gap:7px;margin:10px 0;color:#b5c8d7;font-size:13px}
+.p21-dialog input,.p21-dialog select{width:100%;min-width:0;box-sizing:border-box;background:#101c27;border:1px solid #355266;border-radius:11px;padding:12px;color:#e9f5fb;font-size:15px}
+.p21-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 12px}
+.p21-grid label{margin:3px 0}
+.p21-section{background:#142432;border:1px solid #355266;border-radius:15px;padding:14px;margin-top:16px}
+.p21-section h4{margin:2px 0 12px;color:#e5f6ff;font-size:14px}
+.p21-safe,.p21-success,.p21-warning{padding:10px 12px;border-radius:10px;font-size:13px;line-height:1.5}
+.p21-safe{background:#103239;color:#77d9df}.p21-success{background:#10392e;color:#81edbf}.p21-warning{background:#3b2724;color:#ffb5a8}
+.p21-number{background:#10202c;border:1px solid #305066;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}.p21-number small{color:#a2b9cb}.p21-number strong{color:#51d9f0;font-size:19px}.p21-wide{grid-column:1/-1}
+.p21-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.p21-actions button{flex:1;min-width:170px}.p21-actions button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:540px){.p21-grid{grid-template-columns:1fr}.p21-dialog{width:calc(100vw - 28px);max-height:90dvh}.p21-actions button{min-width:100%}}
