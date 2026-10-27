@@ -109,8 +109,10 @@ function FuelHistory({rows}) {
   if(manual){const m=desc.match(/Добавени\s*([0-9]+(?:[.,][0-9]+)?)\s*литра/i);if(m)l=num(m[1]);}
   return {...r,_index:i,_liters:l,_manual:manual,_price:l>0&&num(r.amount)>0?num(r.amount)/l:0};
  }).filter(r=>r._liters>0).reverse();
+ const normalCount=all.filter(r=>!r._manual).length;
+ const manualCount=all.length-normalCount;
  const fmt=n=>num(n).toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2});
- return <div className="travel-card fuel-history-card"><h3>🧾 История на зарежданията <span className="fuel-history-count">{all.length} записа</span></h3>
+ return <div className="travel-card fuel-history-card"><h3>🧾 История на горивото <span className="fuel-history-count">{normalCount} зареждания · {manualCount} ръчни</span></h3>
  {all.length?<>{all.slice(selected,selected+1).map((r,offset)=>{
   const i=selected+offset;
   const prev=all[i+1],prevPrice=prev?prev._price:0,delta=r._price-prevPrice;
@@ -122,6 +124,13 @@ function FuelHistory({rows}) {
   if(prev){if(r._price<=0){comparison='Няма цена за сравнение — въведени са само литрите.';}
    else if(prevPrice>0){tone=delta<0?'cheaper':delta>0?'dearer':'neutral';comparison=delta<0?`€${fmt(Math.abs(delta))}/л по-евтино · предишно €${fmt(prevPrice)}/л → сега €${fmt(r._price)}/л`:delta>0?`€${fmt(delta)}/л по-скъпо · предишно €${fmt(prevPrice)}/л → сега €${fmt(r._price)}/л`:`Същата цена · €${fmt(r._price)}/л`;}}
   const real=String(r.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  if(r._manual){
+   return <div className="p33-manual-card" key={`${r._index}-${r.date}`}>
+    <div className="p33-manual-head"><span>✍️ Пропуснато гориво</span><span className="p33-manual-tag">Ръчно</span></div>
+    <div className="p33-manual-amount">{fmt(r._liters)} <small>л</small></div>
+    <div className="p33-manual-footer"><span>{r.date||'Без дата'}</span><strong>{num(r.amount)>0?money(r.amount):'Без известна сума'}</strong></div>
+   </div>;
+  }
   return <div className={'fuel-history-item'+(opened?' is-open':'')} key={`${r._index}-${r.date}`}>
     <div className="fuel-history-summary">
      <span className="fuel-history-left"><span className={'fuel-history-kind'+(label==='ПЪЛНО ЗАРЕЖДАНЕ'?' is-full':'')}>{label}</span><strong>{clean||'Гориво'}</strong><small>{r.date||'Без дата'}{!r._manual&&num(r.current_km)>0?' · '+num(r.current_km).toLocaleString('bg-BG')+' км':''}</small></span>
@@ -138,7 +147,7 @@ function FuelHistory({rows}) {
     {r._manual&&<small className="fuel-analysis-hint">Ръчно добавено гориво — не е записана стойност или километраж.</small>}
     </div>}
    </div>;
- })}<nav className="fuel-history-pager" aria-label="Преглед на зареждания"><button type="button" aria-label="Предишно зареждане" disabled={selected===0} onClick={()=>setSelected(i=>Math.max(0,i-1))}>‹</button><span><strong>{Math.min(selected+1,all.length)} / {all.length}</strong><small>Зареждане</small></span><button type="button" aria-label="Следващо зареждане" disabled={selected>=all.length-1} onClick={()=>setSelected(i=>Math.min(all.length-1,i+1))}>›</button></nav></>:<p className="muted">Няма записани зареждания с литри.</p>}
+ })}<nav className="fuel-history-pager" aria-label="Преглед на зареждания"><button type="button" aria-label="Предишно зареждане" disabled={selected===0} onClick={()=>setSelected(i=>Math.max(0,i-1))}>‹</button><span><strong>{Math.min(selected+1,all.length)} / {all.length}</strong><small>Запис за гориво</small></span><button type="button" aria-label="Следващо зареждане" disabled={selected>=all.length-1} onClick={()=>setSelected(i=>Math.min(all.length-1,i+1))}>›</button></nav></>:<p className="muted">Няма записани зареждания с литри.</p>}
  </div>;
 }
 

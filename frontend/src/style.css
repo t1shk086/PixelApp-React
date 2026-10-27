@@ -389,3 +389,13 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 /* Patch 32: fuel history navigation below the active refill card. */
 .fuel-history-card>.fuel-history-pager{margin-top:12px;padding:10px 0 2px;border-top:1px solid #2b4252}
 @media(max-width:480px){.fuel-history-card>.fuel-history-pager{gap:18px}.fuel-history-card>.fuel-history-pager button{min-width:48px;min-height:44px}}
+
+/* Patch 33: compact manual fuel cards, regular refills retain the detailed layout. */
+.p33-manual-card{margin:12px 0 3px;padding:16px;border-radius:18px;background:linear-gradient(135deg,#172b3a,#10212d);border:1px solid #3c7186;box-shadow:inset 0 1px 0 #ffffff0a}
+.p33-manual-head{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#f0c584;font-size:13px;font-weight:800}
+.p33-manual-tag{padding:5px 9px;border-radius:99px;border:1px solid #365d6e;color:#a8cee0;font-size:10px;font-weight:700;white-space:nowrap}
+.p33-manual-amount{margin:15px 0 14px;color:#70dff7;font-weight:850;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
+.p33-manual-amount small{font-size:15px;font-weight:600}
+.p33-manual-footer{border-top:1px solid #335163;padding-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px;color:#a5bdcd}
+.p33-manual-footer strong{color:#eecb88;font-size:13px}
+@media(max-width:480px){.p33-manual-card{padding:14px}.p33-manual-amount{font-size:27px}.fuel-history-count{white-space:normal;text-align:right;line-height:1.4}}
