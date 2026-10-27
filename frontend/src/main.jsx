@@ -43,33 +43,61 @@ function ExpenseHistory({rows}) {
  const [search,setSearch]=useState('');
  const [category,setCategory]=useState('all');
  const [kind,setKind]=useState('all');
+ const [view,setView]=useState('categories');
+ const [expanded,setExpanded]=useState({});
  const amount=r=>{const n=Number(r.amount);return Number.isFinite(n)?n:0};
  const isPayment=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
  const categoryName=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
- const payments=rows.filter(isPayment);
- const options=Array.from(new Set(payments.map(categoryName))).sort((a,b)=>a.localeCompare(b,'bg'));
- const visible=payments.filter(r=>{
+ const all=rows.filter(isPayment);
+ const options=Array.from(new Set(all.map(categoryName))).sort((a,b)=>a.localeCompare(b,'bg'));
+ const visible=all.filter(r=>{
   if(category!=='all'&&categoryName(r)!==category)return false;
   if(kind!=='all'&&String(r.type)!==kind)return false;
-  if(search.trim()){
-   const text=[r.date,r.description,r.category,categoryName(r),r.amount].join(' ').toLocaleLowerCase('bg');
-   if(!text.includes(search.trim().toLocaleLowerCase('bg')))return false;
-  }
-  return true;
+  const q=search.trim().toLocaleLowerCase('bg');
+  return !q||[r.date,r.description,r.category,categoryName(r),r.amount].join(' ').toLocaleLowerCase('bg').includes(q);
  });
  const total=visible.reduce((sum,r)=>sum+amount(r),0);
- return <div className="travel-card expense-history">
-  <h3>💳 История на разходите</h3>
-  <div className="expense-filters">
+ const groups=options.map(name=>({name,items:visible.filter(r=>categoryName(r)===name)})).filter(g=>g.items.length).sort((a,b)=>b.items.reduce((n,r)=>n+amount(r),0)-a.items.reduce((n,r)=>n+amount(r),0));
+ const categoryIcon=name=>name==='Транспорт'?'🚗':name==='Храна и напитки'?'🍔':name==='Нощувки/Хотел'?'🏨':name==='Депозит/Резервация'?'💳':name==='Куче'?'🐾':'☀️';
+ const colors=['#65c9ed','#e6b768','#b49cff','#7fd4ad','#e698b0','#9caebd'];
+ const renderItem=(r,i)=>{
+  const text=String(r.description||'Без описание');
+  const fuel=/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(text);
+  const full=/\[(?:ПЪЛНО|ПЪЛЕН)\s+ЗАРЕЖДАНЕ\]/i.test(text);
+  const label=fuel?text.replace(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/gi,'').replace(/\(Етап:.*?\)/i,'').trim()||'Гориво':text;
+  const stage=text.match(/(?:Реален разход:|Разход:)\s*([0-9.,]+)\s*л\s*\/\s*100/i);
+  return <div key={`${r._key||r.date||'row'}-${i}`} className="p29-expense-item">
+    <div className="p29-expense-info"><strong>{fuel?'⛽ ':''}{label}</strong><small>{r.date||'Без дата'}{r._original===false?' · Временно':''}</small>
+      {fuel&&<span className={'p29-fuel-tag '+(full?'full':'partial')}>{full?'Пълно зареждане':'Частично зареждане'}</span>}
+      {(Number(r.liters)>0||stage)&&<small className="p29-expense-extra">{Number(r.liters)>0?`${Number(r.liters).toLocaleString('bg-BG')} л`:''}{Number(r.current_km)>0?` · ${Number(r.current_km).toLocaleString('bg-BG')} км`:''}{stage?` · ${stage[1]} л/100 км`:''}</small>}
+    </div><b>{money(amount(r))}</b>
+  </div>;
+ };
+ return <div className="travel-card p29-expense-history">
+  <div className="p29-expense-heading"><div><small>PIXELAPP · ФИНАНСИ</small><h3>💳 Моите разходи</h3></div><span>🧾</span></div>
+  <div className="p29-total-panel"><small>Общо по избраните филтри</small><strong>{money(total)}</strong><span>{visible.length} от {all.length} плащания</span>
+   {total>0&&<div className="p29-distribution">{groups.map((g,i)=><span key={g.name} style={{width:Math.max(0,g.items.reduce((n,r)=>n+amount(r),0)/total*100)+'%',background:colors[options.indexOf(g.name)%colors.length]}}/>)}</div>}
+  </div>
+  <div className="expense-filters p29-expense-filters">
    <label className="expense-search">Търси разход<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Описание, дата или сума" type="search"/></label>
    <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}><option value="all">Всички категории</option>{options.map(c=><option value={c} key={c}>{c}</option>)}</select></label>
    <label>Вид<select value={kind} onChange={e=>setKind(e.target.value)}><option value="all">Всички плащания</option><option value="expense">Разходи</option><option value="deposit">Депозити</option></select></label>
   </div>
-  <div className="expense-overview"><span><b>{visible.length}</b> от {payments.length} плащания</span><strong>Общо: {money(total)}</strong></div>
-  {visible.length?[...visible].reverse().map((r,i)=><div className="travel-line expense-entry" key={`${r.date}-${r.description}-${i}`}><div><strong>{r.description||'Без описание'}</strong><small>{r.date||'Без дата'} · {categoryName(r)}{r.type==='deposit'?' · Депозит':''}</small>{Number(r.liters)>0&&<small>⛽ {Number(r.liters).toLocaleString('bg-BG')} л</small>}</div><b>{money(amount(r))}</b></div>):<p className="muted">{payments.length?'Няма плащания, които отговарят на филтрите.':'Няма записани разходи за това пътуване.'}</p>}
+  <div className="p29-view-tabs"><button type="button" className={view==='categories'?'selected':''} onClick={()=>setView('categories')}>◫ По категории</button><button type="button" className={view==='timeline'?'selected':''} onClick={()=>setView('timeline')}>☷ Хронология</button></div>
+  {visible.length?view==='categories'?<div className="p29-category-stack">{groups.map((g,i)=>{
+   const opened=expanded[g.name]??(i===0);
+   const subtotal=g.items.reduce((n,r)=>n+amount(r),0);
+   return <section className="p29-category-card" key={g.name}>
+    <button type="button" className="p29-category-head" onClick={()=>setExpanded(prev=>({...prev,[g.name]:!(prev[g.name]??(i===0))}))} aria-expanded={opened}>
+     <span className="p29-category-icon" style={{background:colors[options.indexOf(g.name)%colors.length]+'22'}}>{categoryIcon(g.name)}</span>
+     <span className="p29-category-title"><strong>{g.name}</strong><small>{g.items.length} {g.items.length===1?'разход':'разхода'}</small></span>
+     <span className="p29-category-value"><b>{money(subtotal)}</b><small>{opened?'⌃':'⌄'}</small></span>
+    </button>
+    {opened&&<div className="p29-category-entries">{[...g.items].reverse().map(renderItem)}</div>}
+   </section>;
+  })}</div>:<div className="p29-timeline">{[...visible].reverse().map(renderItem)}</div>:<p className="muted">Няма разходи за избраните филтри.</p>}
  </div>;
 }
-
 
 // Fuel history mirrors the original Streamlit comparison: amount/liters versus the immediately previous record.
 function FuelHistory({rows}) {
@@ -205,7 +233,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  </>}
  {section==='expenses'&&<><div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>➕ Добави или редактирай разход</button></div><ExpenseHistory rows={rows}/></>}
  {section==='fuel'&&<>
- <div className="p24-section-actions p28-car-actions"><button type="button" onClick={()=>onOpenPreview('fuel-demo')}>⛽ Зареди гориво</button><button type="button" onClick={()=>onOpenPreview('trip-fuel')}>➕ Пропуснато гориво</button></div><p className="p28-car-hint">Тук записваш литри, сума, километраж и дали резервоарът е пълен. Обикновените разходи са в „Разходи“.</p>
+ <div className="p24-section-actions p28-car-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>⛽ Разход за гориво</button><button type="button" onClick={()=>onOpenPreview('trip-fuel')}>➕ Пропуснато гориво</button></div><p className="p28-car-hint">Зарежданията се въвеждат като разход в категория „Транспорт“; при описание с „гориво“, „газ“, „бензин“, „дизел“ или „зареждане“ се показват полетата за литри и километраж. Тук виждаш анализа и историята.</p>
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
  {settings.car_trip==='Не'?<p className="muted">Това пътуване е отбелязано като пътуване без собствен автомобил. Показаните данни са само записаните показания, ако има такива.</p>:null}
  <div className="fuel-road" aria-hidden="true"><span className="fuel-road-node fuel-road-start">S</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-current">🚗</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-finish">F</span></div>
@@ -374,6 +402,9 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  const [amount,setAmount]=useState('');
  const [category,setCategory]=useState('Храна и напитки');
  const [description,setDescription]=useState('');
+ const [fuelLiters,setFuelLiters]=useState('');
+ const [fuelKm,setFuelKm]=useState('');
+ const [fuelKind,setFuelKind]=useState('full');
  const draft=expenseDrafts[tripId]||blankExpenseDraft();
  const {newRows,edits,deleted}=draft;
  const update=(field,value)=>onUpdateDraft(tripId,field,value);
@@ -408,9 +439,23 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  const options=[...new Set([...categories.filter(c=>c!=='Депозит/Резервация'),...budgetItems.map(b=>b.category),...original.map(expenseCategory)])].filter(Boolean);
  const changes=newRows.length+deleted.length+Object.keys(edits).length;
  const changeType=(r,c)=>({...r,category:c,type:r.type==='deposit'&&c!=='Нощувки/Хотел'?'expense':r.type});
+ const fuelKeyword=category==='Транспорт'&&/газ|гориво|зареждане|бензин|дизел/i.test(description);
+ const numeric=v=>{const n=Number(String(v??'').replace(',','.'));return Number.isFinite(n)?n:0};
+ const pastFuelRows=allEffective.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&numeric(r.liters)>0&&numeric(r.current_km)>0).sort((a,b)=>numeric(a.current_km)-numeric(b.current_km));
+ const startKm=numeric(details?.settings?.start_km);
+ const lastKm=pastFuelRows.length?Math.max(startKm,...pastFuelRows.map(r=>numeric(r.current_km))):startKm;
+ const lastFull=[...pastFuelRows].reverse().find(r=>/ПЪЛЕН|ПЪЛНО/i.test(String(r.description||'')));
+ const lastFullKm=lastFull?numeric(lastFull.current_km):startKm;
+ const pendingKm=numeric(fuelKm),pendingLiters=numeric(fuelLiters);
+ const segmentLiters=lastFull?pastFuelRows.filter(r=>numeric(r.current_km)>lastFullKm).reduce((sum,r)=>sum+numeric(r.liters),pendingLiters):0;
+ const stageKm=pendingKm-lastFullKm;
+ const measured=fuelKind==='full'&&lastFull&&stageKm>0&&segmentLiters>0&&pendingKm>lastKm?segmentLiters/stageKm*100:null;
  function addTest(e){e.preventDefault();const n=val(amount);if(!(n>0))return;
-  if(category==='Транспорт'&&/гориво|зареждане|бензин|дизел|газ/i.test(description)){setFetchError('За горивото ще използваме отделната форма с литри, километраж и пълно/частично зареждане.');return;}
-  setFetchError('');setNewRows(items=>items.concat([{_key:`new-${Date.now()}-${items.length}`,_original:false,type:'expense',amount:Math.round(n*100)/100,category,description:description.trim(),date:'ТЕСТ'}]));setAmount('');setDescription('');
+  if(fuelKeyword&&(pendingLiters<=0||!Number.isInteger(pendingKm)||pendingKm<=lastKm)){
+   setFetchError(`За зареждане въведи положителни литри и километраж над ${lastKm.toLocaleString('bg-BG')} км.`);return;
+  }
+  const fuelDesc=fuelKeyword?`[${fuelKind==='full'?'ПЪЛНО':'ЧАСТИЧНО'} ЗАРЕЖДАНЕ] ${description.trim()}${measured!==null?` (Етап: ${stageKm.toFixed(0)}км, Реален разход: ${measured.toFixed(1)}л/100км)`:''}`:description.trim();
+  setFetchError('');setNewRows(items=>items.concat([{_key:`new-${Date.now()}-${items.length}`,_original:false,type:'expense',amount:Math.round(n*100)/100,category,description:fuelDesc,date:'Временно',liters:fuelKeyword?pendingLiters:0,current_km:fuelKeyword?pendingKm:0}]));setAmount('');setDescription('');setFuelLiters('');setFuelKm('');
  }
  function beginEdit(r){if(isFuel(r))return;setEditing(r._key);setEditAmount(String(val(r.amount)));setEditCategory(expenseCategory(r));setEditDescription(String(r.description||''));}
  function saveEdit(e){e.preventDefault();const n=val(editAmount);if(!(n>0))return;
@@ -431,9 +476,15 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
     <form className="quick-demo-form" onSubmit={addTest}>
      <h4>➕ Добави разход</h4>
      <label>Сума (€)<input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></label>
-     <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label>{category==='Транспорт'&&<p className="p28-expense-hint">⛽ За зареждане с литри и километраж използвай раздел „Автомобил“ в пътуването. Тук можеш да въведеш паркинг, пътна такса и друг транспортен разход.</p>}
-     <label>Описание<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Паркинг, обяд…"/></label>
-     <button type="submit">Добави тестов разход</button>
+     <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
+     <label>Описание<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Гориво, паркинг, обяд…"/></label>
+     {fuelKeyword&&<section className="p29-auto-fuel"><strong>⛽ Разпознато зареждане</strong><small>Автоматично по описание + категория „Транспорт“</small>
+      <label>Литри<input type="number" inputMode="decimal" min="0.01" step="any" value={fuelLiters} onChange={e=>setFuelLiters(e.target.value)} required/></label>
+      <label>Тип зареждане<select value={fuelKind} onChange={e=>setFuelKind(e.target.value)}><option value="full">Пълен резервоар · до горе</option><option value="partial">Частично зареждане</option></select></label>
+      <label>Километраж<input type="number" inputMode="numeric" step="1" min={Math.floor(lastKm)+1} value={fuelKm} onChange={e=>setFuelKm(e.target.value)} placeholder={`Над ${lastKm.toLocaleString('bg-BG')} км`} required/></label>
+      {fuelKind==='full'&&<div className="p29-stage">Реален разход: <b>{measured!==null?`${measured.toFixed(1)} л/100 км`:'—'}</b><small>{!lastFull?'Първо пълно зареждане — няма надежден предишен етап.':'Показва се след валидни литри и километраж.'}</small></div>}
+     </section>}
+     <button type="submit">{fuelKeyword?'Добави зареждане и разход · временно':'Добави разход · временно'}</button>
     </form>
     <section className="quick-demo-summary"><h4>📊 Контрол на бюджета</h4>
      <div className="quick-demo-grid"><div><small>Разходи преди</small><strong>{money(totalBefore)}</strong></div><div><small>Разходи след</small><strong>{money(totalAfter)}</strong></div><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'Не е зададен'}</strong></div><div><small>Остава по бюджетен обхват</small><strong>{budgetTotal?money(budgetTotal-scopeAfter):'—'}</strong></div></div>
