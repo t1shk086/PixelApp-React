@@ -322,3 +322,44 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p28-car-hint,.p28-expense-hint{font-size:.82rem;opacity:.86;line-height:1.5;margin:7px 0 14px}
 .p28-expense-hint{border-left:3px solid #69a8c7;padding:7px 10px;background:rgba(105,168,199,.08);border-radius:0 8px 8px 0}
 @media(max-width:420px){.p28-home-actions{gap:8px}.p28-home-actions button{padding:10px 8px}}
+
+/* Patch 29 · компактна история на разходите по категории */
+.p29-expense-history{display:flex;flex-direction:column;gap:14px}
+.p29-expense-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.p29-expense-heading h3{margin:3px 0 0;font-size:22px}
+.p29-expense-heading small{font-size:10px;color:#97b3c5;letter-spacing:.11em}
+.p29-expense-heading>span{font-size:28px}
+.p29-total-panel{padding:18px;border:1px solid #36556b;border-radius:16px;background:linear-gradient(115deg,#193249,#102537);display:flex;flex-direction:column;gap:5px}
+.p29-total-panel>small,.p29-total-panel>span{color:#a9bdc9;font-size:12px}
+.p29-total-panel>strong{font-size:clamp(24px,5.2vw,34px);color:#f2f7ff;letter-spacing:-.03em}
+.p29-distribution{display:flex;overflow:hidden;min-height:8px;border-radius:20px;background:#425365;margin-top:10px}
+.p29-distribution span{min-width:0}
+.p29-expense-filters{margin:0}
+.p29-view-tabs{display:flex;gap:6px;border-radius:12px;background:#101e2b;padding:5px}
+.p29-view-tabs button{flex:1;min-width:0;border:0;border-radius:9px;background:transparent;color:#aec5d4;padding:10px 8px;font-size:13px;font-weight:700}
+.p29-view-tabs button.selected{background:#254359;color:white;box-shadow:0 2px 8px #0003}
+.p29-category-stack{display:flex;flex-direction:column;gap:10px}
+.p29-category-card{border:1px solid #315168;border-radius:15px;overflow:hidden;background:#112333}
+.p29-category-head{display:flex;align-items:center;gap:12px;padding:13px;width:100%;text-align:left;border:0;background:#182e40;color:#f4f8fa;min-height:72px}
+.p29-category-head:hover{background:#203b50}
+.p29-category-icon{width:43px;height:43px;flex:none;border-radius:12px;display:grid;place-items:center;font-size:23px}
+.p29-category-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.p29-category-title strong{font-size:14px;overflow-wrap:anywhere}
+.p29-category-title small,.p29-category-value small{font-size:12px;color:#9eb6c6}
+.p29-category-value{display:flex;flex-direction:column;align-items:end;gap:3px;white-space:nowrap}
+.p29-category-value b{font-size:14px;color:#d9f3ff}
+.p29-category-entries{padding:0 14px}
+.p29-expense-item{display:flex;align-items:start;gap:12px;padding:14px 1px;border-bottom:1px solid #2b4355}
+.p29-expense-item:last-child{border-bottom:none}
+.p29-expense-item>.p29-expense-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.p29-expense-info strong{font-size:13px;line-height:1.4;overflow-wrap:anywhere;color:#f0f5fb}
+.p29-expense-info small{font-size:11px;color:#9db7c8}
+.p29-expense-item>b{font-size:13px;white-space:nowrap;color:#e5f6ff}
+.p29-fuel-tag{width:max-content;max-width:100%;font-size:10px;font-weight:700;padding:4px 8px;border-radius:20px;background:#20394b;color:#8bd3f1}
+.p29-fuel-tag.full{background:#194337;color:#8ce6ba}
+.p29-expense-extra{color:#80c8e5!important}
+.p29-timeline{padding:0 13px;border:1px solid #315168;border-radius:15px;background:#112333}
+.p29-auto-fuel{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid #40718c;border-radius:14px;background:#173448}
+.p29-auto-fuel>small,.p29-stage small{font-size:11px;color:#a4c5d6}
+.p29-stage{display:flex;flex-direction:column;gap:4px;padding:10px;border-radius:9px;background:#102838}
+@media(max-width:600px){.p29-category-head{padding:11px;gap:9px}.p29-category-entries{padding:0 11px}.p29-expense-item{gap:8px}.p29-expense-item>b{font-size:12px}.p29-expense-heading h3{font-size:20px}.p29-expense-filters{display:grid;grid-template-columns:1fr 1fr}.p29-expense-filters .expense-search{grid-column:1/-1}}
