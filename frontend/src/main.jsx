@@ -170,7 +170,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview}) {
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
  <div className="travel-hero"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
- <div className="p24-trip-actions"><button type="button" onClick={()=>onOpenPreview('trip-demo')}>⚙️ Настройки на пътуването</button><span>🔒 Само преглед — без запис</span></div>
+ <div className="p24-trip-actions"><button type="button" onClick={()=>onOpenPreview('trip-demo')}>⚙️ Настройки на пътуването</button></div>
  <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
  {section==='summary'&&<>
@@ -178,9 +178,9 @@ function TripDetails({trip,detail,readOnly,onOpenPreview}) {
  <div className="travel-card visual-section"><h3>💳 Разходи по категории</h3>{Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,val],i)=>{const ratio=allCosts>0?Math.max(0,Math.min(100,val/allCosts*100)):0;return <div className="visual-category" key={name}><div className="visual-category-head"><span><i className={'visual-category-dot visual-palette-'+i%5}/>{name}</span><strong>{money(val)}</strong></div><div className="visual-category-bar"><span className={'visual-palette-bg-'+i%5} style={{width:ratio+'%'}}/></div><small>{ratio.toFixed(1)}% от общите разходи</small></div>}):<p className="muted">Няма записани разходи.</p>}</div>
  <div className="travel-card visual-section"><h3>🚗 Гориво и път</h3><div className="visual-overview-stats visual-road-stats"><div className="overview-tile"><span>🛣️</span><small>Изминато</small><strong>{km.toLocaleString('bg-BG')} <em>км</em></strong></div><div className="overview-tile"><span>⛽</span><small>Среден разход</small><strong>{avg?avg.toFixed(1):'—'} <em>л/100 км</em></strong></div></div></div>
  </>}
- {section==='expenses'&&<><div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>➕ Добави или редактирай разход</button><small>Промените са локални и няма да се запазят.</small></div><ExpenseHistory rows={rows}/></>}
+ {section==='expenses'&&<><div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>➕ Добави или редактирай разход</button></div><ExpenseHistory rows={rows}/></>}
  {section==='fuel'&&<>
- <div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('fuel-demo')}>⛽ Ново зареждане</button><button type="button" onClick={()=>onOpenPreview('trip-fuel')}>➕ Пропуснато гориво</button><small>Формите използват това пътуване, но не записват в Google Drive.</small></div>
+ <div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('fuel-demo')}>⛽ Ново зареждане</button><button type="button" onClick={()=>onOpenPreview('trip-fuel')}>➕ Пропуснато гориво</button></div>
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
  {settings.car_trip==='Не'?<p className="muted">Това пътуване е отбелязано като пътуване без собствен автомобил. Показаните данни са само записаните показания, ако има такива.</p>:null}
  <div className="fuel-road" aria-hidden="true"><span className="fuel-road-node fuel-road-start">S</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-current">🚗</span><span className="fuel-road-line"/><span className="fuel-road-node fuel-road-finish">F</span></div>
@@ -201,14 +201,14 @@ function TripDetails({trip,detail,readOnly,onOpenPreview}) {
  {section==='tasks'&&<>
  <div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>
  <div className="travel-card task-preview-panel">
-  <div className="task-preview-heading"><h3>📋 Списък със задачи</h3><span className="task-test-label">ТЕСТ · без записване</span></div>
-  <p className="muted">Можеш да добавяш, отбелязваш и редактираш тук. Промените са само временни и не достигат до Google Drive.</p>
-  <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова пробна задача" value={taskName} maxLength={200} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" disabled={!taskName.trim()}>➕ Добави</button></form>
+  <div className="task-preview-heading"><h3>📋 Списък със задачи</h3></div>
+  
+  <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова задача" value={taskName} maxLength={200} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" disabled={!taskName.trim()}>➕ Добави</button></form>
   {previewTasks.length?previewTasks.map(t=>{const complete=taskIsDone(t);const isEditing=taskEditing===t._previewKey;return <div key={t._previewKey} className={'task-visual-item task-preview-item'+(complete?' task-visual-done':'')}>
    <button type="button" className="task-preview-check" aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>setPreviewTask(t,{done:!complete})}>{complete?'✓':'○'}</button>
-   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())setPreviewTask(t,{title:taskEditText.trim()});setTaskEditing(null)}}><input autoFocus value={taskEditText} maxLength={200} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit">Запази</button><button type="button" className="ghost" onClick={()=>setTaskEditing(null)}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}{t._isDraft&&<small> · пробна</small>}</span><button type="button" className="task-preview-action" onClick={()=>{setTaskEditing(t._previewKey);setTaskEditText(t.title||'')}} aria-label={'Редактирай '+(t.title||'задача')}>✎</button>{t._isDraft&&<button type="button" className="task-preview-action" aria-label="Премахни пробната задача" onClick={()=>setTaskDrafts(items=>items.filter(x=>x._previewKey!==t._previewKey))}>✕</button>}</>}
-  </div>}):<p className="muted">Няма задачи за това пътуване. Добави пробна задача горе.</p>}
-  {(taskDrafts.length>0||Object.keys(taskOverrides).length>0)&&<button type="button" className="task-preview-reset" onClick={resetTaskPreview}>↺ Изчисти пробните промени</button>}
+   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())setPreviewTask(t,{title:taskEditText.trim()});setTaskEditing(null)}}><input autoFocus value={taskEditText} maxLength={200} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit">Запази</button><button type="button" className="ghost" onClick={()=>setTaskEditing(null)}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}</span><button type="button" className="task-preview-action" onClick={()=>{setTaskEditing(t._previewKey);setTaskEditText(t.title||'')}} aria-label={'Редактирай '+(t.title||'задача')}>✎</button>{t._isDraft&&<button type="button" className="task-preview-action" aria-label="Премахни пробната задача" onClick={()=>setTaskDrafts(items=>items.filter(x=>x._previewKey!==t._previewKey))}>✕</button>}</>}
+  </div>}):<p className="muted">Няма задачи за това пътуване.</p>}
+  {(taskDrafts.length>0||Object.keys(taskOverrides).length>0)&&<button type="button" className="task-preview-reset" onClick={resetTaskPreview}>↺ Отмени промените</button>}
  </div>
  </>}
  {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Маршрут и места <span className="map-point-count">{validPoints.length} точки</span></h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div><div className="map-place-list">{validPoints.map((p,i)=><div key={i} className="map-place-row"><span className="map-place-pin">📍</span><div><strong>{p.title||'Място'}</strong><small>{Number(p.lat).toFixed(4)}°, {Number(p.lon).toFixed(4)}°</small></div></div>)}</div></>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
@@ -304,8 +304,8 @@ function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
   setError('');setAmount('');setLiters('');setKmInput('');setDescription('Гориво');
  }
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog fuel-test-dialog" onClick={e=>e.stopPropagation()}>
-  <div className="dialoghead"><h3>⛽ Зареждане на гориво</h3><button className="ghost" type="button" onClick={onClose}>✕</button></div>
-  <div className="quick-demo-alert">🔒 Само симулация. Не записва нищо в Google Drive. Пробните зареждания се изчистват при затваряне.</div>
+  <div className="dialoghead"><h3>⛽ Зареждане на гориво</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Назад към пътуването</button>
+  <div className="p26-modal-safe">🔒 Без запис · промените са временни</div>
   <label>Пътуване<select value={tripId} onChange={e=>setTripId(e.target.value)}>{trips.map(t=><option value={t.id} key={t.id}>{t.name}{tripState(t)==='finished'?' · приключено (само тест)':''}</option>)}</select></label>
   {busy&&<p className="muted">Зареждане…</p>}{error&&<p className="error">{error}</p>}
   {detail&&<>
@@ -320,7 +320,7 @@ function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
      {fuelType==='full'?<section className="p18-calc"><strong>🚗 Реален разход за етапа</strong><b>{firstFullUnverified?'Недостатъчно данни за реален разход':consumption!==null?`${consumption.toFixed(1)} л/100 км`:'Въведи литри и нов километраж'}</b><small>{lastFull?`От предишното пълно зареждане на ${lastFullKm.toLocaleString('bg-BG')} км`:'Първо пълно зареждане: не знаем надеждно колко гориво е имало в началото.'}</small>{consumption!==null&&<small>{segmentLiters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л за {segmentKm.toLocaleString('bg-BG')} км</small>}</section>:<p className="muted">Частично зареждане: литрите участват в изчислението при следващото пълно зареждане.</p>}
      <button type="submit">➕ Добави пробно зареждане</button>
     </form>
-    <section className="p19-trip-end"><h4>🏁 Край на пътуването · ТЕСТ</h4>
+    <section className="p19-trip-end"><h4>🏁 Проверка при приключване</h4>
       <p className="muted">Пробен краен километраж, без реално приключване и без запис в Google Drive. Не променя разхода за завършените горивни етапи.</p>
       <div className="p19-end-grid"><div><small>Начални километри</small><strong>{start.toLocaleString('bg-BG')} км</strong></div><div><small>Последни заредени километри</small><strong>{lastKm.toLocaleString('bg-BG')} км</strong></div><div><small>Пробег до последното зареждане</small><strong>{currentDistance.toLocaleString('bg-BG')} км</strong></div><div><small>Крайни км в Streamlit</small><strong>{recordedEnd>0?recordedEnd.toLocaleString('bg-BG')+' км':'Няма записани'}</strong></div></div>
       <label>Пробен краен километраж<input type="number" inputMode="numeric" step="1" min={Math.ceil(lastKm)} placeholder={`Не по-малко от ${lastKm.toLocaleString('bg-BG')} км`} value={endKmTest} onChange={e=>setEndKmTest(e.target.value)}/></label>
@@ -336,7 +336,7 @@ function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
       <p className="muted">{trialEndValid?'Пробният краен километраж участва само в ориентировъчния среден разход.':'За тест на приключено пътуване въведи пробен краен километраж по-горе.'} Всичко е локална симулация.</p>
     </section>
     <section className="quick-demo-summary"><h4>📊 Влияние върху разходите</h4><div className="quick-demo-grid"><div><small>Разходи преди</small><strong>{money(spentBefore)}</strong></div><div><small>След пробните зареждания</small><strong>{money(spentBefore+mockTotal)}</strong></div><div><small>Бюджет</small><strong>{budgetTotal?money(budgetTotal):'Няма зададен'}</strong></div><div><small>Остатък по бюджетния обхват</small><strong>{budgetTotal?money(budgetTotal-actualScope-(transportInBudget?mockTotal:0)):'—'}</strong></div></div><small className="muted">Проверка по същия принцип като Пач 17; бюджетните правила предстои да се сравнят изцяло със Streamlit.</small></section>
-    <section className="quick-demo-list"><h4>⛽ Пробни зареждания · {mock.length}</h4>{mock.length>0&&<button className="ghost" type="button" onClick={()=>{setMock([]);setError('');}}>↶ Изчисти пробните зареждания</button>}{[...mock].reverse().map((r,i)=><div className="p17-row" key={`${r.current_km}-${i}`}><span><b>{r.description}</b><small>{num(r.liters).toLocaleString('bg-BG')} л · {num(r.current_km).toLocaleString('bg-BG')} км · ТЕСТ</small></span><strong>{money(r.amount)}</strong></div>)}</section>
+    <section className="quick-demo-list"><h4>⛽ Нови зареждания · {mock.length}</h4>{mock.length>0&&<button className="ghost" type="button" onClick={()=>{setMock([]);setError('');}}>↶ Изчисти пробните зареждания</button>}{[...mock].reverse().map((r,i)=><div className="p17-row" key={`${r.current_km}-${i}`}><span><b>{r.description}</b><small>{num(r.liters).toLocaleString('bg-BG')} л · {num(r.current_km).toLocaleString('bg-BG')} км · ТЕСТ</small></span><strong>{money(r.amount)}</strong></div>)}</section>
    </>}
   </div></div>;
 }
@@ -394,14 +394,14 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId}){
  function removeTest(r){if(r._original)setDeleted(prev=>prev.concat(r._key));else setNewRows(prev=>prev.filter(x=>x._key!==r._key));if(editing===r._key)setEditing(null);}
  function restore(){setNewRows([]);setEdits({});setDeleted([]);setEditing(null);setFetchError('');}
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog" onClick={e=>e.stopPropagation()}>
-  <div className="dialoghead"><h3>💳 Управление на разходи</h3><button className="ghost" type="button" onClick={onClose}>✕</button></div>
-  <div className="quick-demo-alert">🔒 Само симулация — добавянето, редактирането и изтриването НЕ записват в Google Drive. При затваряне всичко се възстановява.</div>
+  <div className="dialoghead"><h3>💳 Управление на разходи</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Назад към пътуването</button>
+  <div className="p26-modal-safe">🔒 Без запис · промените са временни</div>
   {!trips.length?<p>Няма заредени пътувания. Прочети данните от Google Drive и опитай отново.</p>:<>
    <label>Пътуване<select value={tripId} onChange={e=>setTripId(e.target.value)}>{trips.map(t=><option key={t.id} value={t.id}>{t.name}{tripState(t)!=='active'?' · само тест':''}</option>)}</select></label>
    {busy&&<p className="muted">Зареждане…</p>}{fetchError&&<p className="error">{fetchError}</p>}
    {details&&<>
     <form className="quick-demo-form" onSubmit={addTest}>
-     <h4>➕ Пробен разход</h4>
+     <h4>➕ Добави разход</h4>
      <label>Сума (€)<input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></label>
      <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
      <label>Описание<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Паркинг, обяд…"/></label>
@@ -418,7 +418,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId}){
      {[...allEffective].reverse().map(r=><div className="p17-row" key={r._key}><span><b>{expenseCategory(r)}</b><small>{r.description||'Без описание'} · {r.date||'Без дата'}{r._original?'':' · ТЕСТ'}</small></span><strong>{money(r.amount)}</strong>{isFuel(r)?<small title="Зарежданията се редактират в отделен модул">⛽</small>:<span className="p17-actions"><button className="ghost" type="button" onClick={()=>beginEdit(r)} title="Редактирай пробно">✎</button><button className="ghost" type="button" onClick={()=>removeTest(r)} title="Изтрий пробно">✕</button></span>}</div>)}
      <small className="muted">⛽ Зарежданията са заключени в този тест — необходимо е отделно преизчисляване на горивото.</small>
     </section>
-    {editing&&<form className="quick-demo-form p17-edit" onSubmit={saveEdit}><h4>✏️ Редакция · ТЕСТ</h4><label>Сума (€)<input type="number" step="0.01" min="0.01" value={editAmount} onChange={e=>setEditAmount(e.target.value)} required/></label><label>Категория<select value={editCategory} onChange={e=>setEditCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Описание<input value={editDescription} onChange={e=>setEditDescription(e.target.value)}/></label><div className="p17-actions"><button type="submit">Запази тестово</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>}
+    {editing&&<form className="quick-demo-form p17-edit" onSubmit={saveEdit}><h4>✏️ Редакция на разход</h4><label>Сума (€)<input type="number" step="0.01" min="0.01" value={editAmount} onChange={e=>setEditAmount(e.target.value)} required/></label><label>Категория<select value={editCategory} onChange={e=>setEditCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Описание<input value={editDescription} onChange={e=>setEditDescription(e.target.value)}/></label><div className="p17-actions"><button type="submit">Запази тестово</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>}
    </>}
   </>}
  </div></div>;
@@ -504,17 +504,17 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
 
  function finish(){if(!finishReady)return;setForm(f=>({...f,finished:true}));setConfirmed(true);setNotice('Пробно приключване — НЕ е записано в Google Drive.')}
  return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Управление на пътувания — тест" onClick={e=>e.stopPropagation()}>
-  <div className="dialoghead"><h3>✈️ Управление на пътуването</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
-  <p className="p21-safe">🔒 Демонстрационен режим — промените не се записват в Google Drive.</p>
+  <div className="dialoghead"><h3>✈️ Управление на пътуването</h3><button type="button" className="ghost" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>{initialTripId?"← Назад към пътуването":"← Назад към началото"}</button>
+  <p className="p26-modal-safe">🔒 Без запис · промените са временни</p>
   <div className="p25-tabs" role="tablist" aria-label="Управление на пътуване">
    {[['basic','⚙️ Основни'],['fuel','⛽ Пропуснато гориво'],['finish','🏁 Приключване']].map(([key,label])=><button type="button" key={key} role="tab" aria-selected={panel===key} className={panel===key?'p25-selected':''} onClick={()=>setPanel(key)}>{label}</button>)}
   </div>
-  <label>Избери за проба<select value={source} onChange={e=>load(e.target.value)}><option value="__new">➕ Ново пробно пътуване</option>{trips.map(t=><option key={t.id} value={t.id}>{t.name||t.id} · съществуващо (само проба)</option>)}</select></label>
+  <label>Пътуване<select value={source} onChange={e=>load(e.target.value)}><option value="__new">➕ Ново пътуване</option>{trips.map(t=><option key={t.id} value={t.id}>{t.name||t.id}</option>)}</select></label>
   {panel==='basic'&&<><div className="p21-grid"><label>Дестинация<input value={form.name} onChange={e=>patch('name',e.target.value)} placeholder="Напр. Livigno Italy"/></label><label>Тип пътуване<select value={form.car?'car':'other'} onChange={e=>patch('car',e.target.value==='car')}><option value="car">🚗 С автомобил</option><option value="other">✈️ Без автомобил</option></select></label><label>От дата<input type="date" value={form.startDate} onChange={e=>patch('startDate',e.target.value)}/></label><label>До дата<input type="date" value={form.endDate} onChange={e=>patch('endDate',e.target.value)}/></label></div>
   {!dateValid&&<p className="p21-warning">Крайната дата трябва да е след началната.</p>}
   {form.car&&<section className="p21-section"><h4>🚗 Настройки на автомобила</h4><div className="p21-grid"><label>Начален километраж<input type="number" min="0" step="1" value={form.startKm} onChange={e=>patch('startKm',e.target.value)} placeholder="100000"/></label><div className="p22-existing-fuel"><small>Ръчно гориво в оригиналните настройки</small><strong>{manualBaseKnown.toLocaleString('bg-BG')} л</strong><small>Изходна стойност, само за преглед. Не е задължително наличното гориво при тръгване.</small></div><label>Проследяване на горивото<select value={form.trackFuel} onChange={e=>patch('trackFuel',e.target.value)}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label></div></section>}
   </>}
-  {panel==='fuel'&&form.car&&<section className="p21-section p22-manual"><h4>⛽ Добави пропуснато гориво · ТЕСТ</h4>
+  {panel==='fuel'&&form.car&&<section className="p21-section p22-manual"><h4>⛽ Добави пропуснато гориво</h4>
    <p className="muted">Както в Streamlit: записваш литрите, а платената сума е по желание. Нормалните зареждания не се засягат.</p>
    <form onSubmit={addManual} className="p22-form">
     <label>Пропуснато гориво (литри)<input type="number" step="0.01" min="0.01" placeholder="Напр. 25" value={manualLiters} onChange={e=>setManualLiters(e.target.value)} disabled={form.finished}/></label>
@@ -525,7 +525,7 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
    </form>
    <div className="p22-stats"><div><small>Нови ръчни литри</small><strong>{manualAddedLiters.toLocaleString('bg-BG')} л</strong></div><div><small>Пробни разходи</small><strong>{money(manualAddedCost)}</strong></div><div><small>Ръчно гориво (известно от настройките + теста)</small><strong>{(manualBaseKnown+manualAddedLiters).toLocaleString('bg-BG')} л</strong></div></div>
    <section className="p23-consumption-preview" aria-label="Пробна проверка на средния разход">
-    <h4>📈 Влияние върху средния разход · ТЕСТ</h4>
+    <h4>📈 Влияние върху средния разход</h4>
     <p className="muted">Използваме реално записаните литри от избраното пътуване плюс новите пробни количества. Няма двойно броене и няма запис в Drive.</p>
     {detailBusy?<p className="muted">Четем записаните зареждания…</p>:detailError?<p className="p21-warning">Не успях да прочета историята: {detailError}. Изчисление не се показва.</p>:<>
      <div className="p23-stats-grid">
@@ -547,12 +547,12 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
    {manualEntries.length>0&&<><div className="p22-entry-list">{manualEntries.map(entry=><div key={entry.id} className="p22-entry"><span><strong>{entry.hasPrice?'💵 С известна сума':'📝 Само литри'}</strong><small>{entry.liters.toLocaleString('bg-BG')} л · {entry.description}</small></span><b>{entry.hasPrice?money(entry.amount):'Без цена'}</b><button type="button" className="ghost" title="Премахни пробния запис" onClick={()=>setManualEntries(rows=>rows.filter(r=>r.id!==entry.id))}>✕</button></div>)}</div><button type="button" className="ghost" onClick={resetManual}>🗑️ Изчисти само пробното ръчно гориво</button></>}
   </section>}
   {panel==='fuel'&&!form.car&&<p className="p21-warning">За ръчно гориво първо избери „С автомобил“ в „Основни“.</p>}
-  {panel==='finish'&&<section className="p21-section"><h4>🏁 Пробен край на пътуването</h4>{form.car&&<label>Краен километраж — въвежда се едва при приключване<input type="number" min="0" step="1" value={form.endKm} onChange={e=>patch('endKm',e.target.value)} placeholder="Напр. 100950"/></label>}<div className="p21-grid"><div className="p21-number"><small>Начален километраж</small><strong>{form.car&&form.startKm!==''?startKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number"><small>Краен километраж</small><strong>{form.car&&form.endKm!==''?endKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number p21-wide"><small>Общ пробег</small><strong>{form.car&&totalKm!==null?totalKm.toLocaleString('bg-BG')+' км':form.car?'Въведи валидни километри':'Без автомобил'}</strong></div></div>
+  {panel==='finish'&&<section className="p21-section"><h4>🏁 Приключване на пътуването</h4>{form.car&&<label>Краен километраж — въвежда се едва при приключване<input type="number" min="0" step="1" value={form.endKm} onChange={e=>patch('endKm',e.target.value)} placeholder="Напр. 100950"/></label>}<div className="p21-grid"><div className="p21-number"><small>Начален километраж</small><strong>{form.car&&form.startKm!==''?startKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number"><small>Краен километраж</small><strong>{form.car&&form.endKm!==''?endKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number p21-wide"><small>Общ пробег</small><strong>{form.car&&totalKm!==null?totalKm.toLocaleString('bg-BG')+' км':form.car?'Въведи валидни километри':'Без автомобил'}</strong></div></div>
    {form.car&&form.endKm!==''&&!kmValid&&<p className="p21-warning">Крайните километри не могат да са по-малко от началните.</p>}
    <div className="p21-actions"><button type="button" disabled={!finishReady} onClick={finish}>🏁 Приключи пробно</button><button type="button" className="ghost" onClick={()=>{setForm({...initial});setConfirmed(false);setNotice('Пробните промени са върнати.');resetManual()}}>↶ Възстанови</button></div>
    {(confirmed||form.finished)&&<p className="p21-success">✅ {confirmed?'Приключено пробно':'Пътуването е отбелязано като приключено в оригиналните настройки'}. {form.car&&totalKm!==null?`Пробег: ${totalKm.toLocaleString('bg-BG')} км.`:''}</p>}{notice&&<p className="muted">{notice}</p>}
   </section>}
-  <p className="muted">Това е тест на полетата и пробега, а не създаване или приключване в Google Drive. Оригиналните правила за запис и заключване ще проверим преди активиране.</p>
+  
  </div></div>
 }
 
@@ -573,11 +573,11 @@ function App(){
  function logout(){sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);}
  if(!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager — React preview</p><section className="panel"><h3>Личен достъп</h3><p>Въведи ключа от <code>PIXELAPP_API_KEY</code> на твоя Python сървър. Google токените никога не се въвеждат тук.</p><form onSubmit={connect}><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ"/><button>Влез</button></form></section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
- {readOnly&&<aside className="muted" style={{padding:'9px 12px',border:'1px solid #355',borderRadius:10,marginBottom:12}}>🔒 Безопасен преглед: данните в Google Drive са само за четене. Добавянето и редакциите ще бъдат активирани след настройване на синхронизацията.</aside>}
+ {readOnly&&<aside className="muted" style={{padding:'9px 12px',border:'1px solid #355',borderRadius:10,marginBottom:12}}>🔒 Режим без запис — данните от Google Drive не се променят. Въведеното във формите е временно.</aside>}
  <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([])}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button><button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
  {!current?<>
- <div className="actions home-actions"><button onClick={()=>setModal('quick-demo')}>➕ <span><b>Бърз разход · ТЕСТ</b><small>Пробвай без записване</small></span></button><button onClick={()=>setModal('fuel-demo')}>⛽ <span><b>Гориво · ТЕСТ</b><small>Пълно и частично зареждане</small></span></button><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Пътувания · ТЕСТ</b><small>Създаване, настройки и край</small></span></button></div>
+ <div className="actions home-actions p26-home-action"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button></div>
  <div className="home-sync"><button className="ghost" onClick={async()=>{setLoading(true);setError('');try{await req('/sync-from-drive','POST');await reload()}catch(e){setError(String(e.message))}finally{setLoading(false)}}}><RefreshCcw size={15}/> Прочети данните от Google Drive</button></div>
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
  {(() => {const ranked=[...trips].sort((a,b)=>{const rank={active:0,upcoming:1,finished:2},sa=tripState(a),sb=tripState(b);if(rank[sa]!==rank[sb])return rank[sa]-rank[sb];const da=asDate(sa==='finished'?a.settings?.end_date:sa==='upcoming'?a.settings?.start_date:a.settings?.end_date);const db=asDate(sb==='finished'?b.settings?.end_date:sb==='upcoming'?b.settings?.start_date:b.settings?.end_date);return sa==='finished'?(db?.getTime()||0)-(da?.getTime()||0):(da?.getTime()||Infinity)-(db?.getTime()||Infinity)});const ended=ranked.filter(t=>tripState(t)==='finished');const visible=ranked.filter(t=>tripState(t)!=='finished').concat(showFinished?ended:ended.slice(0,1));return <>
