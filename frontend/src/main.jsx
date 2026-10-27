@@ -145,6 +145,28 @@ function FuelHistory({rows}) {
 // Пач 27: обща временна памет за пробните разходи; никога не изпраща POST към Drive.
 const blankExpenseDraft=()=>({newRows:[],edits:{},deleted:[],baseRows:[]});
 const paymentRow=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
+// Temporary fuel edits are recalculated in odometer order so a later full tank
+// never displays an obsolete real-consumption value after deleting/editing a refill.
+function recalculateFuelStages(rows){
+ const number=v=>{const n=Number(v);return Number.isFinite(n)?n:0};
+ const fuel=rows.map((r,i)=>({...r,_position:i})).filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.liters)>0&&number(r.current_km)>0).sort((a,b)=>number(a.current_km)-number(b.current_km));
+ const replacements=new Map();let priorFull=null;let partialLiters=0;
+ for(const r of fuel){
+  const raw=String(r.description||'');
+  const isFull=/\[ПЪЛН(?:О|ЕН)\s+ЗАРЕЖДАНЕ\]/i.test(raw);
+  const isPartial=/\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(raw);
+  if(!isFull&&!isPartial)continue;
+  if(isFull){
+   const clean=raw.replace(/\s*\(Етап:\s*[^)]*?Реален разход:\s*[^)]*\)/gi,'').trim();
+   let next=clean;
+   if(priorFull){const dist=number(r.current_km)-number(priorFull.current_km);const liters=partialLiters+number(r.liters);
+    if(dist>0&&liters>0)next+=` (Етап: ${Math.round(dist)}км, Реален разход: ${(liters/dist*100).toFixed(1)}л/100км)`;
+   }
+   replacements.set(r._position,{...rows[r._position],description:next});priorFull=r;partialLiters=0;
+  }else if(priorFull){partialLiters+=number(r.liters)}
+ }
+ return rows.map((r,i)=>replacements.get(i)||r);
+}
 function applyExpenseDraft(rows,draft){
  if(!draft)return rows||[];
  let paymentIndex=0;
@@ -156,7 +178,12 @@ function applyExpenseDraft(rows,draft){
   const change=(draft.edits||{})[id]||{};
   output.push({...row,...change,_temporaryEdited:Object.keys(change).length>0});
  }
- return output.concat((draft.newRows||[]).map(r=>({...r,_temporary:true})));
+ const merged=output.concat((draft.newRows||[]).map(r=>({...r,_temporary:true})));
+ const originalPayments=(rows||[]).filter(paymentRow);
+ const fuelTouched=(draft.newRows||[]).some(r=>Number(r.liters)>0) ||
+  (draft.deleted||[]).some(key=>{const i=Number(String(key).replace('old-',''));return Number(originalPayments[i]?.liters)>0;}) ||
+  Object.keys(draft.edits||{}).some(key=>{const i=Number(String(key).replace('old-',''));return Number(originalPayments[i]?.liters)>0||Number(draft.edits[key]?.liters)>0;});
+ return fuelTouched?recalculateFuelStages(merged):merged;
 }
 function expenseDraftDelta(draft){
  if(!draft)return 0;
@@ -192,7 +219,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  const avgLiters=rows.reduce((sum,r)=>sum+number(r.liters),0)+number(settings.manual_fuel);
  const avg=km>0&&avgLiters>0?avgLiters/km*100:0;
  const fullFuelRows=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.current_km)>begin&&/ПЪЛЕН|ПЪЛНО/i.test(String(r.description||'')));
- const lastFull=fullFuelRows.at(-1);
+ const lastFull=[...fullFuelRows].sort((a,b)=>number(a.current_km)-number(b.current_km)).at(-1);
  const realMatch=lastFull&&String(lastFull.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
  const realConsumption=realMatch?number(realMatch[1].replace(',','.')):0;
  // Контролна справка — не променя основните изчисления или данните.
@@ -415,6 +442,9 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  const [editAmount,setEditAmount]=useState('');
  const [editCategory,setEditCategory]=useState('');
  const [editDescription,setEditDescription]=useState('');
+ const [editLiters,setEditLiters]=useState('');
+ const [editKm,setEditKm]=useState('');
+ const [editFuelKind,setEditFuelKind]=useState('full');
  useEffect(()=>{let active=true;setDetails(null);setEditing(null);setFetchError('');if(!tripId)return;
   setBusy(true);loadTrip(tripId).then(d=>{if(active){setDetails(d);onUpdateDraft(tripId,'baseRows',d?.expenses||[]);}}).catch(e=>{if(active)setFetchError(e.message||String(e))}).finally(()=>{if(active)setBusy(false)});
   return()=>{active=false};
@@ -425,7 +455,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  const isFuel=r=>r.type==='expense'&&r.category==='Транспорт'&&(val(r.liters)>0||/гориво|зареждане|бензин|дизел|газ/i.test(String(r.description||'')));
  const original=(details?.expenses||[]).filter(isExpense).map((r,i)=>({...r,_key:`old-${i}`,_original:true}));
  const effectiveOld=original.filter(r=>!deleted.includes(r._key)).map(r=>({...r,...(edits[r._key]||{})}));
- const allEffective=effectiveOld.concat(newRows);
+ const allEffective=applyExpenseDraft(details?.expenses||[],draft).filter(isExpense).map((r,i)=>({...r,_key:r._key||`old-${i}`,_original:r._original!==false&&!r._temporary}));
  const budgets=details?.budgets||[];
  const budgetItems=budgets.filter(b=>b.category!=='__GLOBAL__'&&val(b.budget)>0);
  const globalBudget=budgets.filter(b=>b.category==='__GLOBAL__').reduce((a,b)=>a+val(b.budget),0);
@@ -457,14 +487,30 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
   const fuelDesc=fuelKeyword?`[${fuelKind==='full'?'ПЪЛНО':'ЧАСТИЧНО'} ЗАРЕЖДАНЕ] ${description.trim()}${measured!==null?` (Етап: ${stageKm.toFixed(0)}км, Реален разход: ${measured.toFixed(1)}л/100км)`:''}`:description.trim();
   setFetchError('');setNewRows(items=>items.concat([{_key:`new-${Date.now()}-${items.length}`,_original:false,type:'expense',amount:Math.round(n*100)/100,category,description:fuelDesc,date:'Временно',liters:fuelKeyword?pendingLiters:0,current_km:fuelKeyword?pendingKm:0}]));setAmount('');setDescription('');setFuelLiters('');setFuelKm('');
  }
- function beginEdit(r){if(isFuel(r))return;setEditing(r._key);setEditAmount(String(val(r.amount)));setEditCategory(expenseCategory(r));setEditDescription(String(r.description||''));}
+ function beginEdit(r){
+  setFetchError('');setEditing(r._key);setEditAmount(String(val(r.amount)));setEditCategory(expenseCategory(r));setEditDescription(String(r.description||'').replace(/\s*\(Етап:\s*[^)]*?Реален разход:\s*[^)]*\)/gi,'').replace(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]\s*/gi,'').trim());
+  setEditLiters(String(numeric(r.liters)||''));setEditKm(String(numeric(r.current_km)||''));setEditFuelKind(/ПЪЛНО|ПЪЛЕН/i.test(String(r.description||''))?'full':'partial');
+ }
+ const editingRow=allEffective.find(r=>r._key===editing);
+ const editingFuel=!!editingRow&&isFuel(editingRow);
+ const otherFuel=allEffective.filter(r=>r._key!==editing&&r.type==='expense'&&r.category==='Транспорт'&&numeric(r.liters)>0&&numeric(r.current_km)>0);
  function saveEdit(e){e.preventDefault();const n=val(editAmount);if(!(n>0))return;
   const row=allEffective.find(r=>r._key===editing);if(!row)return;
-  const update={amount:Math.round(n*100)/100,category:editCategory,description:editDescription.trim()};
-  if(editCategory==='Транспорт'&&/гориво|зареждане|бензин|дизел|газ/i.test(update.description)){setFetchError('Зареждане на гориво се редактира отделно.');return;}
+  let update={amount:Math.round(n*100)/100,category:editCategory,description:editDescription.trim()};
+  if(editingFuel){
+   const liters=numeric(editLiters),km=numeric(editKm),occupied=otherFuel.some(r=>numeric(r.current_km)===km);
+   if(editCategory!=='Транспорт'||!liters||!Number.isInteger(km)||km<=numeric(details?.settings?.start_km)||occupied){
+    setFetchError('Зареждането трябва да остане в „Транспорт“, с положителни литри и уникален цял километраж над началния.');return;
+   }
+   update={...update,liters,current_km:km,description:`[${editFuelKind==='full'?'ПЪЛНО':'ЧАСТИЧНО'} ЗАРЕЖДАНЕ] ${editDescription.trim()}`};
+  }else if(editCategory==='Транспорт'&&/гориво|зареждане|бензин|дизел|газ/i.test(update.description)){
+   setFetchError('За ново зареждане използвай „Добави разход“, за да въведеш и литрите и километража.');return;
+  }
   setFetchError('');if(row._original)setEdits(prev=>({...prev,[editing]:update}));else setNewRows(prev=>prev.map(r=>r._key===editing?{...r,...update}:r));setEditing(null);
  }
- function removeTest(r){if(r._original)setDeleted(prev=>prev.concat(r._key));else setNewRows(prev=>prev.filter(x=>x._key!==r._key));if(editing===r._key)setEditing(null);}
+ function removeTest(r){
+  setFetchError('');if(r._original)setDeleted(prev=>prev.includes(r._key)?prev:prev.concat(r._key));else setNewRows(prev=>prev.filter(x=>x._key!==r._key));if(editing===r._key)setEditing(null);
+ }
  function restore(){setNewRows([]);setEdits({});setDeleted([]);setEditing(null);setFetchError('');}
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog" onClick={e=>e.stopPropagation()}>
   <div className="dialoghead"><h3>💳 Управление на разходи</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Затвори разходите</button>
@@ -494,10 +540,12 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
     </section>
     <section className="quick-demo-list"><h4>📋 История на разходите · {allEffective.length}</h4>
      {changes>0&&<button type="button" className="ghost" onClick={restore}>↶ Отмени временните промени ({changes})</button>}
-     {[...allEffective].reverse().map(r=><div className="p17-row" key={r._key}><span><b>{expenseCategory(r)}</b><small>{r.description||'Без описание'} · {r.date||'Без дата'}{r._original?'':' · ТЕСТ'}</small></span><strong>{money(r.amount)}</strong>{isFuel(r)?<small title="Зарежданията се редактират в отделен модул">⛽</small>:<span className="p17-actions"><button className="ghost" type="button" onClick={()=>beginEdit(r)} title="Редактирай пробно">✎</button><button className="ghost" type="button" onClick={()=>removeTest(r)} title="Изтрий пробно">✕</button></span>}</div>)}
-     <small className="muted">⛽ Зарежданията са заключени в този тест — необходимо е отделно преизчисляване на горивото.</small>
+     {[...allEffective].reverse().map(r=><div className="p17-row" key={r._key}><span><b>{expenseCategory(r)}</b><small>{r.description||'Без описание'} · {r.date||'Без дата'}{r._original?'':' · ТЕСТ'}</small></span><strong>{money(r.amount)}</strong><span className="p17-actions"><button className="ghost" type="button" onClick={()=>beginEdit(r)} title="Редактирай временно">✎</button><button className="ghost" type="button" onClick={()=>removeTest(r)} title="Изтрий временно">✕</button></span></div>)}
+     <small className="muted">⛽ При редакция или изтриване пълните етапи се преизчисляват само временно; оригиналните записи в Drive не се променят.</small>
     </section>
-    {editing&&<form className="quick-demo-form p17-edit" onSubmit={saveEdit}><h4>✏️ Редакция на разход</h4><label>Сума (€)<input type="number" step="0.01" min="0.01" value={editAmount} onChange={e=>setEditAmount(e.target.value)} required/></label><label>Категория<select value={editCategory} onChange={e=>setEditCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Описание<input value={editDescription} onChange={e=>setEditDescription(e.target.value)}/></label><div className="p17-actions"><button type="submit">Запази тестово</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>}
+    {editing&&<form className="quick-demo-form p17-edit" onSubmit={saveEdit}><h4>✏️ Редакция на разход</h4><label>Сума (€)<input type="number" step="0.01" min="0.01" value={editAmount} onChange={e=>setEditAmount(e.target.value)} required/></label><label>Категория<select value={editCategory} onChange={e=>setEditCategory(e.target.value)}>{options.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Описание<input value={editDescription} onChange={e=>setEditDescription(e.target.value)}/></label>
+     {editingFuel&&<section className="p30-fuel-edit"><strong>⛽ Редакция на зареждане</strong><label>Литри<input type="number" min="0.01" step="any" inputMode="decimal" value={editLiters} onChange={e=>setEditLiters(e.target.value)} required/></label><label>Километраж<input type="number" min={Math.floor(numeric(details?.settings?.start_km))+1} step="1" inputMode="numeric" value={editKm} onChange={e=>setEditKm(e.target.value)} required/></label><label>Вид зареждане<select value={editFuelKind} onChange={e=>setEditFuelKind(e.target.value)}><option value="full">Пълно · до горе</option><option value="partial">Частично</option></select></label><small>Реалният разход между две пълни зареждания се обновява автоматично.</small></section>}
+     <div className="p17-actions"><button type="submit">Запази тестово</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>}
    </>}
   </>}
  </div></div>;
