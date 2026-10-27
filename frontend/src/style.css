@@ -231,3 +231,16 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p19-end-result strong{color:#54e5c4;font-size:1.4rem}
 .p19-end-result span{font-size:.83rem;color:#cee8df}
 @media(max-width:390px){.p19-end-grid{grid-template-columns:1fr}}
+
+/* Patch 20: Streamlit-parity fuel indicators and trial-trip ending */
+.p20-active-gauge{justify-content:center}
+.p20-active-gauge>div{max-width:310px;flex:1}
+.p20-fuel-comparison{padding:16px;margin-top:16px;border:1px solid #2c5364;border-radius:15px;background:linear-gradient(135deg,#122431,#111a26)}
+.p20-fuel-comparison h4{margin:0 0 8px;color:#e9f8ff}
+.p20-fuel-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.p20-fuel-summary-grid>div{border:1px solid #335062;background:#172736;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.p20-fuel-summary-grid small{color:#a5bdc9;font-weight:700}
+.p20-fuel-summary-grid strong{color:#41d8f2;font-size:21px;line-height:1.3;overflow-wrap:anywhere}
+.p20-fuel-summary-grid>div:first-child strong{color:#edb8c7}
+.p20-fuel-summary-grid span{color:#a7b7c7;font-size:12px;line-height:1.5}
+@media(max-width:560px){.p20-fuel-summary-grid{grid-template-columns:1fr}.p20-fuel-summary-grid strong{font-size:18px}}
