@@ -203,6 +203,51 @@ function expenseDraftDelta(draft){
 }
 function hasExpenseChanges(draft){return !!draft&&((draft.newRows||[]).length>0||(draft.deleted||[]).length>0||Object.keys(draft.edits||{}).length>0)}
 
+// Budget insight panel: follows Streamlit's daily-pace exclusions and calendar logic.
+function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,budgetScopedCosts,allCosts,byCat}) {
+ const validDate=value=>{const m=String(value||'').match(/^(\d{2})\.(\d{2})\.(\d{4})/);if(m){const d=new Date(+m[3],+m[2]-1,+m[1]);return d.getFullYear()===+m[3]&&d.getMonth()===+m[2]-1?d:null}const iso=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})/);if(iso){const d=new Date(+iso[1],+iso[2]-1,+iso[3]);return d.getFullYear()===+iso[1]&&d.getMonth()===+iso[2]-1?d:null}return null};
+ const start=validDate(settings.start_date),end=validDate(settings.end_date);
+ const today=new Date();today.setHours(0,0,0,0);
+ const calendarOk=!!(start&&end&&end>=start);
+ const totalDays=calendarOk?Math.max(1,Math.round((end-start)/86400000)+1):1;
+ const elapsedDays=calendarOk?Math.max(1,Math.min(totalDays,Math.floor((today-start)/86400000)+1)):1;
+ const remainingDays=calendarOk?Math.max(0,totalDays-elapsedDays):null;
+ const hasBudget=budgetTotal>0;
+ const spent=budgetScopedCosts,remaining=budgetTotal-spent,pct=hasBudget?spent/budgetTotal*100:0;
+ const spendRows=rows.filter(r=>['expense','deposit'].includes(String(r.type||'').toLowerCase()));
+ // Streamlit: daily spending is on-site spending excluding hotel payments;
+ // deposits are not part of on-site spending.
+ const dailySpent=Math.max(0,spendRows.filter(r=>r.type==='expense'&&r.category!=='Нощувки/Хотел').reduce((sum,r)=>sum+Number(r.amount||0),0));
+ const hotelSpend=spendRows.filter(r=>r.type==='expense'&&r.category==='Нощувки/Хотел').reduce((sum,r)=>sum+Number(r.amount||0),0);
+ const deposits=spendRows.filter(r=>r.type==='deposit').reduce((sum,r)=>sum+Number(r.amount||0),0);
+ const hotelBudget=budgetEntries.find(b=>b.category==='Нощувки/Хотел');
+ const dailyPool=globalBudget>0?Math.max(0,budgetTotal-hotelSpend-deposits):Math.max(0,budgetTotal-Number(hotelBudget?.budget||0));
+ const dailyTarget=dailyPool/totalDays,actualDaily=dailySpent/elapsedDays,forecast=actualDaily*totalDays,diff=actualDaily-dailyTarget;
+ const paceRatio=dailyTarget>0?actualDaily/dailyTarget:0;
+ const mood=paceRatio<=.8?'🟢 БЮДЖЕТЪТ ВЪРВИ ДОБРЕ':paceRatio<=1?'🟡 ХАРЧИШ БЛИЗО ДО ПЛАНА':'🔴 ХАРЧИШ ПРЕКАЛЕНО БЪРЗО';
+ const dayTotals=new Map();spendRows.forEach(r=>{const d=validDate(r.date);if(!d)return;const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;dayTotals.set(key,(dayTotals.get(key)||0)+Number(r.amount||0))});
+ const days=[...dayTotals.entries()].sort((a,b)=>a[0].localeCompare(b[0])).slice(-7).map(([day,amount])=>({day,amount}));
+ const maxDay=Math.max(1,...days.map(d=>d.amount));
+ const cats=Object.entries(byCat).filter(([,amount])=>amount>0).sort((a,b)=>b[1]-a[1]).slice(0,6);
+ const catTotal=Object.values(byCat).reduce((a,b)=>a+Number(b||0),0);
+ return <section className="travel-card p36-budget" aria-label="Финансово табло">
+  <div className="p36-budget-head"><h3>📊 Финансово табло</h3><span>{globalBudget>0?'Общ бюджет':'Бюджети по категории'}</span></div>
+  {!hasBudget&&<p className="p36-budget-note">Няма зададен бюджет. Разходите по дни и категории остават достъпни, но дневният план изисква бюджет.</p>}
+  <div className="p36-kpis">
+   <div><small>ОБЩ БЮДЖЕТ</small><strong className="p36-green">{hasBudget?money(budgetTotal):'—'}</strong><span>{globalBudget>0?'Общ бюджет':'По категории'}</span></div>
+   <div><small>ПОХАРЧЕНО</small><strong className="p36-blue">{money(hasBudget?spent:allCosts)}</strong><span>{hasBudget?`${pct.toFixed(1)}% от бюджета`:'Всички разходи'}</span></div>
+   <div><small>ОСТАВАЩО</small><strong className={remaining<0?'p36-red':'p36-blue'}>{hasBudget?money(remaining):'—'}</strong><span>{hasBudget?(remaining>=0?'В бюджета':'Над бюджета'):'Няма бюджет'}</span></div>
+   <div><small>ОСТАВАЩИ ДНИ</small><strong className="p36-orange">{remainingDays===null?'—':remainingDays}</strong><span>{calendarOk?`от ${totalDays} дни`:'Не са зададени дати'}</span></div>
+  </div>
+  {hasBudget&&<div className="p36-progress"><div><span>БЮДЖЕТЕН ПРОГРЕС</span><b>{pct.toFixed(1)}%</b></div><div className="p36-progress-track"><span className={remaining<0?'p36-over':''} style={{width:Math.min(100,Math.max(0,pct))+'%'}}/></div></div>}
+  <div className="p36-panels">
+   <section className="p36-panel"><h4>📈 РАЗХОДИ ПО ДНИ</h4>{days.length?<div className="p36-bars">{days.map(({day,amount})=><div key={day} className="p36-bar-column"><span>{Math.round(amount)} €</span><div className="p36-bar-space"><i style={{height:Math.max(7,amount/maxDay*100)+'%'}}/></div><small>{day.slice(8,10)}.{day.slice(5,7)}</small></div>)}</div>:<p className="muted">Няма достатъчно данни за дневна графика.</p>}<small className="p36-panel-note">Последните до 7 дни със записани разходи</small></section>
+   <section className="p36-panel"><h4>📊 ПО КАТЕГОРИЯ</h4>{cats.length?cats.map(([name,value],i)=><div className="p36-category" key={name}><div><span>{name}</span><b>{money(value)}</b></div><div className="p36-cat-track"><i style={{width:(catTotal>0?value/catTotal*100:0)+'%',background:['#36ce83','#4eb6ef','#9f71ff','#ed955a','#f3c962','#67d6ba'][i%6]}}/></div></div>):<p className="muted">Няма разходи по категории.</p>}</section>
+   <section className="p36-panel p36-pace"><h4>📅 ДНЕВЕН ТЕМП</h4>{hasBudget&&calendarOk?<><strong>{money(dailyTarget)}</strong><small>планирано на ден</small><div className="p36-pace-details"><div>Реално: <b>{money(actualDaily)}/ден</b></div><div>Прогноза: <b>{money(forecast)}</b></div></div><div className="p36-pace-state"><b>{mood}</b><span>{diff<0?`Под плана си с ${money(-diff)}/ден`:diff>0?`Над плана си с ${money(diff)}/ден`:'Точно по плана си'}</span><span>Остават: {money(dailyPool-dailySpent)}</span></div><small className="p36-panel-note">Темпото не включва хотелски разходи и депозити.</small></>:<p className="muted">За дневен план са нужни бюджет и начална/крайна дата.</p>}</section>
+  </div>
+ </section>;
+}
+
 function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  const [section,setSection]=useState('summary');
  const [taskDrafts,setTaskDrafts]=useState([]);
@@ -287,6 +332,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft}) {
  <FuelHistory rows={rows}/>
  </>}
  {section==='budget'&&<>
+ <BudgetInsights rows={rows} settings={settings} budgetTotal={budgetTotal} globalBudget={globalBudget} budgetEntries={budgetEntries} budgetScopedCosts={budgetScopedCosts} allCosts={allCosts} byCat={byCat}/>
  <div className="travel-card budget-showcase"><h3>🎯 Бюджет на пътуването</h3><div className="budget-showcase-total"><small>ОСТАВАЩ БЮДЖЕТ</small><strong className={budgetTotal>0&&allCosts>budgetTotal?'negative':''}>{budgetTotal?money(budgetTotal-allCosts):'—'}</strong></div><div className="budget-showcase-grid"><div><small>Планирано</small><b>{budgetTotal?money(budgetTotal):'—'}</b></div><div><small>Изразходвано</small><b>{money(allCosts)}</b></div></div>{budgetTotal>0&&<><div className="budget-showcase-progress"><span style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div><div className="budget-showcase-caption"><span>{Math.round(allCosts/budgetTotal*100)}% използвани</span><span>{allCosts>budgetTotal?'Над бюджета':'Остатък'}</span></div></>}</div>
  <div className="travel-card"><h3>🗂️ Бюджети по категории</h3>{budgetEntries.length?budgetEntries.map((b,i)=>{const spent=number(byCat[b.category]),limit=number(b.budget),percent=limit>0?Math.min(100,spent/limit*100):0;return <div className="budget-visual-row" key={b.category}><div className="budget-visual-head"><strong><span className={'visual-category-dot visual-palette-'+i%5}/>{b.category}</strong><b>{money(spent)} <span>/ {money(limit)}</span></b></div><div className="budget-visual-track"><span style={{width:percent+'%',background:spent>limit?'linear-gradient(90deg,#ee866a,#fd4e77)':'linear-gradient(90deg,#45d0ff,#725cff)'}}/></div><div className="budget-visual-foot"><small>{Math.round(limit>0?spent/limit*100:0)}% от бюджета</small><small>{spent>limit?'Над бюджета: '+money(spent-limit):'Остават: '+money(limit-spent)}</small></div></div>}):<p className="muted">Няма зададени отделни бюджети по категории.</p>}</div>
  </>}
