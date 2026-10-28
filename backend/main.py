@@ -233,13 +233,15 @@ class ExperimentalExpense(BaseModel):
 def experimental_test_expense(payload: ExperimentalExpense):
     if not TEST_WRITE_ARMED:
         raise HTTPException(423, 'Тестовото записване е заключено от администратора на сървъра.')
-    if payload.confirmation != 'ЗАПИШИ САМО В ТЕСТ':
+    if payload.confirmation not in ('ЗАПИШИ САМО В ТЕСТ', 'ЗАПИШИ САМО В ТЕСТ P44'):
         raise HTTPException(400, 'Липсва точното потвърждение.')
     if payload.category not in ('Храна и напитки', 'Транспорт', 'Други', 'Нощувки/Хотел'):
         raise HTTPException(422, 'Непозволена категория за първия тест.')
     if not payload.amount.is_finite() or payload.amount.as_tuple().exponent < -2:
         raise HTTPException(422, 'Сумата трябва да има най-много два знака след запетаята.')
     # No fuel, deposit, settings, budgets or existing trips may be written through this endpoint.
+    if payload.confirmation == 'ЗАПИШИ САМО В ТЕСТ P44' and re.search(r'газ|гориво|зареждане|бензин|дизел', payload.description, flags=re.I):
+        raise HTTPException(422, 'Пач 44 не записва зареждания на гориво. Използвай временното тестване.')
     with LOCK:
         settings = load_rows('settings')
         def norm(value):
@@ -271,7 +273,7 @@ def experimental_test_expense(payload: ExperimentalExpense):
         rows = list(reader)
         # All non-test rows are copied verbatim at the data level. We do not edit other trips.
         stamp = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
-        marker = '[P42 TEST] '
+        marker = '[P44 TEST] ' if payload.confirmation == 'ЗАПИШИ САМО В ТЕСТ P44' else '[P42 TEST] '
         if any(x.get('trip_id') == payload.trip_id and x.get('description') == marker + payload.description for x in rows):
             raise HTTPException(409, 'Вече има тестов разход със същото описание. Избери друго.')
         row = {k:'' for k in cols}
@@ -284,7 +286,7 @@ def experimental_test_expense(payload: ExperimentalExpense):
         writer.writeheader();writer.writerows(rows)
         new_bytes = output.getvalue().encode('utf-8')
         # A persistent Drive-side copy is created BEFORE the original is touched.
-        backup_name = f'P42_BACKUP_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{name}'
+        backup_name = f'P44_BACKUP_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{name}'
         try:
             backup = service.files().copy(fileId=file_id, body={'name':backup_name}, fields='id,name').execute()
             backup_id = backup['id']
