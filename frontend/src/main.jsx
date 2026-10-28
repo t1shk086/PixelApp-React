@@ -443,7 +443,7 @@ function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
  }
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog fuel-test-dialog" onClick={e=>e.stopPropagation()}>
   <div className="dialoghead"><h3>⛽ Зареждане на гориво</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Назад към пътуването</button>
-  <div className="p26-modal-safe">🔒 Без запис в Drive · пробните промени се пазят при затваряне на формата, до презареждане на страницата</div>
+  <div className="p26-modal-safe">🔒 Временните промени не се записват. Само отделният потвърден тестов запис в „ТЕСТ – PixelApp“ може да използва Drive при изрично разрешение от Render.</div>
   <label>Пътуване<select value={tripId} onChange={e=>setTripId(e.target.value)}>{trips.map(t=><option value={t.id} key={t.id}>{t.name}{tripState(t)==='finished'?' · приключено (само тест)':''}</option>)}</select></label>
   {busy&&<p className="muted">Зареждане…</p>}{error&&<p className="error">{error}</p>}
   {detail&&<>
@@ -479,7 +479,7 @@ function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
   </div></div>;
 }
 
-function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts,onUpdateDraft}){
+function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts,onUpdateDraft,onSafetyPreflight,onTestWrite,onSaved}){
  const [tripId,setTripId]=useState(initialTripId||trips[0]?.id||'');
  const [details,setDetails]=useState(null);
  const [fetchError,setFetchError]=useState('');
@@ -490,6 +490,9 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  const [fuelLiters,setFuelLiters]=useState('');
  const [fuelKm,setFuelKm]=useState('');
  const [fuelKind,setFuelKind]=useState('full');
+ const [realConfirmed,setRealConfirmed]=useState(false);
+ const [realBusy,setRealBusy]=useState(false);
+ const [realResult,setRealResult]=useState('');
  const draft=expenseDrafts[tripId]||blankExpenseDraft();
  const {newRows,edits,deleted}=draft;
  const update=(field,value)=>onUpdateDraft(tripId,field,value);
@@ -503,7 +506,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  const [editLiters,setEditLiters]=useState('');
  const [editKm,setEditKm]=useState('');
  const [editFuelKind,setEditFuelKind]=useState('full');
- useEffect(()=>{let active=true;setDetails(null);setEditing(null);setFetchError('');if(!tripId)return;
+ useEffect(()=>{let active=true;setDetails(null);setEditing(null);setFetchError('');setRealResult('');setRealConfirmed(false);if(!tripId)return;
   setBusy(true);loadTrip(tripId).then(d=>{if(active){setDetails(d);onUpdateDraft(tripId,'baseRows',d?.expenses||[]);}}).catch(e=>{if(active)setFetchError(e.message||String(e))}).finally(()=>{if(active)setBusy(false)});
   return()=>{active=false};
  },[tripId]);
@@ -545,6 +548,29 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
   const fuelDesc=fuelKeyword?`[${fuelKind==='full'?'ПЪЛНО':'ЧАСТИЧНО'} ЗАРЕЖДАНЕ] ${description.trim()}${measured!==null?` (Етап: ${stageKm.toFixed(0)}км, Реален разход: ${measured.toFixed(1)}л/100км)`:''}`:description.trim();
   setFetchError('');setNewRows(items=>items.concat([{_key:`new-${Date.now()}-${items.length}`,_original:false,type:'expense',amount:Math.round(n*100)/100,category,description:fuelDesc,date:'Временно',liters:fuelKeyword?pendingLiters:0,current_km:fuelKeyword?pendingKm:0}]));setAmount('');setDescription('');setFuelLiters('');setFuelKm('');
  }
+ const selectedIsTest=String(tripId||'').replace(/[^\p{L}\p{N}]/gu,'').toLocaleLowerCase()===String('ТЕСТ PixelApp').replace(/[^\p{L}\p{N}]/gu,'').toLocaleLowerCase();
+ const realCategories=['Храна и напитки','Транспорт','Други','Нощувки/Хотел'];
+ const realEligible=selectedIsTest&&realCategories.includes(category)&&!fuelKeyword&&!/газ|гориво|зареждане|бензин|дизел/i.test(description);
+ async function addRealTest(){
+  if(realBusy||!realConfirmed||!realEligible)return;
+  const n=Number(amount),desc=description.trim();
+  if(!Number.isFinite(n)||n<=0||n>1000||Math.abs(Math.round(n*100)-n*100)>1e-7||!desc||desc.length>200){setRealResult('⚠️ Въведи описание и сума от 0,01 до 1000,00 € с два знака.');return;}
+  setRealBusy(true);setRealResult('');
+  try{
+   // Fetch a fresh hash immediately before the write; server checks again before upload.
+   const proof=await onSafetyPreflight();
+   if(proof.test_write_armed!==true||!proof.test_trip_found||proof.test_trip_id!==tripId||!proof.drive_matches_local||!proof.expenses_sha256){
+    throw Error('Тестовото записване не е разрешено или данните са различни от Drive. Не е записано нищо.');
+   }
+   const result=await onTestWrite({trip_id:tripId,amount:n,category,description:desc,expected_sha256:proof.expenses_sha256,confirmation:'ЗАПИШИ САМО В ТЕСТ P44'});
+   setRealResult('✅ Записано и проверено в Google Drive. Архив: '+result.backup_id);
+   setAmount('');setDescription('');setRealConfirmed(false);
+   const fresh=await loadTrip(tripId);
+   setDetails(fresh);onUpdateDraft(tripId,'baseRows',fresh?.expenses||[]);
+   await onSaved(tripId);
+  }catch(err){setRealResult('⚠️ '+String(err?.message||err)+' Не повтаряй записа, докато не провериш Drive.');}
+  finally{setRealBusy(false)}
+ }
  function beginEdit(r){
   setFetchError('');setEditing(r._key);setEditAmount(String(val(r.amount)));setEditCategory(expenseCategory(r));setEditDescription(String(r.description||'').replace(/\s*\(Етап:\s*[^)]*?Реален разход:\s*[^)]*\)/gi,'').replace(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]\s*/gi,'').trim());
   setEditLiters(String(numeric(r.liters)||''));setEditKm(String(numeric(r.current_km)||''));setEditFuelKind(/ПЪЛНО|ПЪЛЕН/i.test(String(r.description||''))?'full':'partial');
@@ -572,7 +598,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  function restore(){setNewRows([]);setEdits({});setDeleted([]);setEditing(null);setFetchError('');}
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog" onClick={e=>e.stopPropagation()}>
   <div className="dialoghead"><h3>💳 Управление на разходи</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Затвори разходите</button>
-  <div className="p26-modal-safe">🔒 Без запис в Drive · пробните промени се пазят при затваряне на формата, до презареждане на страницата</div>
+  <div className="p26-modal-safe">🔒 Временните промени не се записват. Само отделният потвърден тестов запис в „ТЕСТ – PixelApp“ може да използва Drive при изрично разрешение от Render.</div>
   {!trips.length?<p>Няма заредени пътувания. Прочети данните от Google Drive и опитай отново.</p>:<>
    <label>Пътуване<select value={tripId} onChange={e=>setTripId(e.target.value)}>{trips.map(t=><option key={t.id} value={t.id}>{t.name}{tripState(t)!=='active'?' · само тест':''}</option>)}</select></label>
    {busy&&<p className="muted">Зареждане…</p>}{fetchError&&<p className="error">{fetchError}</p>}
@@ -588,6 +614,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
       <label>Километраж<input type="number" inputMode="numeric" step="1" min={Math.floor(lastKm)+1} value={fuelKm} onChange={e=>setFuelKm(e.target.value)} placeholder={`Над ${lastKm.toLocaleString('bg-BG')} км`} required/></label>
       {fuelKind==='full'&&<div className="p29-stage">Реален разход: <b>{measured!==null?`${measured.toFixed(1)} л/100 км`:'—'}</b><small>{!lastFull?'Първо пълно зареждане — няма надежден предишен етап.':'Показва се след валидни литри и километраж.'}</small></div>}
      </section>}
+     {selectedIsTest&&<div className="p44-real-write"><strong>🛡️ Реален запис · само „ТЕСТ – PixelApp“</strong><small>Разрешен само при включен тестов режим в Render. Проверява CSV файловете и архивира преди запис. Засега само обикновени разходи; без гориво и депозити.</small><label className="p42-confirm"><input type="checkbox" checked={realConfirmed} onChange={e=>setRealConfirmed(e.target.checked)} disabled={realBusy}/> Streamlit е затворен и имам резервно копие</label><button type="button" disabled={!realConfirmed||!realEligible||realBusy||!description.trim()||!amount} onClick={addRealTest}>{realBusy?'⏳ Проверявам и записвам…':'💾 Запиши в Drive · само ТЕСТ'}</button>{!realEligible&&<small>Този вид разход още не е разрешен за реален запис. Можеш да го тестваш временно.</small>}{realResult&&<p role="status">{realResult}</p>}</div>}
      <button type="submit">{fuelKeyword?'Добави зареждане и разход · временно':'Добави разход · временно'}</button>
     </form>
     <section className="quick-demo-summary"><h4>📊 Контрол на бюджета</h4>
@@ -935,7 +962,7 @@ function App(){
  {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
  {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
- {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
+ {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onSafetyPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} onSaved={id=>reload(id)} onClose={()=>setModal('')}/>}
  {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
  <footer>PixelApp React · Етап 1 · Данните остават в Google Drive</footer></main>
 }

@@ -543,3 +543,11 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 /* P42: intentionally constrained test transaction */
 .p42-test-write{margin-top:18px;padding:15px;border:1px solid rgba(73,202,219,.35);border-radius:14px;background:rgba(21,62,77,.3)}
 .p42-test-write form{display:grid;gap:10px;margin:12px 0}.p42-test-write label{display:grid;gap:4px;font-size:13px}.p42-test-write input:not([type=checkbox]),.p42-test-write select{width:100%;min-width:0;padding:10px;border-radius:9px;background:#0d1926;color:#f2f8fd;border:1px solid #34536a}.p42-test-write button{padding:12px;border:1px solid #22ccdd;background:#143c54;color:white;border-radius:10px;font-weight:700}.p42-test-write button:disabled{opacity:.42;cursor:not-allowed}.p42-test-write .p42-confirm{display:flex;align-items:center;gap:8px}.p42-test-write .p42-confirm input{width:18px;height:18px}.p42-test-write small{display:block;line-height:1.5;opacity:.75}
+
+/* Patch 44 — isolated test-trip write panel; all preview buttons unchanged. */
+.p44-real-write{display:grid;gap:10px;margin:14px 0;padding:15px;border:1px solid rgba(72,205,201,.45);border-radius:14px;background:linear-gradient(125deg,rgba(29,89,103,.28),rgba(29,36,60,.3))}
+.p44-real-write>strong{color:#70e5de;font-size:14px}
+.p44-real-write>small{color:#adc8d3;line-height:1.5}
+.p44-real-write>button{background:linear-gradient(110deg,#097d83,#3767a2);color:#fff;border:1px solid #49c6d1;border-radius:10px;font-weight:700;min-height:43px}
+.p44-real-write>button:disabled{opacity:.45;cursor:not-allowed}
+.p44-real-write p[role=status]{margin:0;overflow-wrap:anywhere;font-size:13px}
