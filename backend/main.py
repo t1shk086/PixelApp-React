@@ -42,7 +42,9 @@ COLUMNS = {
 LOCK = threading.RLock()
 # Safe by default: legacy Streamlit can still write the same CSVs.
 # Do not enable writes until cross-device synchronization and conflict handling are implemented.
-WRITES_ENABLED = os.getenv('PIXELAPP_ENABLE_WRITES', 'false').lower() == 'true'
+# Patch 41: fail closed even if the legacy environment flag was left enabled.
+# Cross-process conflict protection with Streamlit is NOT implemented yet.
+WRITES_ENABLED = False
 
 def require_writes():
     if not WRITES_ENABLED:
@@ -164,6 +166,48 @@ def sync_from_drive():
             os.replace(tmp,DATA_DIR/name)
             count+=1
         return {'imported_files':count,'photos':'remain untouched in Google Drive'}
+
+# Patch 41: read-only preflight. Never modifies local files or Google Drive.
+@app.get('/safety/preflight', dependencies=[Depends(authorize)])
+def safety_preflight():
+    import hashlib
+    import re
+    with LOCK:
+        settings = load_rows('settings')
+        def normal(value):
+            return re.sub(r'[^\w]+', '', str(value or '').casefold(), flags=re.UNICODE).replace('_', '')
+        target = normal('ТЕСТ PixelApp')
+        candidates = [r for r in settings if normal(r.get('trip_id')) == target]
+        report = {
+            'write_enabled': False,
+            'test_trip_found': len(candidates) == 1,
+            'test_trip_count': len(candidates),
+            'test_trip_id': candidates[0].get('trip_id') if len(candidates) == 1 else None,
+            'drive_configured': bool(os.getenv('GOOGLE_REFRESH_TOKEN')),
+            'csv_checks': [],
+            'drive_matches_local': False,
+            'safe_to_enable_writes': False,
+            'note': 'Това е само проверка. Записването остава изключено до защита от конфликти между Streamlit и React.'
+        }
+        try:
+            service = drive_service()
+            if service is None:
+                report['drive_error'] = 'Google Drive не е конфигуриран.'
+                return report
+            _, mapping = folder_and_files(service)
+            for kind, filename in FILENAMES.items():
+                local = DATA_DIR / filename
+                item = {'file': filename, 'local_exists': local.is_file(), 'drive_exists': filename in mapping, 'matches': False}
+                if local.is_file() and filename in mapping:
+                    remote = service.files().get_media(fileId=mapping[filename]).execute()
+                    item['matches'] = hashlib.sha256(local.read_bytes()).digest() == hashlib.sha256(remote).digest()
+                report['csv_checks'].append(item)
+            report['drive_matches_local'] = all(x['matches'] for x in report['csv_checks']) and bool(report['csv_checks'])
+        except Exception as exc:
+            # No traceback/credential information sent to the browser.
+            report['drive_error'] = 'Неуспешна сверка с Google Drive. Провери връзката и настройките на сървъра.'
+        return report
+
 
 @app.get('/trips',dependencies=[Depends(authorize)])
 def list_trips():
