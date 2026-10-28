@@ -551,3 +551,10 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p44-real-write>button{background:linear-gradient(110deg,#097d83,#3767a2);color:#fff;border:1px solid #49c6d1;border-radius:10px;font-weight:700;min-height:43px}
 .p44-real-write>button:disabled{opacity:.45;cursor:not-allowed}
 .p44-real-write p[role=status]{margin:0;overflow-wrap:anywhere;font-size:13px}
+
+/* Patch 45: guarded real test edit/delete buttons */
+.p45-action-row{display:flex;flex-wrap:wrap;gap:9px;margin:12px 0}
+.p45-action-row button{flex:1 1 165px;min-height:42px}
+.p45-delete-btn{background:rgba(180,55,65,.14)!important;border:1px solid rgba(242,110,120,.55)!important;color:#ffb4bc!important}
+.p45-action-row button:disabled{opacity:.45;cursor:not-allowed}
+.p45-change-result,.p45-persisted-label{display:block;margin:10px 0;color:#8fe7d1;font-size:.85rem}
