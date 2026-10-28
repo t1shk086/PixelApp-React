@@ -506,3 +506,26 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p39-compare-section .p38-compare-launch{margin:0;width:100%}
 @media(max-width:480px){.p37-countdown{padding:16px}.p37-countdown-ring{width:138px;height:138px}.p37-countdown::after{width:188px;height:188px}}
 @media(prefers-reduced-motion:reduce){.p37-countdown-ring{animation:none}}
+
+/* Patch 40: compact PixelApp countdown; optional verified gallery photo, resilient abstract fallback */
+.p40-countdown{position:relative;isolation:isolate;overflow:hidden;display:flex;align-items:center;justify-content:space-between;gap:16px;margin:4px 0 17px;padding:19px 22px;border:1px solid #267c9e;border-radius:22px;min-height:194px;background:radial-gradient(ellipse at 68% 0%,#10577988 0,transparent 43%),radial-gradient(ellipse at 14% 105%,#49208766 0,transparent 47%),linear-gradient(135deg,#101d30,#0b2035 62%,#071624);box-shadow:0 12px 28px #0005,inset 0 1px 0 #ffffff22}
+.p40-countdown::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(128deg,transparent 30%,#09cbd116 44%,transparent 53%),radial-gradient(ellipse at 95% 95%,#6742f92d,transparent 48%)}
+.p40-countdown::after{content:"";position:absolute;inset:0 0 auto;height:2px;z-index:2;background:linear-gradient(90deg,#08e4ed,#5ac9fa 54%,#a15fff)}
+.p40-countdown-cover{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:-2;filter:saturate(.86) brightness(.72)}
+.p40-countdown-photo::before{background:linear-gradient(90deg,#09182af2,#09182aca 47%,#08182b88 100%)}
+.p40-countdown-content{flex:1;min-width:0;position:relative;z-index:1}
+.p40-countdown-overline{color:#9deafa;font-size:10px;font-weight:850;letter-spacing:1.3px;display:flex;align-items:center;gap:8px}
+.p40-countdown-overline span{font-size:20px;color:#23d9ed}
+.p40-countdown h2{font-size:clamp(20px,3.8vw,29px);margin:14px 0 12px;color:#f7fbff;line-height:1.13;overflow-wrap:anywhere;text-shadow:0 2px 10px #0009}
+.p40-countdown-date{color:#c6d8e9;margin:0;font-size:12px;line-height:1.5}
+.p40-countdown-date span{color:#36d2e3;font-size:17px;margin-right:5px}
+.p40-countdown-progress{width:min(100%,290px);height:6px;overflow:hidden;margin-top:18px;border-radius:999px;background:#1e415caa;box-shadow:inset 0 1px 2px #0006}
+.p40-countdown-progress span{display:block;width:55%;height:100%;border-radius:999px;background:linear-gradient(90deg,#12c8d9,#34c8f4,#936bff);box-shadow:0 0 12px #09daf688}
+.p40-countdown-footnote{font-size:12px;color:#b6d6e9;margin:11px 0 0}
+.p40-countdown-ring{position:relative;z-index:1;width:144px;height:144px;flex:0 0 144px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:50%;background:radial-gradient(circle,#101e32 58%,transparent 60%),conic-gradient(from 225deg,#19d5db,#45b8f9,#9c5af4,#19d5db);box-shadow:0 0 0 5px #0f2735c7,0 0 24px #1ca7d924;text-align:center}
+.p40-countdown-ring::after{content:"";position:absolute;inset:6px;border-radius:50%;border:1px solid #a1ebfa22;pointer-events:none}
+.p40-countdown-ring strong{font-size:clamp(29px,5vw,51px);line-height:1;color:#fff;letter-spacing:-1.5px;text-shadow:0 3px 16px #0007;font-variant-numeric:tabular-nums}
+.p40-countdown-ring span{color:#b8e4f3;font-size:11px;font-weight:750}
+@media(max-width:480px){.p40-countdown{gap:9px;min-height:175px;padding:17px 15px}.p40-countdown-ring{width:110px;height:110px;flex-basis:110px}.p40-countdown-ring strong{font-size:36px}.p40-countdown-ring span{font-size:10px}.p40-countdown h2{font-size:21px;margin:10px 0}.p40-countdown-progress{margin-top:12px}.p40-countdown-overline{font-size:9px;letter-spacing:.7px}.p40-countdown-overline span{font-size:16px}.p40-countdown-footnote{margin-top:9px;font-size:11px}}
+@media(max-width:355px){.p40-countdown-ring{width:92px;height:92px;flex-basis:92px}.p40-countdown-ring strong{font-size:30px}.p40-countdown-ring span{font-size:9px}.p40-countdown{padding:14px 12px}.p40-countdown h2{font-size:19px}}
+@media(prefers-reduced-motion:reduce){.p40-countdown *{animation:none!important;transition:none!important}}

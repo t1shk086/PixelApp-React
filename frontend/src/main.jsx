@@ -825,6 +825,7 @@ function TripComparison({trips,loadTrip,expenseDrafts,onClose}){
 // No POST/PUT/DELETE API call is made by this panel.
 function NextTripCountdown({trips}){
  const [today,setToday]=useState(()=>isoDay(new Date()));
+ const [pictureFailed,setPictureFailed]=useState(false);
  useEffect(()=>{
   const interval=setInterval(()=>{const n=isoDay(new Date());setToday(old=>old.getTime()===n.getTime()?old:n)},60000);
   return ()=>clearInterval(interval);
@@ -832,13 +833,24 @@ function NextTripCountdown({trips}){
  const upcoming=trips.map(trip=>({trip,start:asDate(trip.settings?.start_date)}))
   .filter(x=>x.start&&x.start>=today&&tripState(x.trip)!=='finished')
   .sort((a,b)=>a.start-b.start)[0];
+ const cover=upcoming?.trip?.cover_photo_url || upcoming?.trip?.cover_image_url || upcoming?.trip?.photo_url;
+ // Only an explicitly supplied HTTPS gallery URL can be used; never guess photos by destination.
+ const photoUrl=typeof cover==='string'&&/^https:\/\/[^\s]+$/i.test(cover)?cover:null;
+ useEffect(()=>setPictureFailed(false),[photoUrl]);
  if(!upcoming)return null;
  const days=Math.max(0,Math.round((Date.UTC(upcoming.start.getFullYear(),upcoming.start.getMonth(),upcoming.start.getDate())-Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()))/86400000));
- return <section className="p37-countdown" aria-label="Обратен брояч до следващото пътуване">
-  <div className="p37-countdown-overline"><span className="p39-countdown-spark">✦</span> СЛЕДВАЩОТО ПРИКЛЮЧЕНИЕ <span className="p39-countdown-spark">✦</span></div>
-  <h2>{upcoming.trip.name||'Следващо пътуване'}</h2>
-  <div className="p37-countdown-ring"><strong>{days===0?'ДНЕС':days}</strong><span>{days===0?'Време е за път!':days===1?'ден остава':'дни остават'}</span></div>
-  <p className="p39-countdown-date">📅 {upcoming.trip.settings?.start_date}{upcoming.trip.settings?.end_date&&upcoming.trip.settings.end_date!==upcoming.trip.settings.start_date?' → '+upcoming.trip.settings.end_date:''}</p>
+ const start=upcoming.trip.settings?.start_date||'';
+ const end=upcoming.trip.settings?.end_date;
+ return <section className={'p40-countdown'+(photoUrl&&!pictureFailed?' p40-countdown-photo':'')} aria-label="Обратен брояч до следващото пътуване">
+  {photoUrl&&!pictureFailed&&<img className="p40-countdown-cover" src={photoUrl} alt="" loading="lazy" onError={()=>setPictureFailed(true)}/>}
+  <div className="p40-countdown-content">
+   <div className="p40-countdown-overline"><span aria-hidden="true">✈</span> СЛЕДВАЩОТО ПРИКЛЮЧЕНИЕ</div>
+   <h2>{upcoming.trip.name||'Следващо пътуване'}</h2>
+   <p className="p40-countdown-date"><span aria-hidden="true">▦</span> {start}{end&&end!==start?' → '+end:''}</p>
+   <div className="p40-countdown-progress" aria-hidden="true"><span/></div>
+   <p className="p40-countdown-footnote">{days===0?'Днес потегляме! 🚗✨':days===1?'Утре потегляме! 🚗✨':'Скоро тръгваме! 🚗✨'}</p>
+  </div>
+  <div className="p40-countdown-ring" aria-label={days===0?'Пътуването започва днес':`${days} дни остават до пътуването`}><strong>{days===0?'ДНЕС':days}</strong><span>{days===0?'Време е за път!':days===1?'ден остава':'дни остават'}</span></div>
  </section>;
 }
 function AdminSettingsPreview({trips,readOnly,apiBase,onClose,onRefresh}){
