@@ -529,3 +529,13 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 @media(max-width:480px){.p40-countdown{gap:9px;min-height:175px;padding:17px 15px}.p40-countdown-ring{width:110px;height:110px;flex-basis:110px}.p40-countdown-ring strong{font-size:36px}.p40-countdown-ring span{font-size:10px}.p40-countdown h2{font-size:21px;margin:10px 0}.p40-countdown-progress{margin-top:12px}.p40-countdown-overline{font-size:9px;letter-spacing:.7px}.p40-countdown-overline span{font-size:16px}.p40-countdown-footnote{margin-top:9px;font-size:11px}}
 @media(max-width:355px){.p40-countdown-ring{width:92px;height:92px;flex-basis:92px}.p40-countdown-ring strong{font-size:30px}.p40-countdown-ring span{font-size:9px}.p40-countdown{padding:14px 12px}.p40-countdown h2{font-size:19px}}
 @media(prefers-reduced-motion:reduce){.p40-countdown *{animation:none!important;transition:none!important}}
+
+/* Patch 41 — read-only preflight */
+.p41-safety{margin:14px 0;padding:14px;border:1px solid rgba(79,208,213,.25);border-radius:15px;background:linear-gradient(135deg,rgba(31,94,109,.17),rgba(24,27,45,.18))}
+.p41-safety>strong{display:block;margin-bottom:8px;color:#8be6e8}
+.p41-safety p{margin:6px 0 12px}
+.p41-check-results{margin-top:14px;display:grid;gap:7px}
+.p41-check-file{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;color:#aeb9ce;overflow-wrap:anywhere;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,.06)}
+.p41-check-file b{color:#70d6c7;font-size:14px}
+.p41-check-file b:not(:first-child){flex-shrink:0}
+.p41-check-results small{display:block;color:#aab4ca;line-height:1.5}
