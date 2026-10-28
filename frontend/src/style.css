@@ -539,3 +539,7 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p41-check-file b{color:#70d6c7;font-size:14px}
 .p41-check-file b:not(:first-child){flex-shrink:0}
 .p41-check-results small{display:block;color:#aab4ca;line-height:1.5}
+
+/* P42: intentionally constrained test transaction */
+.p42-test-write{margin-top:18px;padding:15px;border:1px solid rgba(73,202,219,.35);border-radius:14px;background:rgba(21,62,77,.3)}
+.p42-test-write form{display:grid;gap:10px;margin:12px 0}.p42-test-write label{display:grid;gap:4px;font-size:13px}.p42-test-write input:not([type=checkbox]),.p42-test-write select{width:100%;min-width:0;padding:10px;border-radius:9px;background:#0d1926;color:#f2f8fd;border:1px solid #34536a}.p42-test-write button{padding:12px;border:1px solid #22ccdd;background:#143c54;color:white;border-radius:10px;font-weight:700}.p42-test-write button:disabled{opacity:.42;cursor:not-allowed}.p42-test-write .p42-confirm{display:flex;align-items:center;gap:8px}.p42-test-write .p42-confirm input{width:18px;height:18px}.p42-test-write small{display:block;line-height:1.5;opacity:.75}
