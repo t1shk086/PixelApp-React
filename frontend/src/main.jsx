@@ -760,6 +760,67 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
  </div></div>
 }
 
+// Patch 38 — display-only latest activity card and original Streamlit comparison modes.
+function LatestActivityCard({activity}){
+ if(!activity)return null;
+ const raw=String(activity.description||'Без описание');
+ const stage=raw.match(/\(Етап:\s*([^)]*)\)/i);
+ const isFuel=/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(raw);
+ const title=raw.replace(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/gi,'').replace(/\(Етап:\s*[^)]*\)/gi,'').trim()||'Зареждане';
+ return <section className="p38-latest" aria-label="Последна активност">
+  <div className="p38-latest-top"><span>◷ ПОСЛЕДНА АКТИВНОСТ</span><span className="p38-latest-pill">{isFuel?'⛽ Гориво':'🧾 Разход'}</span></div>
+  <div className="p38-latest-main"><span className="p38-latest-icon">{isFuel?'⛽':'💳'}</span><div className="p38-latest-text"><strong>{title}</strong><small>{activity.trip||'Пътуване'} · {activity.category||'Разход'}</small></div><b>{money(activity.amount)}</b></div>
+  {stage&&<div className="p38-latest-foot">🚗 {stage[1].replace(/,\s*/g,' · ')}</div>}
+ </section>
+}
+const compareOptions=[['Общо','€'],['€ / ден','€/ден'],['Цена / км','€/км'],['Км','км'],['Гориво','€'],['л / 100 км','л/100 км'],['Хотел','€'],['Други','€']];
+const compareHelp={'Общо':'Всички отчетени разходи за пътуването.','€ / ден':'Общо разходи, разделени на календарните дни, включително първия и последния.','Цена / км':'Обща стойност за един изминат километър.','Км':'Пробег от началния до крайния или последно записания километраж.','Гориво':'Платена сума за гориво.','л / 100 км':'Отчетени литри за целия пробег, не реален разход между две пълни зареждания.','Хотел':'Хотели и депозити.','Други':'Разходите в категория „Други“.'};
+function comparisonMetrics(trip,detail,draft){
+ const rows=applyExpenseDraft(detail?.expenses||[],draft),s=detail?.settings||trip.settings||{};
+ const num=x=>{const v=Number(x);return Number.isFinite(v)?v:0};
+ const payments=rows.filter(r=>['expense','deposit'].includes(String(r.type)));
+ const total=payments.reduce((a,r)=>a+num(r.amount),0);
+ const hotel=payments.filter(r=>['Нощувки/Хотел','Депозит/Резервация'].includes(String(r.category||''))||r.type==='deposit').reduce((a,r)=>a+num(r.amount),0);
+ const other=payments.filter(r=>r.category==='Други').reduce((a,r)=>a+num(r.amount),0);
+ const fuel=payments.filter(r=>r.category==='Транспорт'&&(num(r.liters)>0||/газ|гориво|зареждане|бензин|дизел/i.test(String(r.description||''))));
+ const fuelCost=fuel.reduce((a,r)=>a+num(r.amount),0),fuelLiters=fuel.reduce((a,r)=>a+num(r.liters),0);
+ const startKm=num(s.start_km),endKm=num(s.end_km),lastKm=Math.max(0,...payments.filter(r=>r.type==='expense').map(r=>num(r.current_km)));
+ const effectiveEnd=endKm>0?endKm:lastKm,km=effectiveEnd>startKm?effectiveEnd-startKm:0;
+ const sd=asDate(s.start_date),ed=asDate(s.end_date);
+ const days=sd&&ed?Math.max(1,Math.round((Date.UTC(ed.getFullYear(),ed.getMonth(),ed.getDate())-Date.UTC(sd.getFullYear(),sd.getMonth(),sd.getDate()))/86400000)+1):1;
+ return {id:trip.id,name:trip.name||trip.id,'Общо':total,'€ / ден':total/days,'Цена / км':km?total/km:null,'Км':km,'Гориво':fuelCost,'л / 100 км':km&&fuelLiters?fuelLiters/km*100:null,'Хотел':hotel,'Други':other};
+}
+function TripComparison({trips,loadTrip,expenseDrafts,onClose}){
+ const [mode,setMode]=useState('all'),[metric,setMetric]=useState('Общо'),[items,setItems]=useState([]),[busy,setBusy]=useState(true),[failure,setFailure]=useState('');
+ const [a,setA]=useState(''),[b,setB]=useState('');
+ useEffect(()=>{let cancelled=false;async function go(){setBusy(true);setFailure('');try{
+  const result=[];let errors=0;
+  for(let i=0;i<trips.length;i+=4){const batch=await Promise.allSettled(trips.slice(i,i+4).map(t=>loadTrip(t.id)));
+   if(cancelled)return;
+   batch.forEach((out,j)=>{if(out.status==='fulfilled')result.push(comparisonMetrics(trips[i+j],out.value,expenseDrafts[trips[i+j].id]));else errors++});
+  }
+  if(!cancelled){setItems(result);setA(result[0]?.id||'');setB(result[1]?.id||'');if(errors)setFailure(`${errors} пътувания не можаха да бъдат заредени и не участват в сравнението.`)}
+ }catch(e){if(!cancelled)setFailure(String(e.message))}finally{if(!cancelled)setBusy(false)}}go();return()=>{cancelled=true};},[trips,loadTrip,expenseDrafts]);
+ const unit=compareOptions.find(x=>x[0]===metric)?.[1]||'';
+ const valid=items.filter(x=>x[metric]!==null&&Number.isFinite(x[metric]));
+ const sorted=[...valid].sort((x,y)=>metric==='Км'?y[metric]-x[metric]:x[metric]-y[metric]);
+ const selected=mode==='pair'?items.filter(x=>x.id===a||x.id===b).sort((x,y)=>(x.id===a?-1:1)):sorted;
+ const max=Math.max(1,...selected.map(x=>x[metric]||0));
+ const fmt=v=>v===null||!Number.isFinite(v)?'Няма данни':Number(v).toLocaleString('bg-BG',{maximumFractionDigits:2});
+ const winner=mode==='pair'&&selected.length===2&&selected.every(x=>x[metric]!==null)?selected[0][metric]===selected[1][metric]?'Равен резултат':metric==='Км'?(selected[0][metric]>selected[1][metric]?selected[0].name:selected[1].name):(selected[0][metric]<selected[1][metric]?selected[0].name:selected[1].name):null;
+ return <section className="p38-comparison"><div className="p38-comparison-head"><div><small>PIXELAPP · АНАЛИЗ</small><h2>📊 Сравнение</h2><p>Всички пътувания или две конкретни приключения — както в Streamlit.</p></div><button className="ghost" onClick={onClose}>✕ Затвори</button></div>
+  <div className="p38-toggle"><button className={mode==='all'?'active':''} onClick={()=>setMode('all')}>Всички пътувания</button><button className={mode==='pair'?'active':''} onClick={()=>setMode('pair')}>Две пътувания</button></div>
+  <label className="p38-metric">Показател<select value={metric} onChange={e=>setMetric(e.target.value)}>{compareOptions.map(([label])=><option key={label}>{label}</option>)}</select></label>
+  <p className="p38-hint">ⓘ {compareHelp[metric]}</p>
+  {mode==='pair'&&<div className="p38-pair"><label>Пътуване 1<select value={a} onChange={e=>{setA(e.target.value);if(e.target.value===b)setB(items.find(x=>x.id!==e.target.value)?.id||'')}}>{items.map(x=><option value={x.id} key={x.id}>{x.name}</option>)}</select></label><label>Пътуване 2<select value={b} onChange={e=>setB(e.target.value)}>{items.filter(x=>x.id!==a).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label></div>}
+  {busy?<p className="p38-hint">Зареждам данните за сравнение…</p>:<>{failure&&<p className="p38-warning">{failure}</p>}{items.length===0?<p className="p38-hint">Няма данни за сравнение.</p>:mode==='pair'&&items.length<2?<p className="p38-hint">Нужни са поне две пътувания.</p>:<>
+  <div className="p38-compare-bars">{selected.map(x=><div key={x.id} className="p38-compare-row"><div className="p38-compare-row-head"><span>{x.name}</span><strong>{fmt(x[metric])}{x[metric]!==null?' '+unit:''}</strong></div><div className="p38-compare-track"><span style={{width:`${Math.max(0,(x[metric]||0)/max*100)}%`}}/></div></div>)}</div>
+  {mode==='pair'?<div className="p38-compare-result">🏆 {winner||'Няма достатъчно данни за победител'}</div>:sorted.length>0?<div className="p38-compare-result"><div>🏆 {metric==='Км'?'Най-голям пробег':'Най-ниска стойност'}: <b>{metric==='Км'?[...sorted].sort((x,y)=>y[metric]-x[metric])[0].name:[...sorted].sort((x,y)=>x[metric]-y[metric])[0].name}</b></div><div>📈 Най-висока стойност: <b>{[...sorted].sort((x,y)=>y[metric]-x[metric])[0].name}</b></div></div>:<p className="p38-hint">Няма налични стойности за този показател.</p>}
+  </>}</>}
+  <small className="p38-compare-note">🔒 Само за преглед. Нищо не се записва в Google Drive.</small>
+ </section>;
+}
+
 // Patch 37 — local-only admin overview and the next-trip countdown.
 // No POST/PUT/DELETE API call is made by this panel.
 function NextTripCountdown({trips}){
@@ -802,6 +863,7 @@ function AdminSettingsPreview({trips,readOnly,apiBase,onClose,onRefresh}){
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_api_key')||'');
  const [adminOpen,setAdminOpen]=useState(false);
+ const [comparisonOpen,setComparisonOpen]=useState(false);
  const [readOnly,setReadOnly]=useState(true);
  const [entry,setEntry]=useState(''); const [trips,setTrips]=useState([]);const [current,setCurrent]=useState(null);
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
@@ -822,17 +884,19 @@ function App(){
  useEffect(()=>{if(key){fetch(`${apiBase}/health`).then(r=>r.json()).then(x=>setReadOnly(x.read_only!==false)).catch(()=>setReadOnly(true));reload()}},[key]);
  const chosen=trips.find(x=>x.id===current);
  async function run(job){if(readOnly){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
+ const comparisonLoader=React.useCallback(id=>req(`/trips/${encodeURIComponent(id)}`),[key]);
  function connect(e){e.preventDefault();const value=entry.trim();if(!value)return;sessionStorage.setItem('pixel_api_key',value);setKey(value);setEntry('')}
  function logout(){sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({});}
  if(!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager — React preview</p><section className="panel"><h3>Личен достъп</h3><p>Въведи ключа от <code>PIXELAPP_API_KEY</code> на твоя Python сървър. Google токените никога не се въвеждат тук.</p><form onSubmit={connect}><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ"/><button>Влез</button></form></section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
  {readOnly&&!current&&<aside className="p34-global-read-only">🔒 Тестов режим · Промените не се записват в Google Drive</aside>}
- <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({})}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&<button className="ghost p37-settings-button" onClick={()=>setAdminOpen(true)}>⚙️ Настройки</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
+ <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else if(comparisonOpen){setComparisonOpen(false)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({})}}}>{current||comparisonOpen?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&!comparisonOpen&&<button className="ghost p37-settings-button" onClick={()=>setAdminOpen(true)}>⚙️ Настройки</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
- {!current?<>
+ {!current?comparisonOpen?<TripComparison trips={trips} loadTrip={comparisonLoader} expenseDrafts={expenseDrafts} onClose={()=>setComparisonOpen(false)}/>:<>
  <NextTripCountdown trips={trips}/>
  <div className="actions home-actions p28-home-actions"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button><button onClick={()=>setModal('quick-demo')}>💳 <span><b>Бърз разход</b><small>Добави към избрано пътуване</small></span></button></div>
  <div className="home-sync"><button className="ghost" onClick={async()=>{setLoading(true);setError('');try{await req('/sync-from-drive','POST');await reload()}catch(e){setError(String(e.message))}finally{setLoading(false)}}}><RefreshCcw size={15}/> Прочети данните от Google Drive</button></div>
+ <button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Общ преглед или две пътувания едно срещу друго</small></span><span aria-hidden="true">›</span></button>
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
  {(() => {const ranked=[...trips].sort((a,b)=>{const rank={active:0,upcoming:1,finished:2},sa=tripState(a),sb=tripState(b);if(rank[sa]!==rank[sb])return rank[sa]-rank[sb];const da=asDate(sa==='finished'?a.settings?.end_date:sa==='upcoming'?a.settings?.start_date:a.settings?.end_date);const db=asDate(sb==='finished'?b.settings?.end_date:sb==='upcoming'?b.settings?.start_date:b.settings?.end_date);return sa==='finished'?(db?.getTime()||0)-(da?.getTime()||0):(da?.getTime()||Infinity)-(db?.getTime()||Infinity)});const ended=ranked.filter(t=>tripState(t)==='finished');const visible=ranked.filter(t=>tripState(t)!=='finished').concat(showFinished?ended:ended.slice(0,1));return <>
  {visible.map(t=>{const state=tripState(t),previewSpent=Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]),pct=t.budget>0?Math.min(100,Math.max(0,previewSpent/t.budget*100)):0;return <button key={t.id} className={'trip home-trip state-'+state} onClick={async()=>{setCurrent(t.id);setTab('overview');setDetail(null);try{setDetail(await req(`/trips/${encodeURIComponent(t.id)}`))}catch(e){setError(e.message)}}}><div className="triptitle">🚙 {t.name}</div><div className="tripstatus">{statusDot[state]} {statusText[state]} <span>{t.settings.start_date||''}{t.settings.end_date&&t.settings.end_date!==t.settings.start_date?' → '+t.settings.end_date:''}</span></div>{state==='finished'?<div className="numbers">💰 Общо изхарчено: <strong>{money(Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]))}</strong>{hasExpenseChanges(expenseDrafts[t.id])&&<small className="p27-draft-label"> · временно</small>}</div>:t.budget>0?<><div className="numbers"><strong>{money(previewSpent)}</strong> / {money(t.budget)} <strong> · {Math.round(pct)}%</strong></div><div className="remaining">💳 Остават <strong>{money(Math.max(0,t.budget-previewSpent))}</strong></div><div className="track"><div style={{width:`${pct}%`}}/></div></>:<div className="numbers">💳 Разходи: <strong>{money(previewSpent)}</strong><small className="muted"> · Без зададен бюджет</small></div>}</button>})}
@@ -840,7 +904,7 @@ function App(){
  </>})()}
  {!trips.length&&!loading&&<p className="muted">Няма заредени пътувания. Използвай „Прочети данните от Google Drive“.</p>}
  {Object.values(expenseDrafts).some(hasExpenseChanges)&&<div className="p27-home-warning">● Сумите за пътуванията включват временни промени. Те ще изчезнат при презареждане. Google Drive не е променен.</div>}
- {dashboard?.last_activity&&<div className="home-extra"><div className="home-extra-title">🕐 ПОСЛЕДНА АКТИВНОСТ</div><strong>{money(dashboard.last_activity.amount)}</strong><small>{dashboard.last_activity.trip} · {dashboard.last_activity.category} · {dashboard.last_activity.description}</small></div>}
+ {dashboard?.last_activity&&<LatestActivityCard activity={dashboard.last_activity}/>}
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} expenseDraft={currentExpenseDraft} onOpenPreview={setModal}/>}</>}
