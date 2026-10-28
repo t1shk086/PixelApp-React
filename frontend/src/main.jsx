@@ -760,8 +760,48 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
  </div></div>
 }
 
+// Patch 37 — local-only admin overview and the next-trip countdown.
+// No POST/PUT/DELETE API call is made by this panel.
+function NextTripCountdown({trips}){
+ const [today,setToday]=useState(()=>isoDay(new Date()));
+ useEffect(()=>{
+  const interval=setInterval(()=>{const n=isoDay(new Date());setToday(old=>old.getTime()===n.getTime()?old:n)},60000);
+  return ()=>clearInterval(interval);
+ },[]);
+ const upcoming=trips.map(trip=>({trip,start:asDate(trip.settings?.start_date)}))
+  .filter(x=>x.start&&x.start>=today&&tripState(x.trip)!=='finished')
+  .sort((a,b)=>a.start-b.start)[0];
+ if(!upcoming)return null;
+ const days=Math.max(0,Math.round((Date.UTC(upcoming.start.getFullYear(),upcoming.start.getMonth(),upcoming.start.getDate())-Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()))/86400000));
+ return <section className="p37-countdown" aria-label="Обратен брояч до следващото пътуване">
+  <div className="p37-countdown-overline">✈️ СЛЕДВАЩОТО ПРИКЛЮЧЕНИЕ</div>
+  <h2>{upcoming.trip.name||'Следващо пътуване'}</h2>
+  <div className="p37-countdown-ring"><strong>{days===0?'ДНЕС':days}</strong><span>{days===0?'Време е за път!':days===1?'ден остава':'дни остават'}</span></div>
+  <p>📅 {upcoming.trip.settings?.start_date}{upcoming.trip.settings?.end_date&&upcoming.trip.settings.end_date!==upcoming.trip.settings.start_date?' → '+upcoming.trip.settings.end_date:''}</p>
+ </section>;
+}
+function AdminSettingsPreview({trips,readOnly,apiBase,onClose,onRefresh}){
+ const [section,setSection]=useState('data');
+ const entries=[['data','☁️','Данни и синхронизация'],['backup','📦','Архивиране и възстановяване'],['trips','🚙','Управление на пътувания'],['labels','🏷️','Категории и имена'],['access','👥','Потребители и достъп'],['fuel','⛽','Настройки на горивото']];
+ return <div className="overlay p37-admin-overlay" onClick={onClose} role="presentation"><div className="dialog p37-admin-dialog" role="dialog" aria-modal="true" aria-label="Настройки на PixelApp" onClick={e=>e.stopPropagation()}>
+  <div className="dialoghead"><h3>⚙️ Настройки на PixelApp</h3><button className="ghost" onClick={onClose} aria-label="Затвори">✕</button></div>
+  <p className="p37-admin-notice">🔒 Подготовка за безопасно записване. Този екран не променя данни в Google Drive.</p>
+  <div className="p37-admin-navigation">{entries.map(([id,icon,title])=><button type="button" key={id} className={section===id?'p37-selected':''} onClick={()=>setSection(id)}><span>{icon}</span> {title}</button>)}</div>
+  <div className="p37-admin-content">
+   {section==='data'&&<><h4>☁️ Данни и синхронизация</h4><div className="p37-status"><span>Достъп през React</span><strong>{readOnly?'🔒 Само за четене':'⚠️ Записът е разрешен от сървъра'}</strong></div><div className="p37-status"><span>Заредени пътувания</span><strong>{trips.length}</strong></div><p>При обновяване React прочита данните от FastAPI. Ръчната синхронизация от Google Drive остава на началния екран.</p><button type="button" className="p37-admin-action" onClick={()=>{onClose();onRefresh()}}>🔄 Обнови данните</button><small>Преди разрешаване на записи трябва да добавим сървърна проверка на тестовото пътуване и защита от конфликт.</small></>}
+   {section==='backup'&&<><h4>📦 Архивиране и възстановяване</h4><p>Старият Streamlit има работещ ZIP архив на основните CSV данни. Засега използвай него за резервно копие.</p><p>В React ще добавим архивиране и проверка на съдържанието, преди да включим запис. Възстановяването няма да може да презаписва файлове без потвърждение и предварително копие.</p><div className="p37-admin-safe">✅ Няма активни бутони за изтриване или възстановяване.</div></>}
+   {section==='trips'&&<><h4>🚙 Управление на пътувания</h4><p>Пътуванията, които виждаш в React: <b>{trips.length}</b>. Преименуването и временното отключване на приключено пътуване ще се добавят след тест на записването.</p><p><b>Тест:</b> създаваме отделно пътуване „ТЕСТ – PixelApp“, но засега не разрешаваме промени по старите данни.</p><div className="p37-admin-safe">🔒 Стари пътувания: без запис от React.</div></>}
+   {section==='labels'&&<><h4>🏷️ Категории и имена</h4><p>Ще запазим от Streamlit персоналните категории за отделно пътуване, имената „Куче / Котка / Домашен любимец“, хотелските категории и етикетите на картата.</p><p>Промяната на визуалното име не бива да променя вече записаните категории или финансовите изчисления.</p></>}
+   {section==='access'&&<><h4>👥 Потребители и достъп</h4><p>Тук ще бъдат администраторският профил, личните профили и поканите за общо пътуване. Сегашният API ключ остава непроменен до внедряването на сигурно вписване.</p><p>Административните операции ще изискват проверка на правата от сървъра, не само скрит бутон в React.</p></>}
+   {section==='fuel'&&<><h4>⛽ Настройки на горивото</h4><p>От старото приложение запазваме прага за висока цена на литър. Текущата начална стойност в стария код е 1,80 €/л.</p><p>Тук ще може да се настройва прагът, когато имаме безопасно записване на глобалните настройки. Редовните зареждания остават в „Бърз разход“.</p></>}
+  </div>
+  <div className="p37-admin-bottom">Етап 1 · Преглед и подготовка · Без промени по данните</div>
+ </div></div>;
+}
+
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_api_key')||'');
+ const [adminOpen,setAdminOpen]=useState(false);
  const [readOnly,setReadOnly]=useState(true);
  const [entry,setEntry]=useState(''); const [trips,setTrips]=useState([]);const [current,setCurrent]=useState(null);
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
@@ -787,9 +827,10 @@ function App(){
  if(!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager — React preview</p><section className="panel"><h3>Личен достъп</h3><p>Въведи ключа от <code>PIXELAPP_API_KEY</code> на твоя Python сървър. Google токените никога не се въвеждат тук.</p><form onSubmit={connect}><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ"/><button>Влез</button></form></section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
  {readOnly&&!current&&<aside className="p34-global-read-only">🔒 Тестов режим · Промените не се записват в Google Drive</aside>}
- <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({})}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button><button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
+ <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({})}}}>{current?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&<button className="ghost p37-settings-button" onClick={()=>setAdminOpen(true)}>⚙️ Настройки</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
  {!current?<>
+ <NextTripCountdown trips={trips}/>
  <div className="actions home-actions p28-home-actions"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button><button onClick={()=>setModal('quick-demo')}>💳 <span><b>Бърз разход</b><small>Добави към избрано пътуване</small></span></button></div>
  <div className="home-sync"><button className="ghost" onClick={async()=>{setLoading(true);setError('');try{await req('/sync-from-drive','POST');await reload()}catch(e){setError(String(e.message))}finally{setLoading(false)}}}><RefreshCcw size={15}/> Прочети данните от Google Drive</button></div>
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
@@ -799,11 +840,11 @@ function App(){
  </>})()}
  {!trips.length&&!loading&&<p className="muted">Няма заредени пътувания. Използвай „Прочети данните от Google Drive“.</p>}
  {Object.values(expenseDrafts).some(hasExpenseChanges)&&<div className="p27-home-warning">● Сумите за пътуванията включват временни промени. Те ще изчезнат при презареждане. Google Drive не е променен.</div>}
- {dashboard?.next_trip&&<div className="home-extra"><div className="home-extra-title">✈️ СЛЕДВАЩО ПЪТУВАНЕ</div><strong>{dashboard.next_trip.name}</strong><small>{dashboard.next_trip.date} · {dashboard.next_trip.days===0?'днес':`след ${dashboard.next_trip.days} дни`}</small></div>}
  {dashboard?.last_activity&&<div className="home-extra"><div className="home-extra-title">🕐 ПОСЛЕДНА АКТИВНОСТ</div><strong>{money(dashboard.last_activity.amount)}</strong><small>{dashboard.last_activity.trip} · {dashboard.last_activity.category} · {dashboard.last_activity.description}</small></div>}
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} expenseDraft={currentExpenseDraft} onOpenPreview={setModal}/>}</>}
+ {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()}/>}
  {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
