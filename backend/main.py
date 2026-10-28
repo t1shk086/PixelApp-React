@@ -5,6 +5,9 @@ Production requires HTTPS and a secret API key, held server-side or sent via an
 authenticated reverse proxy. Never expose the Google refresh token to the browser.
 """
 import csv
+import hashlib
+import re
+from decimal import Decimal, InvalidOperation
 import io
 import os
 import threading
@@ -45,6 +48,8 @@ LOCK = threading.RLock()
 # Patch 41: fail closed even if the legacy environment flag was left enabled.
 # Cross-process conflict protection with Streamlit is NOT implemented yet.
 WRITES_ENABLED = False
+# Explicitly armed experimental endpoint ONLY; all legacy CRUD routes stay locked.
+TEST_WRITE_ARMED = os.getenv('PIXELAPP_TEST_WRITE_ARMED', '').strip() == 'I_UNDERSTAND_TEST_ONLY'
 
 def require_writes():
     if not WRITES_ENABLED:
@@ -143,7 +148,7 @@ class TaskIn(BaseModel):
     title: str = Field(min_length=1,max_length=500)
 
 @app.get('/health')
-def health(): return {'ok':True,'drive_configured':bool(os.getenv('GOOGLE_REFRESH_TOKEN')), 'read_only':not WRITES_ENABLED}
+def health(): return {'ok':True,'drive_configured':bool(os.getenv('GOOGLE_REFRESH_TOKEN')), 'read_only':not WRITES_ENABLED, 'test_write_armed':TEST_WRITE_ARMED}
 
 @app.post('/sync-from-drive',dependencies=[Depends(authorize)])
 def sync_from_drive():
@@ -180,6 +185,8 @@ def safety_preflight():
         candidates = [r for r in settings if normal(r.get('trip_id')) == target]
         report = {
             'write_enabled': False,
+            'test_write_armed': TEST_WRITE_ARMED,
+            'expenses_sha256': None,
             'test_trip_found': len(candidates) == 1,
             'test_trip_count': len(candidates),
             'test_trip_id': candidates[0].get('trip_id') if len(candidates) == 1 else None,
@@ -201,12 +208,108 @@ def safety_preflight():
                 if local.is_file() and filename in mapping:
                     remote = service.files().get_media(fileId=mapping[filename]).execute()
                     item['matches'] = hashlib.sha256(local.read_bytes()).digest() == hashlib.sha256(remote).digest()
+                    if kind == 'expenses':
+                        report['expenses_sha256'] = hashlib.sha256(remote).hexdigest()
                 report['csv_checks'].append(item)
             report['drive_matches_local'] = all(x['matches'] for x in report['csv_checks']) and bool(report['csv_checks'])
         except Exception as exc:
             # No traceback/credential information sent to the browser.
             report['drive_error'] = 'Неуспешна сверка с Google Drive. Провери връзката и настройките на сървъра.'
         return report
+
+
+# Patch 42: purpose-built test transaction. NO ordinary React editing endpoints are enabled.
+# This is optimistic conflict detection, not a distributed lock: Streamlit cannot
+# participate until its sync code is upgraded. Use only while Streamlit is closed.
+class ExperimentalExpense(BaseModel):
+    trip_id: str = Field(min_length=1, max_length=200)
+    amount: Decimal = Field(gt=0, le=1000)
+    category: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1, max_length=200)
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmation: str
+
+@app.post('/safety/test-expense', dependencies=[Depends(authorize)])
+def experimental_test_expense(payload: ExperimentalExpense):
+    if not TEST_WRITE_ARMED:
+        raise HTTPException(423, 'Тестовото записване е заключено от администратора на сървъра.')
+    if payload.confirmation != 'ЗАПИШИ САМО В ТЕСТ':
+        raise HTTPException(400, 'Липсва точното потвърждение.')
+    if payload.category not in ('Храна и напитки', 'Транспорт', 'Други', 'Нощувки/Хотел'):
+        raise HTTPException(422, 'Непозволена категория за първия тест.')
+    if not payload.amount.is_finite() or payload.amount.as_tuple().exponent < -2:
+        raise HTTPException(422, 'Сумата трябва да има най-много два знака след запетаята.')
+    # No fuel, deposit, settings, budgets or existing trips may be written through this endpoint.
+    with LOCK:
+        settings = load_rows('settings')
+        def norm(value):
+            return re.sub(r'[^\w]+', '', str(value or '').casefold(), flags=re.UNICODE).replace('_','')
+        matches = [r for r in settings if norm(r.get('trip_id')) == norm('ТЕСТ PixelApp')]
+        if len(matches) != 1 or matches[0].get('trip_id') != payload.trip_id:
+            raise HTTPException(403, 'Записът е разрешен единствено за точно едно тестово пътуване.')
+        service = drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е конфигуриран.')
+        _, mapping = folder_and_files(service)
+        name = FILENAMES['expenses']
+        file_id = mapping.get(name)
+        if not file_id:
+            raise HTTPException(409, 'Липсва съществуващ CSV файл в Drive. Няма да създавам нов.')
+        remote = service.files().get_media(fileId=file_id).execute()
+        local_path = DATA_DIR / name
+        if not local_path.exists():
+            raise HTTPException(409, 'Липсва локалният CSV. Първо синхронизирай.')
+        local = local_path.read_bytes()
+        digest = hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest() != digest:
+            raise HTTPException(409, 'Данните са променени. Обнови ги от Drive, провери и опитай пак.')
+        decoded = remote.decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(decoded))
+        cols = reader.fieldnames
+        if not cols or not all(x in cols for x in COLUMNS['expenses']):
+            raise HTTPException(422, 'Непознат CSV формат. Записът е отказан.')
+        rows = list(reader)
+        # All non-test rows are copied verbatim at the data level. We do not edit other trips.
+        stamp = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
+        marker = '[P42 TEST] '
+        if any(x.get('trip_id') == payload.trip_id and x.get('description') == marker + payload.description for x in rows):
+            raise HTTPException(409, 'Вече има тестов разход със същото описание. Избери друго.')
+        row = {k:'' for k in cols}
+        row.update({'trip_id':payload.trip_id,'date':stamp,'amount':str(payload.amount),
+                    'category':payload.category,'description':marker + payload.description,
+                    'type':'expense','liters':'0','current_km':'0'})
+        rows.append(row)
+        output = io.StringIO(newline='')
+        writer = csv.DictWriter(output, fieldnames=cols, extrasaction='ignore', lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        new_bytes = output.getvalue().encode('utf-8')
+        # A persistent Drive-side copy is created BEFORE the original is touched.
+        backup_name = f'P42_BACKUP_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{name}'
+        try:
+            backup = service.files().copy(fileId=file_id, body={'name':backup_name}, fields='id,name').execute()
+            backup_id = backup['id']
+        except Exception:
+            raise HTTPException(503, 'Резервното копие в Drive не беше създадено. Няма запис.')
+        # Check once more after backup creation: refuse if Streamlit altered the file meanwhile.
+        latest = service.files().get_media(fileId=file_id).execute()
+        if hashlib.sha256(latest).hexdigest() != digest:
+            raise HTTPException(409, 'Конфликт след създаване на архива. Записът е отказан.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            media = MediaIoBaseUpload(io.BytesIO(new_bytes), mimetype='text/csv', resumable=False)
+            service.files().update(fileId=file_id, media_body=media).execute()
+            confirmed = service.files().get_media(fileId=file_id).execute()
+            if hashlib.sha256(confirmed).digest() != hashlib.sha256(new_bytes).digest():
+                raise RuntimeError('Drive verification mismatch')
+        except Exception:
+            # Keep the Drive backup. Do not claim success if verification fails.
+            raise HTTPException(503, 'Записът не е потвърден. Провери данните в Drive; архивът е запазен.')
+        tmp = local_path.with_suffix('.p42_verified')
+        tmp.write_bytes(confirmed)
+        os.replace(tmp,local_path)
+        return {'ok':True, 'trip_id':payload.trip_id, 'amount':str(payload.amount),
+                'backup_id':backup_id, 'new_sha256':hashlib.sha256(confirmed).hexdigest(),
+                'note':'Записано и потвърдено в Drive. Отвори Streamlit и провери тестовия разход.'}
 
 
 @app.get('/trips',dependencies=[Depends(authorize)])
