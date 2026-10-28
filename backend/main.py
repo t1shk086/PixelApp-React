@@ -314,6 +314,101 @@ def experimental_test_expense(payload: ExperimentalExpense):
                 'note':'Записано и потвърдено в Drive. Отвори Streamlit и провери тестовия разход.'}
 
 
+# Patch 45: restricted modification of precisely matched P44 test records only.
+# No legacy, fuel, deposit or other-trip expense can be changed here.
+class ExperimentalExpenseChange(BaseModel):
+    trip_id: str = Field(min_length=1,max_length=200)
+    operation: str
+    original: dict[str,str]
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmation: str
+    amount: Decimal | None = None
+    category: str | None = None
+    description: str | None = None
+
+
+@app.post('/safety/test-expense-change', dependencies=[Depends(authorize)])
+def experimental_test_expense_change(payload: ExperimentalExpenseChange):
+    if not TEST_WRITE_ARMED:
+        raise HTTPException(423, 'Тестовото записване е заключено от администратора.')
+    if payload.confirmation != 'ПРОМЕНИ САМО P44 ТЕСТ':
+        raise HTTPException(400, 'Липсва потвърждението за тестовата операция.')
+    if payload.operation not in ('edit','delete'):
+        raise HTTPException(422, 'Невалиден вид операция.')
+    base_fields = ('date','amount','category','description','type','liters','current_km')
+    if set(payload.original) != set(base_fields) or any(not isinstance(v,str) for v in payload.original.values()):
+        raise HTTPException(422, 'Непълен оригинален запис. Няма промяна.')
+    if not payload.original['description'].startswith('[P44 TEST] '):
+        raise HTTPException(403, 'Може да се редактират само разходи от Пач 44.')
+    if payload.original['type'] != 'expense' or payload.original['liters'] not in ('0','0.0','') or payload.original['current_km'] not in ('0','0.0',''):
+        raise HTTPException(403, 'Гориво и други видове плащания са заключени.')
+    if payload.operation == 'edit':
+        if payload.amount is None or not payload.amount.is_finite() or not (Decimal('0.01') <= payload.amount <= Decimal('1000')) or payload.amount.as_tuple().exponent < -2:
+            raise HTTPException(422,'Невалидна сума.')
+        if payload.category not in ('Храна и напитки','Транспорт','Други','Нощувки/Хотел'):
+            raise HTTPException(422,'Непозволена категория.')
+        desc = (payload.description or '').strip()
+        if not desc or len(desc)>200 or re.search(r'газ|гориво|зареждане|бензин|дизел',desc,flags=re.I):
+            raise HTTPException(422,'Този тест не поддържа гориво или празно описание.')
+    with LOCK:
+        settings = load_rows('settings')
+        def norm(v):
+            return re.sub(r'[^\w]+','',str(v or '').casefold(),flags=re.UNICODE).replace('_','')
+        matches = [r for r in settings if norm(r.get('trip_id')) == norm('ТЕСТ PixelApp')]
+        if len(matches) != 1 or matches[0].get('trip_id') != payload.trip_id:
+            raise HTTPException(403,'Разрешено е единствено точното тестово пътуване.')
+        service = drive_service()
+        if not service: raise HTTPException(503,'Няма Google Drive връзка.')
+        _, mapping = folder_and_files(service)
+        filename = FILENAMES['expenses']; file_id = mapping.get(filename)
+        if not file_id: raise HTTPException(409,'Липсва CSV в Drive.')
+        local_path = DATA_DIR / filename
+        if not local_path.is_file(): raise HTTPException(409,'Липсва локалният CSV.')
+        remote = service.files().get_media(fileId=file_id).execute()
+        digest = hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or hashlib.sha256(local_path.read_bytes()).hexdigest() != digest:
+            raise HTTPException(409,'Данните са се променили. Обнови от Drive, преди да опиташ пак.')
+        reader = csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+        cols = reader.fieldnames
+        if not cols or not all(f in cols for f in ('trip_id',*base_fields)):
+            raise HTTPException(422,'Непознат CSV формат.')
+        rows = list(reader)
+        matching = [i for i,r in enumerate(rows) if r.get('trip_id') == payload.trip_id and all(str(r.get(k,'')) == payload.original[k] for k in base_fields)]
+        if len(matching) != 1:
+            raise HTTPException(409,'Разходът не е намерен еднозначно. Не е променено нищо.')
+        index = matching[0]
+        if payload.operation == 'edit':
+            rows[index]['amount'] = str(payload.amount)
+            rows[index]['category'] = payload.category
+            rows[index]['description'] = '[P44 TEST] ' + desc
+        else:
+            del rows[index]
+        output = io.StringIO(newline='')
+        writer = csv.DictWriter(output,fieldnames=cols,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader(); writer.writerows(rows)
+        new_bytes = output.getvalue().encode('utf-8')
+        backup_name = f'P45_BACKUP_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{filename}'
+        try:
+            backup = service.files().copy(fileId=file_id,body={'name':backup_name},fields='id,name').execute()
+            backup_id = backup['id']
+        except Exception:
+            raise HTTPException(503,'Неуспешно резервно копие. Записът е отказан.')
+        if hashlib.sha256(service.files().get_media(fileId=file_id).execute()).hexdigest() != digest:
+            raise HTTPException(409,'Drive се промени след архива. Отказана операция.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            media = MediaIoBaseUpload(io.BytesIO(new_bytes),mimetype='text/csv',resumable=False)
+            service.files().update(fileId=file_id,media_body=media).execute()
+            confirmed = service.files().get_media(fileId=file_id).execute()
+            if hashlib.sha256(confirmed).digest() != hashlib.sha256(new_bytes).digest():
+                raise RuntimeError('Verification mismatch')
+        except Exception:
+            raise HTTPException(503,'Операцията не е потвърдена. Не повтаряй преди проверка на Drive. Архивът е запазен.')
+        tmp = local_path.with_suffix('.p45_verified')
+        tmp.write_bytes(confirmed); os.replace(tmp,local_path)
+        return {'ok':True,'operation':payload.operation,'backup_id':backup_id,'new_sha256':hashlib.sha256(confirmed).hexdigest()}
+
+
 @app.get('/trips',dependencies=[Depends(authorize)])
 def list_trips():
     with LOCK:
