@@ -757,3 +757,116 @@ def new_trip_create(payload: TestNewTrip):
         temp.write_bytes(verified)
         os.replace(temp,local_path)
         return {'ok':True,'trip_id':tid,'backup_id':backup_id}
+
+
+# Patch 61: narrowly scoped test-trip SETTINGS edit. Other trips and CRUD locked.
+# Requires a DIFFERENT explicit switch from test creation and stays OFF by default.
+TEST_EDIT_ARMED = os.getenv('PIXELAPP_TEST_TRIP_EDIT_ARMED', '') == 'I_ACCEPT_SINGLE_TEST_EDIT'
+TEST_TRIP_ID = 'ТЕСТ_НОВО_–_PixelApp'
+
+class TestTripEdit(BaseModel):
+    start_date: str
+    end_date: str
+    car_trip: bool
+    start_km: int = Field(ge=0, le=9999999)
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmation: str
+
+def _validated_test_edit(payload: TestTripEdit):
+    if payload.confirmation != 'РЕДАКТИРАЙ САМО ТЕСТОВОТО ПЪТУВАНЕ':
+        raise HTTPException(400, 'Липсва потвърждение за тестовата редакция.')
+    try:
+        start = datetime.strptime(payload.start_date,'%d.%m.%Y').date()
+        end = datetime.strptime(payload.end_date,'%d.%m.%Y').date()
+    except ValueError:
+        raise HTTPException(422, 'Датите трябва да бъдат във формат ДД.ММ.ГГГГ.')
+    if end < start or (end-start).days > 365:
+        raise HTTPException(422, 'Невалиден период на пътуване.')
+    if not payload.car_trip and payload.start_km != 0:
+        raise HTTPException(422, 'За пътуване без автомобил километражът трябва да е 0.')
+
+@app.get('/safety/test-trip-edit-preflight', dependencies=[Depends(authorize)])
+def test_trip_edit_preflight():
+    ensure_local_snapshot()
+    with LOCK:
+        local = (DATA_DIR / FILENAMES['settings']).read_bytes()
+        service = drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е конфигуриран.')
+        _, mapping = folder_and_files(service)
+        fid = mapping.get(FILENAMES['settings'])
+        if not fid:
+            raise HTTPException(409, 'Настройките липсват в Drive.')
+        remote = service.files().get_media(fileId=fid).execute()
+        reader = csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+        rows = list(reader)
+        found = [r for r in rows if r.get('trip_id') == TEST_TRIP_ID]
+        return {
+            'armed':TEST_EDIT_ARMED,
+            'drive_matches_local':hashlib.sha256(remote).digest()==hashlib.sha256(local).digest(),
+            'settings_sha256':hashlib.sha256(remote).hexdigest(),
+            'trip_found':len(found)==1,
+            'test_trip': {k:found[0].get(k,'') for k in ('start_date','end_date','start_km','car_trip','trip_finished')} if len(found)==1 else None,
+            'can_edit': TEST_EDIT_ARMED and len(found)==1 and remote==local and found[0].get('trip_finished','Не')!='Да' if len(found)==1 else False,
+        }
+
+@app.post('/safety/test-trip-edit', dependencies=[Depends(authorize)])
+def test_trip_edit(payload: TestTripEdit):
+    if not TEST_EDIT_ARMED:
+        raise HTTPException(423, 'Тестовото редактиране е заключено.')
+    _validated_test_edit(payload)
+    ensure_local_snapshot()
+    with LOCK:
+        local_path=DATA_DIR / FILENAMES['settings']
+        local=local_path.read_bytes()
+        service=drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е конфигуриран.')
+        _, mapping=folder_and_files(service)
+        fid=mapping.get(FILENAMES['settings'])
+        if not fid:
+            raise HTTPException(409, 'Липсват настройки в Drive.')
+        remote=service.files().get_media(fileId=fid).execute()
+        digest=hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
+            raise HTTPException(409,'Данните в Drive/Render са променени. Направи нова проверка.')
+        reader=csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+        cols=reader.fieldnames
+        if not cols or any(k not in cols for k in COLUMNS['settings']):
+            raise HTTPException(422,'Невалидни колони на CSV.')
+        rows=list(reader)
+        targets=[r for r in rows if r.get('trip_id')==TEST_TRIP_ID]
+        if len(targets)!=1:
+            raise HTTPException(409,'Тестовото пътуване липсва или се повтаря.')
+        target=targets[0]
+        if target.get('trip_finished')=='Да':
+            raise HTTPException(409,'Приключено пътуване не се редактира.')
+        # Keep the ID, all unrelated columns, and all other trips untouched.
+        target.update(start_date=payload.start_date,end_date=payload.end_date,
+                      car_trip='Да' if payload.car_trip else 'Не',
+                      start_km=str(payload.start_km),
+                      track_fuel='Да' if payload.car_trip else 'Не')
+        out=io.StringIO(newline='')
+        writer=csv.DictWriter(out,fieldnames=cols,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated=out.getvalue().encode('utf-8')
+        try:
+            backup=service.files().copy(fileId=fid,body={
+                'name':'P61_TEST_EDIT_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['settings']},fields='id').execute()
+        except Exception:
+            raise HTTPException(503,'Неуспешно резервно копие. Записът е отказан.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
+            raise HTTPException(409,'Данните са променени след създаването на архив. Записът е отказан.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            media=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)
+            service.files().update(fileId=fid,media_body=media).execute()
+            verified=service.files().get_media(fileId=fid).execute()
+            if hashlib.sha256(verified).digest()!=hashlib.sha256(updated).digest():
+                raise RuntimeError('Drive verification failed')
+        except Exception:
+            raise HTTPException(503,'Записът не е потвърден. Провери Drive преди нов опит.')
+        tmp=local_path.with_suffix('.p61_verified')
+        tmp.write_bytes(verified)
+        os.replace(tmp,local_path)
+        return {'ok':True,'trip_id':TEST_TRIP_ID,'backup_id':backup['id']}
