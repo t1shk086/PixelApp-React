@@ -7,6 +7,38 @@ import 'leaflet/dist/leaflet.css';
 import './style.css';
 
 const apiBase=import.meta.env.VITE_API_URL||'http://localhost:8000';
+
+// Patch 56: encrypted, device-local snapshot. No Google token or API key is saved in the cache.
+// A cached snapshot is for display ONLY; network validation is required before any real write.
+const FAST_CACHE_KEY='pixelapp_home_snapshot_v56';
+const FAST_CACHE_MAX_AGE=7*24*60*60*1000;
+async function fastCacheCryptoKey(secret){
+ const bytes=new TextEncoder().encode(`${apiBase}\n${secret}`);
+ const digest=await crypto.subtle.digest('SHA-256',bytes);
+ return crypto.subtle.importKey('raw',digest,{name:'AES-GCM'},false,['encrypt','decrypt']);
+}
+async function readFastCache(secret){
+ try{
+  if(!secret||!globalThis.crypto?.subtle)return null;
+  const raw=localStorage.getItem(FAST_CACHE_KEY);if(!raw)return null;
+  const record=JSON.parse(raw);
+  if(!record||record.v!==56||!Number.isFinite(record.at)||Date.now()-record.at>FAST_CACHE_MAX_AGE||record.at>Date.now()+60000)return null;
+  const bytes=Uint8Array.from(atob(record.data),c=>c.charCodeAt(0));
+  const decrypted=await crypto.subtle.decrypt({name:'AES-GCM',iv:Uint8Array.from(record.iv)},await fastCacheCryptoKey(secret),bytes);
+  const snapshot=JSON.parse(new TextDecoder().decode(decrypted));
+  return Array.isArray(snapshot.trips)?{...snapshot,at:record.at}:null;
+ }catch(_){return null}
+}
+async function writeFastCache(secret,snapshot){
+ try{
+  if(!secret||!globalThis.crypto?.subtle||!Array.isArray(snapshot.trips))return;
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext=await crypto.subtle.encrypt({name:'AES-GCM',iv},await fastCacheCryptoKey(secret),new TextEncoder().encode(JSON.stringify(snapshot)));
+  const data=Array.from(new Uint8Array(ciphertext),b=>String.fromCharCode(b)).join('');
+  localStorage.setItem(FAST_CACHE_KEY,JSON.stringify({v:56,at:Date.now(),iv:Array.from(iv),data:btoa(data)}));
+ }catch(_){/* Storage limits/privacy mode: app continues normally without a cache. */}
+}
+
 const categories=['Храна и напитки','Транспорт','Куче','Други','Нощувки/Хотел','Депозит/Резервация'];
 const money=n=>new Intl.NumberFormat('bg-BG',{style:'currency',currency:'EUR'}).format(Number(n||0));
 
@@ -951,6 +983,7 @@ function App(){
  const [testWriteArmed,setTestWriteArmed]=useState(false);
  const [entry,setEntry]=useState(''); const [trips,setTrips]=useState([]);const [current,setCurrent]=useState(null);
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
+ const [dataFreshness,setDataFreshness]=useState('none');const [cachedAt,setCachedAt]=useState(null);
  const [expenseDrafts,setExpenseDrafts]=useState({});
  function updateExpenseDraft(tripId,field,value){
   setExpenseDrafts(prev=>{
@@ -964,18 +997,53 @@ function App(){
  const [amount,setAmount]=useState('');const [category,setCategory]=useState(categories[0]);const [desc,setDesc]=useState('');const [task,setTask]=useState('');
  const [budget,setBudget]=useState('');const [tab,setTab]=useState('overview');const [dashboard,setDashboard]=useState(null);const [showFinished,setShowFinished]=useState(false);const [homePlaces,setHomePlaces]=useState([]);
  async function req(path,method='GET',body){const r=await fetch(`${apiBase}${path}`,{method,headers:{'X-API-Key':key,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json()}
- async function reload(selected=current){if(!key)return;setLoading(true);setError('');try{const all=await req('/trips');setTrips(all);try{setDashboard(await req('/dashboard'))}catch(_){setDashboard(null)}try{setHomePlaces(await req('/home/places'))}catch(_){setHomePlaces([])}if(selected){const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}}catch(e){setError(String(e.message))}finally{setLoading(false)}}
- useEffect(()=>{if(key){fetch(`${apiBase}/health`,{cache:'no-store'}).then(r=>r.json()).then(x=>{setReadOnly(x.read_only!==false);setTestWriteArmed(x.test_write_armed===true)}).catch(()=>setReadOnly(true));reload()}},[key]);
+ async function reload(selected=current){
+  if(!key)return;
+  setLoading(true);setError('');
+  try{
+   // These API calls are independent. Do not wait for the slowest one before showing trips.
+   const dashboardPromise=req('/dashboard').catch(()=>null);
+   const placesPromise=req('/home/places').catch(()=>null);
+   const freshTrips=await req('/trips');
+   if(!Array.isArray(freshTrips))throw Error('Невалиден списък с пътувания от сървъра.');
+   // Show the trips as soon as they arrive, without waiting for optional widgets.
+   setTrips(freshTrips);setDataFreshness('fresh');setCachedAt(Date.now());
+   const [freshDashboard,placesRaw]=await Promise.all([dashboardPromise,placesPromise]);
+   const freshPlaces=Array.isArray(placesRaw)?placesRaw:null;
+   if(freshDashboard!==null)setDashboard(freshDashboard);
+   if(freshPlaces!==null)setHomePlaces(freshPlaces);
+   // Persist only a fully read snapshot. Do not overwrite the previous cache on partial failure.
+   if(freshDashboard!==null&&freshPlaces!==null)void writeFastCache(key,{trips:freshTrips,dashboard:freshDashboard,homePlaces:freshPlaces});
+   if(selected){const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}
+  }catch(e){setError(`Неуспешно обновяване: ${String(e.message||e)}. ${dataFreshness==='cached'?'Показани са последно запазените данни.':''}`)}
+  finally{setLoading(false)}
+ }
+ useEffect(()=>{
+  if(!key)return;
+  let live=true;
+  setReadOnly(true);setDataFreshness('none');setCachedAt(null);
+  // Restore first, then request new data; no empty screen during normal reopening.
+  (async()=>{
+   const cached=await readFastCache(key);
+   if(!live)return;
+   if(cached){setTrips(cached.trips);setDashboard(cached.dashboard??null);setHomePlaces(cached.homePlaces??[]);setCachedAt(cached.at);setDataFreshness('cached')}
+   if(!live)return;
+   await reload();
+  })();
+  fetch(`${apiBase}/health`,{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('health');return r.json()}).then(x=>{if(live){setReadOnly(x.read_only!==false);setTestWriteArmed(x.test_write_armed===true)}}).catch(()=>{if(live){setReadOnly(true);setTestWriteArmed(false)}});
+  return()=>{live=false};
+ },[key]);
  const chosen=trips.find(x=>x.id===current);
- async function run(job){if(readOnly){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
+ async function run(job){if(readOnly||dataFreshness!=='fresh'){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
  const comparisonLoader=React.useCallback(id=>req(`/trips/${encodeURIComponent(id)}`),[key]);
  function connect(e){e.preventDefault();const value=entry.trim();if(!value)return;sessionStorage.setItem('pixel_api_key',value);setKey(value);setEntry('')}
- function logout(){sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({});}
+ function logout(){sessionStorage.removeItem('pixel_api_key');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
  if(!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager — React preview</p><section className="panel"><h3>Личен достъп</h3><p>Въведи ключа от <code>PIXELAPP_API_KEY</code> на твоя Python сървър. Google токените никога не се въвеждат тук.</p><form onSubmit={connect}><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ"/><button>Влез</button></form></section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
  {readOnly&&!current&&<aside className="p34-global-read-only">🔒 Обикновените промени са временни · защитените тестови записи са отделни</aside>}
- <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else if(comparisonOpen){setComparisonOpen(false)}else{sessionStorage.removeItem('pixel_api_key');setKey('');setTrips([]);setExpenseDrafts({})}}}>{current||comparisonOpen?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&!comparisonOpen&&<button className="ghost p37-settings-button" onClick={()=>setAdminOpen(true)}>⚙️ Настройки</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
- {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">Зареждане…</div>}
+ <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else if(comparisonOpen){setComparisonOpen(false)}else{logout()}}}>{current||comparisonOpen?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&!comparisonOpen&&<button className="ghost p37-settings-button" onClick={()=>setAdminOpen(true)}>⚙️ Настройки</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
+ {dataFreshness==='cached'&&<aside role="status" style={{padding:'10px 12px',borderRadius:10,background:'rgba(255,190,80,.12)',color:'inherit',margin:'10px 0',fontSize:13}}>🕘 Показани са последно запазените данни{cachedAt?` (${new Date(cachedAt).toLocaleString('bg-BG')})`:''}. Обновяването още не е потвърдено. Записването върху тези данни не е разрешено.</aside>}
+ {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">🔄 Обновявам данните…</div>}
  {!current?comparisonOpen?<TripComparison trips={trips} loadTrip={comparisonLoader} expenseDrafts={expenseDrafts} onClose={()=>setComparisonOpen(false)}/>:<>
  <NextTripCountdown trips={trips}/>
  <div className="actions home-actions p28-home-actions"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button><button onClick={()=>setModal('quick-demo')}>💳 <span><b>Бърз разход</b><small>Добави към избрано пътуване</small></span></button></div>
