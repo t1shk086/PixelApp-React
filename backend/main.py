@@ -1178,6 +1178,104 @@ def safe_trip_fuel_add(trip_id: str, payload: SafeFuelAdd):
         return {'ok': True, 'backup_id': backup['id'], 'km': payload.current_km}
 
 
+# Patch 70: edit/remove ONLY the most recent React-owned refuel.
+# Full original-row matching and Drive SHA prevent stale or ambiguous updates.
+class SafeFuelLastChange(BaseModel):
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmation: str
+    operation: str
+    original: dict[str, str]
+    amount: Decimal | None = None
+    liters: Decimal | None = None
+    current_km: int | None = None
+    fuel_kind: str | None = None
+    description: str = ''
+
+
+@app.post('/safe/trip-fuel-last/{trip_id}', dependencies=[Depends(authorize)])
+def safe_trip_fuel_last_change(trip_id: str, payload: SafeFuelLastChange):
+    if not TEST_FINANCE_ARMED:
+        raise HTTPException(423, 'Записването на гориво е заключено.')
+    if payload.confirmation != 'ПОТВЪРЖДАВАМ ПОСЛЕДНО ГОРИВО':
+        raise HTTPException(400, 'Липсва потвърждение.')
+    if payload.operation not in ('edit', 'delete'):
+        raise HTTPException(422, 'Невалидна операция.')
+    if set(payload.original) != set(COLUMNS['expenses']) or not all(isinstance(v, str) for v in payload.original.values()):
+        raise HTTPException(422, 'Невалиден оригинален запис.')
+    original = payload.original
+    if (original.get('trip_id') != trip_id or original.get('type') != 'expense' or
+            original.get('category') != 'Транспорт' or
+            not re.match(r'^\[(ПЪЛНО|ЧАСТИЧНО) ЗАРЕЖДАНЕ\] ', original.get('description', '')) or
+            Decimal(str(original.get('liters') or 0)) <= 0):
+        raise HTTPException(403, 'Това зареждане не е създадено от новия модул.')
+    if payload.operation == 'edit':
+        amount = _finance_decimal(payload.amount)
+        liters_value = payload.liters
+        if (liters_value is None or not liters_value.is_finite() or liters_value <= 0 or
+                liters_value > Decimal('300') or liters_value.as_tuple().exponent < -2):
+            raise HTTPException(422, 'Невалидно количество литри.')
+        if payload.fuel_kind not in ('full', 'partial'):
+            raise HTTPException(422, 'Невалиден тип зареждане.')
+        if payload.current_km is None or payload.current_km > 9999999:
+            raise HTTPException(422, 'Невалиден километраж.')
+        desc = payload.description.strip()
+        if len(desc) > 90 or '\n' in desc or '\r' in desc:
+            raise HTTPException(422, 'Невалидно описание.')
+    ensure_local_snapshot()
+    with LOCK:
+        service = drive_service()
+        if not service:
+            raise HTTPException(503, 'Google Drive не е достъпен.')
+        _, mapping = folder_and_files(service)
+        settings = _assert_react_owned_trip(trip_id, service, mapping)
+        fid, path, remote, local, columns, rows = _finance_remote('expenses', service, mapping)
+        digest = hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or digest != hashlib.sha256(local).hexdigest():
+            raise HTTPException(409, 'CSV файловете са променени. Обнови и провери отново.')
+        indices = [i for i, r in enumerate(rows) if all(str(r.get(k, '')) == original[k] for k in COLUMNS['expenses'])]
+        if len(indices) != 1:
+            raise HTTPException(409, 'Оригиналният запис липсва или не е еднозначен.')
+        target_index = indices[0]
+        fuel = [(i, r) for i, r in enumerate(rows) if r.get('trip_id') == trip_id and
+                r.get('type') == 'expense' and r.get('category') == 'Транспорт' and
+                Decimal(str(r.get('liters') or 0)) > 0 and Decimal(str(r.get('current_km') or 0)) > 0]
+        if not fuel or max(fuel, key=lambda pair: (Decimal(str(pair[1].get('current_km') or 0)), pair[0]))[0] != target_index:
+            raise HTTPException(409, 'Разрешена е редакция само на последното зареждане.')
+        if payload.operation == 'delete':
+            del rows[target_index]
+        else:
+            previous = max([int(Decimal(str(settings.get('start_km') or 0)))] +
+                           [int(Decimal(str(r.get('current_km') or 0))) for i, r in fuel if i != target_index])
+            if payload.current_km <= previous:
+                raise HTTPException(422, f'Новият километраж трябва да е над {previous} км.')
+            label = 'ПЪЛНО' if payload.fuel_kind == 'full' else 'ЧАСТИЧНО'
+            rows[target_index].update(amount=amount, liters=str(liters_value.quantize(Decimal('0.01'))),
+                current_km=str(payload.current_km), description=f'[{label} ЗАРЕЖДАНЕ] {desc or "Гориво"}')
+        output = io.StringIO(newline='')
+        writer = csv.DictWriter(output, fieldnames=columns, extrasaction='ignore', lineterminator='\n')
+        writer.writeheader(); writer.writerows(rows)
+        updated = output.getvalue().encode('utf-8')
+        try:
+            backup = service.files().copy(fileId=fid, body={'name': 'P70_FUEL_BACKUP_' + uuid.uuid4().hex + '_' + FILENAMES['expenses']}, fields='id').execute()
+        except Exception:
+            raise HTTPException(503, 'Не е създаден архив. Записът е отказан.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest() != digest:
+            raise HTTPException(409, 'Drive е променен след архива. Записът е отказан.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            service.files().update(fileId=fid,
+                media_body=MediaIoBaseUpload(io.BytesIO(updated), mimetype='text/csv', resumable=False)).execute()
+            verified = service.files().get_media(fileId=fid).execute()
+            if hashlib.sha256(verified).digest() != hashlib.sha256(updated).digest():
+                raise RuntimeError('Verification failed')
+        except Exception:
+            raise HTTPException(503, 'Резултатът от записа е неясен. Не повтаряй преди проверка.')
+        tmp = path.with_suffix('.p70_verified')
+        tmp.write_bytes(verified)
+        os.replace(tmp, path)
+        return {'ok': True, 'operation': payload.operation, 'backup_id': backup['id']}
+
+
 @app.post('/safety/test-finance', dependencies=[Depends(authorize)])
 def test_finance_change(payload: TestFinanceChange):
     return safe_trip_finance_change(TEST_TRIP_ID, payload)
