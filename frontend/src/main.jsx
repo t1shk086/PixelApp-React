@@ -475,7 +475,7 @@ function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
   setError('');setAmount('');setLiters('');setKmInput('');setDescription('Гориво');
  }
  return <div className="overlay quick-demo-overlay" onClick={onClose}><div className="dialog quick-demo-dialog fuel-test-dialog" onClick={e=>e.stopPropagation()}>
-  <div className="dialoghead"><h3>⛽ Зареждане на гориво</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Назад към пътуването</button>
+  <div className="dialoghead"><h3>⛽ {editingLast?'Редакция на последното зареждане':'Зареждане на гориво'}</h3><button className="ghost" type="button" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>← Назад към пътуването</button>
   <div className="p26-modal-safe">🧪 Режим за проби: обикновените бутони променят само екрана. Истинските действия са означени с „в Google Drive“, позволени са само за „ТЕСТ – PixelApp“ и изискват отделно разрешение от Render.</div>
   <label>Пътуване<select value={tripId} onChange={e=>setTripId(e.target.value)}>{trips.map(t=><option value={t.id} key={t.id}>{t.name}{tripState(t)==='finished'?' · приключено (само тест)':''}</option>)}</select></label>
   {busy&&<p className="muted">Зареждане…</p>}{error&&<p className="error">{error}</p>}
@@ -1045,10 +1045,11 @@ function TestTripEditPreview({onClose,onPreflight,onEdit,onSaved}){
 
 
 // Patch 69: real refuelling, checked on the server and allowed only for React-owned trips.
-function RealFuelEntry({tripName,onClose,onPreflight,onSave,onSaved}){
+function RealFuelEntry({tripName,onClose,onPreflight,onSave,onChangeLast,onSaved}){
  const [proof,setProof]=useState(null),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const [amount,setAmount]=useState(''),[liters,setLiters]=useState(''),[km,setKm]=useState('');
  const [kind,setKind]=useState('full'),[description,setDescription]=useState('Гориво');
+ const [editingLast,setEditingLast]=useState(false),[deleteConfirm,setDeleteConfirm]=useState(false);
  async function check(){
   setBusy(true);setMessage('');
   try{setProof(await onPreflight())}catch(e){setProof(null);setMessage('⚠️ '+String(e.message||e))}
@@ -1060,8 +1061,24 @@ function RealFuelEntry({tripName,onClose,onPreflight,onSave,onSaved}){
  const litersOK=/^\d+(?:[.,]\d{1,2})?$/.test(liters)&&n(liters)>0&&n(liters)<=300;
  const fuelRecords=(proof?.expenses||[]).filter(x=>x.type==='expense'&&x.category==='Транспорт'&&n(x.liters||'0')>0&&n(x.current_km||'0')>0);
  const lastKm=Math.max(n(proof?.start_km||'0'),...fuelRecords.map(x=>n(x.current_km)));
- const kmOK=/^\d+$/.test(km)&&n(km)>lastKm&&n(km)<=9999999;
- async function save(e){e.preventDefault();if(busy||!proof?.can_write||!moneyOK||!litersOK||!kmOK)return;
+ const lastRecord=fuelRecords.length?[...fuelRecords].sort((a,b)=>n(b.current_km)-n(a.current_km))[0]:null;
+ const lastOwned=lastRecord&&/^\[(ПЪЛНО|ЧАСТИЧНО) ЗАРЕЖДАНЕ\] /.test(lastRecord.description||'');
+ const priorKm=Math.max(n(proof?.start_km||'0'),...fuelRecords.filter(x=>x!==lastRecord).map(x=>n(x.current_km)));
+ function beginEdit(){if(!lastOwned)return;setEditingLast(true);setDeleteConfirm(false);setAmount(String(lastRecord.amount||''));setLiters(String(lastRecord.liters||''));setKm(String(lastRecord.current_km||''));setKind(String(lastRecord.description).startsWith('[ПЪЛНО')?'full':'partial');setDescription(String(lastRecord.description).replace(/^\[(ПЪЛНО|ЧАСТИЧНО) ЗАРЕЖДАНЕ\] /,''));setMessage('');}
+ function cancelEdit(){setEditingLast(false);setDeleteConfirm(false);setAmount('');setLiters('');setKm('');setDescription('Гориво');setMessage('');}
+ async function changeLast(operation){if(busy||!lastOwned||!proof?.can_write||operation==='edit'&&(!moneyOK||!litersOK||!kmOK))return;
+  setBusy(true);setMessage('');
+  try{const fresh=await onPreflight();setProof(fresh);
+   if(!fresh.can_write||!fresh.files?.expenses?.sha256)throw Error('Няма потвърдена синхронизация.');
+   const freshFuel=(fresh.expenses||[]).filter(x=>x.type==='expense'&&x.category==='Транспорт'&&n(x.liters||0)>0&&n(x.current_km||0)>0).sort((a,b)=>n(b.current_km)-n(a.current_km))[0];
+   if(!freshFuel||JSON.stringify(freshFuel)!==JSON.stringify(lastRecord))throw Error('Последното зареждане е променено. Провери отново.');
+   const result=await onChangeLast({operation,confirmation:'ПОТВЪРЖДАВАМ ПОСЛЕДНО ГОРИВО',expected_sha256:fresh.files.expenses.sha256,original:Object.fromEntries(['trip_id','date','amount','category','description','type','liters','current_km'].map(k=>[k,String(freshFuel[k]??'')])),...(operation==='edit'?{amount:n(amount),liters:n(liters),current_km:n(km),fuel_kind:kind,description:description.trim()}:{})});
+   await onSaved();const newProof=await onPreflight();setProof(newProof);cancelEdit();setMessage('✅ '+(operation==='delete'?'Изтрито':'Редактирано')+' и потвърдено в Google Drive. Архив: '+result.backup_id);
+  }catch(err){setMessage('⚠️ '+String(err.message||err)+' Не повтаряй, преди да проверим.');}
+  finally{setBusy(false)}
+ }
+ const kmOK=/^\d+$/.test(km)&&n(km)>(editingLast?priorKm:lastKm)&&n(km)<=9999999;
+ async function save(e){e.preventDefault();if(editingLast){await changeLast('edit');return;}if(busy||!proof?.can_write||!moneyOK||!litersOK||!kmOK)return;
   setBusy(true);setMessage('');
   try{
    const fresh=await onPreflight();setProof(fresh);
@@ -1074,7 +1091,7 @@ function RealFuelEntry({tripName,onClose,onPreflight,onSave,onSaved}){
   finally{setBusy(false)}
  }
  return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}>
-  <div className="dialoghead"><h3>⛽ Зареждане на гориво</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
+  <div className="dialoghead"><h3>⛽ {editingLast?'Редакция на последното зареждане':'Зареждане на гориво'}</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
   <p className="muted">🚙 {tripName} · Запис в Google Drive</p>
   {proof&&!proof.can_write&&<p className="error">🔒 Данните не са потвърдени или записването е заключено.</p>}
   <form className="quick-demo-form" onSubmit={save}>
@@ -1084,8 +1101,10 @@ function RealFuelEntry({tripName,onClose,onPreflight,onSave,onSaved}){
    <label>Текущ километраж<input inputMode="numeric" value={km} onChange={e=>setKm(e.target.value)} placeholder="Показание на километража" required/></label>
    <label>Описание<input value={description} maxLength={90} onChange={e=>setDescription(e.target.value)}/></label>
    <small className="muted">Километражът трябва да е по-голям от предишното зареждане. При първото пълно зареждане реалният разход може още да не е определим.</small>
-   <button type="submit" disabled={busy||!proof?.can_write||!moneyOK||!litersOK||!kmOK}>{busy?'⏳ Записвам…':'💾 Запази зареждането'}</button>
+   <button type="submit" disabled={busy||!proof?.can_write||!moneyOK||!litersOK||!kmOK}>{busy?'⏳ Записвам…':editingLast?'💾 Запази корекцията':'💾 Запази зареждането'}</button>
   </form>
+  {editingLast&&<button type="button" className="ghost" disabled={busy} onClick={cancelEdit}>Откажи редакцията</button>}
+  {lastOwned&&!editingLast&&<section style={{marginTop:16,padding:12,border:'1px solid #476177',borderRadius:12}}><strong>✏️ Последно зареждане</strong><p className="muted">{lastRecord.current_km} км · {lastRecord.liters} л · {lastRecord.amount} €</p><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className="ghost" disabled={busy||!proof?.can_write} onClick={beginEdit}>✏️ Поправи последното</button><button type="button" className="ghost" disabled={busy||!proof?.can_write} onClick={()=>setDeleteConfirm(true)}>🗑️ Изтрий последното</button></div>{deleteConfirm&&<div style={{marginTop:8}}><p className="error">Ще бъде изтрит само последният запис за гориво. Потвърди изрично.</p><button type="button" disabled={busy} onClick={()=>changeLast('delete')}>Потвърди изтриването</button><button type="button" className="ghost" disabled={busy} onClick={()=>setDeleteConfirm(false)}>Откажи</button></div>}</section>}
   <button type="button" className="ghost" disabled={busy} onClick={check}>🔄 Провери данните</button>
   {message&&<p role="status" className={message.startsWith('⚠️')?'error':'muted'}>{message}</p>}
  </div></div>
@@ -1318,7 +1337,7 @@ function App(){
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onOpenPreview={m=>setModal(m==='real-fuel'&&reactOwnedTrips.includes(current)?'real-fuel':(m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
  {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
-  {modal==='real-fuel'&&current&&reactOwnedTrips.includes(current)&&<RealFuelEntry tripName={chosen?.name||current} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-fuel/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
+  {modal==='real-fuel'&&current&&reactOwnedTrips.includes(current)&&<RealFuelEntry tripName={chosen?.name||current} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-fuel/${encodeURIComponent(current)}`,'POST',payload)} onChangeLast={payload=>req(`/safe/trip-fuel-last/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
   {modal==='normal-expenses'&&<TestFinancePreview expensesOnly onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload(current===newTestTripId?current:null)}/> }
   {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
   {modal==='test-finance'&&<TestFinancePreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload()}/> }
