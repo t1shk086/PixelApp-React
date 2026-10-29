@@ -1042,6 +1042,56 @@ function TestTripEditPreview({onClose,onPreflight,onEdit,onSaved}){
  </div></div>
 }
 
+
+// Patch 62: dedicated, lockable financial test for the NEW trip only.
+function TestFinancePreview({onClose,onPreflight,onSave,onSaved}){
+ const [proof,setProof]=useState(null),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
+ const [budget,setBudget]=useState('280'),[amount,setAmount]=useState('7.00'),[category,setCategory]=useState('Храна и напитки'),[desc,setDesc]=useState('Тестов разход'),[original,setOriginal]=useState(null),[confirmed,setConfirmed]=useState(false);
+ const moneyValid=v=>/^\d+(?:[.,]\d{1,2})?$/.test(String(v).trim())&&Number(String(v).replace(',','.'))>=0&&Number(String(v).replace(',','.'))<=100000;
+ async function check(){setBusy(true);setConfirmed(false);setMsg('');try{const p=await onPreflight();setProof(p);const global=p.budgets?.find(x=>x.category==='__GLOBAL__');setBudget(global?.budget||'280');setOriginal(null);setMsg(p.can_write?'✅ Готово за тестово финансово записване.':'🔒 Финансовият запис остава заключен. За теста са необходими синхронизация и отделно разрешение в Render.')}catch(e){setProof(null);setMsg('⚠️ '+String(e.message||e))}finally{setBusy(false)}}
+ async function change(operation,expense){if(!confirmed||!proof?.can_write||busy)return;
+  setBusy(true);setMsg('');try{const p=await onPreflight();setProof(p);if(!p.can_write)throw Error('Проверката вече не позволява запис.');const kind=operation==='budget'?'budgets':'expenses';const sha=p.files?.[kind]?.sha256;if(!sha)throw Error('Липсва потвърден SHA256 за файла.');
+   const payload={operation,expected_sha256:sha,confirmation:'ЗАПИШИ САМО ТЕСТОВИ ФИНАНСИ'};
+   if(operation==='budget'){
+     if(!moneyValid(budget))throw Error('Невалиден бюджет.');payload.amount=Number(budget.replace(',','.'));
+   }else if(operation==='expense-add'||operation==='expense-edit'){
+     if(!moneyValid(amount)||Number(amount.replace(',','.'))<=0||!desc.trim())throw Error('Невалидна сума или описание.');
+     Object.assign(payload,{amount:Number(amount.replace(',','.')),category,description:desc.trim()});
+   }
+   if(operation==='expense-edit'||operation==='expense-delete'){
+     if(!expense)throw Error('Няма избран разход.');
+     payload.original=Object.fromEntries(['trip_id','date','amount','category','description','type','liters','current_km'].map(k=>[k,String(expense[k]??'')]));
+   }
+   const result=await onSave(payload);setConfirmed(false);setOriginal(null);
+   // On success obtain a verified snapshot; never show a claimed state from a local guess.
+   const verified=await onPreflight();setProof(verified);setBudget(verified.budgets?.find(x=>x.category==='__GLOBAL__')?.budget||'0');
+   setMsg('✅ Промяната е потвърдена в Google Drive. Архив: '+result.backup_id);
+   await onSaved();
+  }catch(e){setConfirmed(false);setMsg('⚠️ '+String(e.message||e)+' Не повтаряй запис, преди да проверим данните.')}finally{setBusy(false)}}
+ const expenses=(proof?.expenses||[]).filter(x=>x.type==='expense');
+ return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Тестови финанси" onClick={e=>e.stopPropagation()}>
+ <div className="dialoghead"><h3>🧪 Бюджет и разходи · тест</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
+ <p className="p26-modal-safe">Само „ТЕСТ НОВО – PixelApp“. Историческите пътувания, депозитите и горивото остават заключени. Използвай панела само при затворен Streamlit.</p>
+ <button type="button" className="ghost" disabled={busy} onClick={check}>{busy?'⏳ Проверявам…':'🔎 Провери финансовите данни'}</button>
+ {proof&&<div className="travel-card"><p><b>Тестово пътуване:</b> {proof.test_trip_found?'✅ Намерено':'⚠️ Липсва'}</p><p><b>Бюджет CSV:</b> {proof.files?.budgets?.drive_matches_local?'✅ Съвпада':'⚠️ Разминаване'}</p><p><b>Разходи CSV:</b> {proof.files?.expenses?.drive_matches_local?'✅ Съвпадат':'⚠️ Разминаване'}</p><p><b>Тестов запис:</b> {proof.armed?'⚠️ Разрешен':'🔒 Заключен'}</p></div>}
+ {proof?.can_write&&<label className="p42-confirm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Имам архив и Streamlit е затворен; записвам само тестовото пътуване.</label>}
+ <div className="quick-demo-form">
+ <h4>🎯 Общ бюджет</h4><label>Бюджет (€)<input type="text" inputMode="decimal" value={budget} onChange={e=>{setBudget(e.target.value);setConfirmed(false)}} placeholder="280.00"/></label>
+ <button type="button" disabled={!proof?.can_write||!confirmed||busy||!moneyValid(budget)} onClick={()=>change('budget')}>💾 Запази тестовия бюджет</button>
+ <h4>💳 Обикновен разход {original?'· редакция':'· нов'}</h4>
+ <label>Сума (€)<input type="text" inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);setConfirmed(false)}} placeholder="7.00"/></label>
+ <label>Категория<select value={category} onChange={e=>{setCategory(e.target.value);setConfirmed(false)}}>{['Храна и напитки','Транспорт','Други','Нощувки/Хотел'].map(x=><option key={x}>{x}</option>)}</select></label>
+ <label>Описание<input type="text" value={desc} maxLength={120} onChange={e=>{setDesc(e.target.value);setConfirmed(false)}}/></label>
+ <button type="button" disabled={!proof?.can_write||!confirmed||busy||!moneyValid(amount)||Number(amount.replace(',','.'))<=0||!desc.trim()} onClick={()=>change(original?'expense-edit':'expense-add',original)}>{original?'💾 Редактирай избрания тестов разход':'➕ Добави тестов разход'}</button>
+ {original&&<button type="button" className="ghost" onClick={()=>{setOriginal(null);setDesc('Тестов разход');setConfirmed(false)}}>Откажи редакцията</button>}
+ <h4>🧾 Разходи на тестовото пътуване</h4>
+ {expenses.length===0&&<p className="muted">Все още няма разходи.</p>}
+ {expenses.map((x,i)=><div key={i} className="travel-card" style={{padding:12,marginBottom:8}}><b>{x.description}</b><p>{x.category} · {money(Number(x.amount||0))}</p>{x.description?.startsWith('[P62] ')&&<div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className="ghost" disabled={busy} onClick={()=>{setOriginal(x);setAmount(x.amount);setCategory(x.category);setDesc(x.description.slice(6));setConfirmed(false)}}>✏️ Редактирай</button><button type="button" className="ghost" disabled={busy||!confirmed||!proof?.can_write} onClick={()=>{if(window.confirm('Да изтрия ли само този тестов разход?'))change('expense-delete',x)}}>🗑️ Изтрий</button></div>}</div>)}
+ </div>
+ {msg&&<p role="status" className={msg.startsWith('⚠️')?'error':'muted'}>{msg}</p>}
+ </div></div>;
+}
+
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_api_key')||'');
  const [adminOpen,setAdminOpen]=useState(false);
@@ -1113,7 +1163,7 @@ function App(){
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">🔄 Обновявам данните…</div>}
  {!current?comparisonOpen?<TripComparison trips={trips} loadTrip={comparisonLoader} expenseDrafts={expenseDrafts} onClose={()=>setComparisonOpen(false)}/>:<>
  <NextTripCountdown trips={trips}/>
- <div style={{marginBottom:12,display:"flex",gap:8,flexWrap:"wrap"}}><button type="button" className="ghost" onClick={()=>setModal('new-trip-safety')}>🧪 Провери създаване на тестово пътуване</button><button type="button" className="ghost" onClick={()=>setModal('edit-test-trip')}>✏️ Редактирай тестовото пътуване</button></div>
+ <div style={{marginBottom:12,display:"flex",gap:8,flexWrap:"wrap"}}><button type="button" className="ghost" onClick={()=>setModal('new-trip-safety')}>🧪 Провери създаване на тестово пътуване</button><button type="button" className="ghost" onClick={()=>setModal('edit-test-trip')}>✏️ Редактирай тестовото пътуване</button><button type="button" className="ghost" onClick={()=>setModal('test-finance')}>💳 Тестови бюджет и разходи</button></div>
   <div className="actions home-actions p28-home-actions"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button><button onClick={()=>setModal('quick-demo')}>💳 <span><b>Бърз разход</b><small>Добави към избрано пътуване</small></span></button></div>
  <div className="home-sync"><button className="ghost" onClick={async()=>{setLoading(true);setError('');try{await req('/sync-from-drive','POST');await reload()}catch(e){setError(String(e.message))}finally{setLoading(false)}}}><RefreshCcw size={15}/> Прочети данните от Google Drive</button></div>
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
@@ -1129,12 +1179,13 @@ function App(){
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} expenseDraft={currentExpenseDraft} onOpenPreview={setModal}/>}</>}
  {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
-  {modal==='edit-test-trip'&&<TestTripEditPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-trip-edit-preflight')} onEdit={payload=>req('/safety/test-trip-edit','POST',payload)} onSaved={()=>reload()}/> }
+  {modal==='test-finance'&&<TestFinancePreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload()}/> }
+ {modal==='edit-test-trip'&&<TestTripEditPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-trip-edit-preflight')} onEdit={payload=>req('/safety/test-trip-edit','POST',payload)} onSaved={()=>reload()}/> }
  {modal==='new-trip-safety'&&<NewTripSafetyPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/new-trip-preflight')} onCreate={payload=>req('/safety/new-trip-create','POST',payload)} onSaved={()=>reload()}/>}
  {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onSafetyPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} onTestChange={payload=>req('/safety/test-expense-change','POST',payload)} onSaved={id=>reload(id)} onClose={()=>setModal('')}/>}
- {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&modal!=='new-trip-safety'&&modal!=='edit-test-trip'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
+ {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&modal!=='new-trip-safety'&&modal!=='edit-test-trip'&&modal!=='test-finance'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
  <footer>PixelApp React · Етап 1 · Данните остават в Google Drive</footer></main>
 }
 
