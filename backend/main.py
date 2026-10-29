@@ -870,3 +870,159 @@ def test_trip_edit(payload: TestTripEdit):
         tmp.write_bytes(verified)
         os.replace(tmp,local_path)
         return {'ok':True,'trip_id':TEST_TRIP_ID,'backup_id':backup['id']}
+
+
+# Patch 62: isolated finances for the NEW test trip only. Ordinary CRUD remains locked.
+# Enabling requires a dedicated, temporary Render environment switch.
+TEST_FINANCE_ARMED = os.getenv('PIXELAPP_TEST_FINANCE_ARMED', '') == 'I_ACCEPT_TEST_FINANCES_ONLY'
+FINANCE_CATEGORIES = ('Храна и напитки', 'Транспорт', 'Други', 'Нощувки/Хотел')
+
+class TestFinanceChange(BaseModel):
+    operation: str
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmation: str
+    amount: Decimal | None = None
+    category: str | None = None
+    description: str | None = None
+    # The original expense is a full 8-field snapshot, never a row index.
+    original: dict[str, str] | None = None
+
+
+def _finance_decimal(value: Decimal | None, *, zero_ok: bool = False):
+    if value is None or not value.is_finite() or value.as_tuple().exponent < -2:
+        raise HTTPException(422, 'Въведи валидна сума с най-много 2 знака.')
+    if (Decimal('0') if zero_ok else Decimal('0.01')) > value or value > Decimal('100000'):
+        raise HTTPException(422, 'Сумата е извън разрешените граници.')
+    return str(value.quantize(Decimal('0.01')))
+
+
+def _finance_remote(kind, service, mapping):
+    filename = FILENAMES[kind]
+    fid = mapping.get(filename)
+    path = DATA_DIR / filename
+    if not fid or not path.is_file():
+        raise HTTPException(409, 'Липсва CSV файл за финансовите данни.')
+    remote = service.files().get_media(fileId=fid).execute()
+    local = path.read_bytes()
+    reader = csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+    columns = reader.fieldnames
+    if not columns or any(col not in columns for col in COLUMNS[kind]):
+        raise HTTPException(422, 'Непознат финансов CSV формат.')
+    rows = list(reader)
+    return fid, path, remote, local, columns, rows
+
+
+@app.get('/safety/test-finance-preflight', dependencies=[Depends(authorize)])
+def test_finance_preflight():
+    ensure_local_snapshot()
+    with LOCK:
+        service = drive_service()
+        if not service:
+            raise HTTPException(503, 'Няма връзка с Drive.')
+        _, mapping = folder_and_files(service)
+        settings = load_rows('settings')
+        found = [r for r in settings if r.get('trip_id') == TEST_TRIP_ID]
+        snapshots = {}
+        results = {}
+        for kind in ('budgets', 'expenses'):
+            _, _, remote, local, _, rows = _finance_remote(kind, service, mapping)
+            match = hashlib.sha256(remote).digest() == hashlib.sha256(local).digest()
+            results[kind] = {'drive_matches_local': match, 'sha256': hashlib.sha256(remote).hexdigest()}
+            snapshots[kind] = [r for r in rows if r.get('trip_id') == TEST_TRIP_ID]
+        # Provide only own test-trip rows; existing/legacy trips stay private to regular UI.
+        return {'armed': TEST_FINANCE_ARMED, 'test_trip_found':len(found)==1,
+                'can_write': TEST_FINANCE_ARMED and len(found)==1 and found[0].get('trip_finished','Не')!='Да' and all(x['drive_matches_local'] for x in results.values()),
+                'files': results,
+                'budgets':snapshots['budgets'], 'expenses':snapshots['expenses']}
+
+
+@app.post('/safety/test-finance', dependencies=[Depends(authorize)])
+def test_finance_change(payload: TestFinanceChange):
+    if not TEST_FINANCE_ARMED:
+        raise HTTPException(423, 'Финансовото тестово записване е заключено.')
+    if payload.confirmation != 'ЗАПИШИ САМО ТЕСТОВИ ФИНАНСИ':
+        raise HTTPException(400, 'Липсва тестовото потвърждение.')
+    if payload.operation not in ('budget', 'expense-add', 'expense-edit', 'expense-delete'):
+        raise HTTPException(422, 'Непозната финансова операция.')
+    kind = 'budgets' if payload.operation == 'budget' else 'expenses'
+    amount = None
+    if payload.operation != 'expense-delete':
+        amount = _finance_decimal(payload.amount,zero_ok=kind=='budgets')
+    if kind == 'expenses' and payload.operation != 'expense-delete':
+        if payload.category not in FINANCE_CATEGORIES:
+            raise HTTPException(422, 'Категорията не е разрешена за теста.')
+        desc = (payload.description or '').strip()
+        if not desc or len(desc) > 120 or re.search(r'гориво|газ|бензин|дизел|зареждане', desc, re.I):
+            raise HTTPException(422, 'Въведи описание до 120 знака. Горивото е отделен модул.')
+    else:
+        desc = ''
+    ensure_local_snapshot()
+    with LOCK:
+        settings = [r for r in load_rows('settings') if r.get('trip_id') == TEST_TRIP_ID]
+        if len(settings) != 1 or settings[0].get('trip_finished','Не') == 'Да':
+            raise HTTPException(409, 'Тестовото пътуване не е налично или е приключено.')
+        service = drive_service()
+        if not service:
+            raise HTTPException(503, 'Google Drive не е достъпен.')
+        _, mapping = folder_and_files(service)
+        fid, path, remote, local, columns, rows = _finance_remote(kind, service, mapping)
+        digest = hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest() != digest:
+            raise HTTPException(409, 'Има промяна в Drive или Render. Направи нова проверка.')
+        existing = [r for r in rows if r.get('trip_id') == TEST_TRIP_ID]
+        if payload.operation == 'budget':
+            if any(r.get('category') != '__GLOBAL__' for r in existing):
+                raise HTTPException(409, 'Има бюджет по категории; не го презаписваме автоматично.')
+            rows = [r for r in rows if not (r.get('trip_id')==TEST_TRIP_ID and r.get('category')=='__GLOBAL__')]
+            if amount != '0.00':
+                row = {k:'' for k in columns}
+                row.update(trip_id=TEST_TRIP_ID, category='__GLOBAL__', budget=amount)
+                rows.append(row)
+        elif payload.operation == 'expense-add':
+            if any(r.get('trip_id')==TEST_TRIP_ID and r.get('description')=='[P62] '+desc for r in rows):
+                raise HTTPException(409, 'Разход с това описание вече съществува.')
+            row = {k:'' for k in columns}
+            row.update(trip_id=TEST_TRIP_ID, date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
+                       amount=amount, category=payload.category, description='[P62] '+desc,
+                       type='expense',liters='0',current_km='0')
+            rows.append(row)
+        else:
+            original = payload.original or {}
+            fields = COLUMNS['expenses']
+            if set(original) != set(fields) or any(not isinstance(v,str) for v in original.values()):
+                raise HTTPException(422, 'Невалиден оригинален запис.')
+            if original.get('trip_id') != TEST_TRIP_ID or not original.get('description','').startswith('[P62] ') or original.get('type') != 'expense' or original.get('liters') not in ('0','0.0','0.00','') or original.get('current_km') not in ('0','0.0','0.00',''):
+                raise HTTPException(403, 'Позволени са само обикновени разходи, създадени с Пач 62.')
+            matches = [i for i,r in enumerate(rows) if all(str(r.get(k,'')) == original[k] for k in fields)]
+            if len(matches) != 1:
+                raise HTTPException(409, 'Записът липсва или не е еднозначен. Няма промяна.')
+            index = matches[0]
+            if payload.operation == 'expense-delete':
+                del rows[index]
+            else:
+                if any(r.get('trip_id')==TEST_TRIP_ID and r.get('description')=='[P62] '+desc and i != index for i,r in enumerate(rows)):
+                    raise HTTPException(409, 'Разход с това описание вече съществува.')
+                rows[index].update(amount=amount, category=payload.category, description='[P62] '+desc)
+        out = io.StringIO(newline='')
+        writer = csv.DictWriter(out, fieldnames=columns, extrasaction='ignore', lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated = out.getvalue().encode('utf-8')
+        try:
+            backup = service.files().copy(fileId=fid,body={'name':'P62_TEST_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES[kind]},fields='id').execute()
+        except Exception:
+            raise HTTPException(503, 'Архивът не е създаден. Няма запис.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest() != digest:
+            raise HTTPException(409, 'Drive се е променил след архива. Записът е отказан.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            media = MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)
+            service.files().update(fileId=fid,media_body=media).execute()
+            verified = service.files().get_media(fileId=fid).execute()
+            if hashlib.sha256(verified).digest() != hashlib.sha256(updated).digest():
+                raise RuntimeError('Verification failed')
+        except Exception:
+            raise HTTPException(503, 'Записът не е потвърден. Не опитвай повторно, преди проверка.')
+        tmp = path.with_suffix('.p62_verified')
+        tmp.write_bytes(verified)
+        os.replace(tmp, path)
+        return {'ok':True, 'operation':payload.operation, 'backup_id':backup['id']}
