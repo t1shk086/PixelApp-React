@@ -558,3 +558,12 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p45-delete-btn{background:rgba(180,55,65,.14)!important;border:1px solid rgba(242,110,120,.55)!important;color:#ffb4bc!important}
 .p45-action-row button:disabled{opacity:.45;cursor:not-allowed}
 .p45-change-result,.p45-persisted-label{display:block;margin:10px 0;color:#8fe7d1;font-size:.85rem}
+
+/* Patch 46: distinguish local previews from actual Drive mutations. */
+.p46-actions-note{font-size:12px;line-height:1.5;color:#b3ccd8;background:rgba(35,79,103,.22);border:1px solid rgba(89,172,197,.23);border-radius:10px;padding:10px 12px;margin:9px 0 12px}
+.p46-edit-action{border:1px solid rgba(96,211,229,.48)!important;color:#8eeafa!important}
+.p46-saved-tag{font-size:10px;color:#83d9b7;border:1px solid rgba(100,210,160,.32);border-radius:8px;padding:5px 7px;white-space:nowrap}
+.p46-local-remove{font-size:12px!important;color:#c2b5ad!important;white-space:nowrap}
+.p46-local-remove span{font-size:10px}
+.p46-temporary-save{background:rgba(51,83,106,.45)!important;border:1px dashed rgba(136,167,183,.4)!important;color:#d4e4ed!important}
+@media(max-width:480px){.p46-local-remove span{display:none}.p46-saved-tag{padding:5px}.p46-actions-note{font-size:11px}}
