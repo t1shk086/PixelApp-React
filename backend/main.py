@@ -1029,3 +1029,112 @@ def test_finance_change(payload: TestFinanceChange):
         tmp.write_bytes(verified)
         os.replace(tmp, path)
         return {'ok':True, 'operation':payload.operation, 'backup_id':backup['id']}
+
+
+# Patch 67: create NEW trips only. Existing rows are immutable through this route.
+# Does not enable the old generic CRUD routes; Streamlit must be closed during writes.
+# No Environment toggle needed; emergency lock: PIXELAPP_NEW_TRIPS_ENABLED=false.
+NEW_TRIPS_ENABLED = os.getenv('PIXELAPP_NEW_TRIPS_ENABLED', 'true').lower() == 'true'
+
+class SafeNewTrip(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    start_date: str
+    end_date: str
+    car_trip: bool = False
+    start_km: int = Field(default=0, ge=0, le=9999999)
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+def safe_new_trip_id(payload: SafeNewTrip):
+    name = re.sub(r'\s+', ' ', payload.name.strip())
+    if not re.fullmatch(r'[\w\s\-–().,]+', name, flags=re.UNICODE) or not re.search(r'\w', name):
+        raise HTTPException(422, 'Името съдържа непозволени символи.')
+    try:
+        start = datetime.strptime(payload.start_date, '%d.%m.%Y').date()
+        end = datetime.strptime(payload.end_date, '%d.%m.%Y').date()
+    except ValueError:
+        raise HTTPException(422, 'Невалидна дата. Използвай ДД.ММ.ГГГГ.')
+    if end < start or (end - start).days > 365:
+        raise HTTPException(422, 'Периодът трябва да бъде от 0 до 365 дни.')
+    if not payload.car_trip and payload.start_km != 0:
+        raise HTTPException(422, 'Километражът трябва да е 0 за пътуване без автомобил.')
+    return name.replace(' ', '_')
+
+@app.get('/safe/new-trip-preflight', dependencies=[Depends(authorize)])
+def safe_new_trip_preflight():
+    ensure_local_snapshot()
+    with LOCK:
+        path = DATA_DIR / FILENAMES['settings']
+        service = drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е конфигуриран.')
+        _, mapping = folder_and_files(service)
+        fid = mapping.get(FILENAMES['settings'])
+        if not fid:
+            raise HTTPException(409, 'Липсва CSV файлът на пътуванията в Drive.')
+        remote = service.files().get_media(fileId=fid).execute()
+        digest = hashlib.sha256(remote).hexdigest()
+        return {'enabled': NEW_TRIPS_ENABLED,
+                'drive_matches_local': hashlib.sha256(path.read_bytes()).hexdigest() == digest,
+                'settings_sha256': digest}
+
+@app.post('/safe/new-trip', dependencies=[Depends(authorize)])
+def safe_new_trip_create(payload: SafeNewTrip):
+    if not NEW_TRIPS_ENABLED:
+        raise HTTPException(423, 'Създаването на нови пътувания е временно изключено.')
+    tid = safe_new_trip_id(payload)
+    ensure_local_snapshot()
+    with LOCK:
+        path = DATA_DIR / FILENAMES['settings']
+        local = path.read_bytes()
+        service = drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е конфигуриран.')
+        _, mapping = folder_and_files(service)
+        fid = mapping.get(FILENAMES['settings'])
+        if not fid:
+            raise HTTPException(409, 'Липсва CSV файлът на пътуванията.')
+        remote = service.files().get_media(fileId=fid).execute()
+        digest = hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest() != digest:
+            raise HTTPException(409, 'Данните са променени. Обнови и опитай отново.')
+        reader = csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+        cols = reader.fieldnames
+        if not cols or any(k not in cols for k in COLUMNS['settings']):
+            raise HTTPException(422, 'Непознат формат на CSV файла.')
+        rows = list(reader)
+        if any(r.get('trip_id', '').casefold() == tid.casefold() for r in rows):
+            raise HTTPException(409, 'Вече има пътуване с това име. Избери различно.')
+        newrow = {k: '' for k in cols}
+        newrow.update({'trip_id': tid, 'car_trip': 'Да' if payload.car_trip else 'Не',
+            'track_fuel': 'Да' if payload.car_trip else 'Добави впоследствие',
+            'start_km': str(payload.start_km), 'end_km': '0', 'manual_fuel': '0',
+            'start_date': payload.start_date, 'end_date': payload.end_date,
+            'trip_finished': 'Не'})
+        rows.append(newrow)
+        output = io.StringIO(newline='')
+        writer = csv.DictWriter(output, fieldnames=cols, extrasaction='ignore', lineterminator='\n')
+        writer.writeheader(); writer.writerows(rows)
+        new_bytes = output.getvalue().encode('utf-8')
+        try:
+            backup = service.files().copy(fileId=fid,
+                body={'name':'P67_NEW_TRIP_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['settings']},
+                fields='id').execute()
+            backup_id = backup['id']
+        except Exception:
+            raise HTTPException(503, 'Неуспешен архив. Не е записано пътуване.')
+        latest = service.files().get_media(fileId=fid).execute()
+        if hashlib.sha256(latest).hexdigest() != digest:
+            raise HTTPException(409, 'Drive се е променил след архива. Записът е отказан.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            media = MediaIoBaseUpload(io.BytesIO(new_bytes), mimetype='text/csv', resumable=False)
+            service.files().update(fileId=fid, media_body=media).execute()
+            confirmed = service.files().get_media(fileId=fid).execute()
+            if hashlib.sha256(confirmed).digest() != hashlib.sha256(new_bytes).digest():
+                raise RuntimeError('Drive mismatch')
+        except Exception:
+            raise HTTPException(503, 'Неясен резултат от записа. Провери списъка, преди нов опит.')
+        temp = path.with_suffix('.p67_verified')
+        temp.write_bytes(confirmed)
+        os.replace(temp, path)
+        return {'ok': True, 'trip_id': tid, 'backup_id': backup_id}
