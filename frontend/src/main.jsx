@@ -1145,6 +1145,40 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,expensesOnly=fal
  </div></div>;
 }
 
+
+function RegularNewTrip({onClose,onPreflight,onCreate,onSaved}){
+ const [name,setName]=useState(''),[start,setStart]=useState(''),[end,setEnd]=useState('');
+ const [car,setCar]=useState(true),[km,setKm]=useState(''),[busy,setBusy]=useState(false);
+ const [message,setMessage]=useState('');
+ const toBG=s=>s?`${s.slice(8,10)}.${s.slice(5,7)}.${s.slice(0,4)}`:'';
+ const valid=name.trim().length>=2&&!!start&&!!end&&end>=start&&(!car||(km.trim()!==''&&Number.isInteger(Number(km))&&Number(km)>=0));
+ async function submit(e){e.preventDefault();if(!valid||busy)return;
+  setBusy(true);setMessage('');
+  try{
+   const check=await onPreflight();
+   if(!check.enabled||!check.drive_matches_local||!check.settings_sha256)throw Error('Данните не са синхронизирани или създаването е спряно. Няма запис.');
+   const result=await onCreate({name:name.trim(),start_date:toBG(start),end_date:toBG(end),car_trip:car,start_km:car?Number(km):0,expected_sha256:check.settings_sha256});
+   setMessage('✅ Създадено: '+result.trip_id+'. Архив в Google Drive: '+result.backup_id);
+   await onSaved(result.trip_id);
+  }catch(err){setMessage('⚠️ '+String(err.message||err)+' Ако връзката е прекъснала, първо провери списъка с пътувания, вместо да натискаш повторно.');}
+  finally{setBusy(false)}
+ }
+ return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Ново пътуване" onClick={e=>e.stopPropagation()}>
+  <div className="dialoghead"><h3>✈️ Ново пътуване</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
+  <p className="muted">Създаване с автоматична сверка и архив в Google Drive. Старите пътувания не се променят. Не използвай едновременно Streamlit.</p>
+  <form className="quick-demo-form" onSubmit={submit}>
+   <label>Име на пътуването<input value={name} onChange={e=>setName(e.target.value)} maxLength={80} placeholder="Например: Италия 2027" required/></label>
+   <label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)} required/></label>
+   <label>Крайна дата<input type="date" value={end} min={start||undefined} onChange={e=>setEnd(e.target.value)} required/></label>
+   <label>Пътуване<select value={car?'yes':'no'} onChange={e=>setCar(e.target.value==='yes')}><option value="yes">С автомобил</option><option value="no">Без автомобил</option></select></label>
+   {car&&<label>Начален километраж<input type="number" min="0" step="1" placeholder="Задължително" value={km} onChange={e=>setKm(e.target.value)} required/></label>}
+   <button type="submit" disabled={!valid||busy}>{busy?'⏳ Записвам…':'💾 Създай пътуването'}</button>
+  </form>
+  {message&&<p role="status" className={message.startsWith('⚠️')?'error':'muted'}>{message}</p>}
+  <p className="muted" style={{fontSize:12}}>Бюджети и разходи за новосъздадени пътувания ще се включат в следващ етап. Засега постоянният финансов тест е само за „ТЕСТ НОВО – PixelApp“.</p>
+ </div></div>;
+}
+
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_api_key')||'');
  const newTestTripId='ТЕСТ_НОВО_–_PixelApp';
@@ -1218,7 +1252,7 @@ function App(){
  {!current?comparisonOpen?<TripComparison trips={trips} loadTrip={comparisonLoader} expenseDrafts={expenseDrafts} onClose={()=>setComparisonOpen(false)}/>:<>
  <NextTripCountdown trips={trips}/>
  <div style={{marginBottom:12,display:"flex",gap:8,flexWrap:"wrap"}}><button type="button" className="ghost" onClick={()=>setModal('new-trip-safety')}>🧪 Провери създаване на тестово пътуване</button><button type="button" className="ghost" onClick={()=>setModal('edit-test-trip')}>✏️ Редактирай тестовото пътуване</button><button type="button" className="ghost" onClick={()=>setModal('test-finance')}>🎯 Бюджет и разходи</button></div>
-  <div className="actions home-actions p28-home-actions"><button onClick={()=>setModal('trip-demo')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button><button onClick={()=>setModal('normal-expenses')}>💳 <span><b>Бърз разход</b><small>Тестовото пътуване · запис в Drive</small></span></button></div>
+  <div className="actions home-actions p28-home-actions"><button onClick={()=>setModal('regular-new-trip')}>✈️ <span><b>Ново пътуване</b><small>Попълни основните данни</small></span></button><button onClick={()=>setModal('normal-expenses')}>💳 <span><b>Бърз разход</b><small>Тестовото пътуване · запис в Drive</small></span></button></div>
  <div className="home-sync"><button className="ghost" onClick={async()=>{setLoading(true);setError('');try{await req('/sync-from-drive','POST');await reload()}catch(e){setError(String(e.message))}finally{setLoading(false)}}}><RefreshCcw size={15}/> Прочети данните от Google Drive</button></div>
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
  {(() => {const ranked=[...trips].sort((a,b)=>{const rank={active:0,upcoming:1,finished:2},sa=tripState(a),sb=tripState(b);if(rank[sa]!==rank[sb])return rank[sa]-rank[sb];const da=asDate(sa==='finished'?a.settings?.end_date:sa==='upcoming'?a.settings?.start_date:a.settings?.end_date);const db=asDate(sb==='finished'?b.settings?.end_date:sb==='upcoming'?b.settings?.start_date:b.settings?.end_date);return sa==='finished'?(db?.getTime()||0)-(da?.getTime()||0):(da?.getTime()||Infinity)-(db?.getTime()||Infinity)});const ended=ranked.filter(t=>tripState(t)==='finished');const visible=ranked.filter(t=>tripState(t)!=='finished').concat(showFinished?ended:ended.slice(0,1));return <>
@@ -1236,11 +1270,12 @@ function App(){
   {modal==='normal-expenses'&&<TestFinancePreview expensesOnly onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload(current===newTestTripId?current:null)}/> }
   {modal==='test-finance'&&<TestFinancePreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload()}/> }
  {modal==='edit-test-trip'&&<TestTripEditPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-trip-edit-preflight')} onEdit={payload=>req('/safety/test-trip-edit','POST',payload)} onSaved={()=>reload()}/> }
+ {modal==='regular-new-trip'&&<RegularNewTrip onClose={()=>setModal('')} onPreflight={()=>req('/safe/new-trip-preflight')} onCreate={payload=>req('/safe/new-trip','POST',payload)} onSaved={async()=>{await reload();}}/>}
  {modal==='new-trip-safety'&&<NewTripSafetyPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/new-trip-preflight')} onCreate={payload=>req('/safety/new-trip-create','POST',payload)} onSaved={()=>reload()}/>}
  {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onSafetyPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} onTestChange={payload=>req('/safety/test-expense-change','POST',payload)} onSaved={id=>reload(id)} onClose={()=>setModal('')}/>}
- {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&modal!=='new-trip-safety'&&modal!=='edit-test-trip'&&modal!=='test-finance'&&modal!=='normal-expenses'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
+ {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&modal!=='new-trip-safety'&&modal!=='regular-new-trip'&&modal!=='edit-test-trip'&&modal!=='test-finance'&&modal!=='normal-expenses'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
  <footer>PixelApp React · Етап 1 · Данните остават в Google Drive</footer></main>
 }
 
