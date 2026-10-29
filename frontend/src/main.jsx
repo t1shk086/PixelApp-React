@@ -1044,51 +1044,103 @@ function TestTripEditPreview({onClose,onPreflight,onEdit,onSaved}){
 
 
 // Patch 62: dedicated, lockable financial test for the NEW trip only.
+// Patch 65: normal expense editor using verified Patch 64 server protection.
+// The server still restricts writes to the single test trip; this UI does not grant permissions.
 function TestFinancePreview({onClose,onPreflight,onSave,onSaved,expensesOnly=false}){
  const [proof,setProof]=useState(null),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
- const [budget,setBudget]=useState('280'),[amount,setAmount]=useState('7.00'),[category,setCategory]=useState('Храна и напитки'),[desc,setDesc]=useState('Тестов разход'),[original,setOriginal]=useState(null),[confirmed,setConfirmed]=useState(false);
+ const [view,setView]=useState(expensesOnly?'expenses':'budget');
+ const [budget,setBudget]=useState('');
+ const [amount,setAmount]=useState(''),[category,setCategory]=useState('Храна и напитки'),[desc,setDesc]=useState('');
+ const [original,setOriginal]=useState(null),[showSafety,setShowSafety]=useState(false);
  const moneyValid=v=>/^\d+(?:[.,]\d{1,2})?$/.test(String(v).trim())&&Number(String(v).replace(',','.'))>=0&&Number(String(v).replace(',','.'))<=100000;
- async function check(){setBusy(true);setConfirmed(false);setMsg('');try{const p=await onPreflight();setProof(p);const global=p.budgets?.find(x=>x.category==='__GLOBAL__');setBudget(global?.budget||'280');setOriginal(null);setMsg(p.can_write?'✅ Данните са актуални — можеш да записваш.':'🔒 Записът е недостъпен. Провери синхронизацията с Google Drive.')}catch(e){setProof(null);setMsg('⚠️ '+String(e.message||e))}finally{setBusy(false)}}
- async function change(operation,expense){if(!proof?.can_write||busy)return;
-  setBusy(true);setMsg('');try{const p=await onPreflight();setProof(p);if(!p.can_write)throw Error('Проверката вече не позволява запис.');const kind=operation==='budget'?'budgets':'expenses';const sha=p.files?.[kind]?.sha256;if(!sha)throw Error('Липсва потвърден SHA256 за файла.');
+ const fmtAmount=v=>Number(String(v||'0').replace(',','.'));
+ const resetExpense=()=>{setOriginal(null);setAmount('');setCategory('Храна и напитки');setDesc('')};
+ async function check(silent=false){
+  setBusy(true);if(!silent)setMsg('');
+  try{const p=await onPreflight();setProof(p);setBudget(p.budgets?.find(x=>x.category==='__GLOBAL__')?.budget||'0');
+   if(!silent&&!p.can_write)setMsg('🔒 Записването е заключено или данните са се променили.');
+  }catch(e){setProof(null);setMsg('⚠️ '+String(e.message||e));}finally{setBusy(false)}
+ }
+ async function change(operation,expense){
+  if(!proof?.can_write||busy)return;
+  setBusy(true);setMsg('');
+  try{
+   const p=await onPreflight();setProof(p);
+   if(!p.can_write)throw Error('Данните са променени или записът е заключен.');
+   const kind=operation==='budget'?'budgets':'expenses';const sha=p.files?.[kind]?.sha256;
+   if(!sha)throw Error('Липсва потвърден SHA256 за файла.');
    const payload={operation,expected_sha256:sha,confirmation:'ЗАПИШИ САМО ТЕСТОВИ ФИНАНСИ'};
    if(operation==='budget'){
-     if(!moneyValid(budget))throw Error('Невалиден бюджет.');payload.amount=Number(budget.replace(',','.'));
+    if(!moneyValid(budget))throw Error('Въведи валиден бюджет.');payload.amount=fmtAmount(budget);
    }else if(operation==='expense-add'||operation==='expense-edit'){
-     if(!moneyValid(amount)||Number(amount.replace(',','.'))<=0||!desc.trim())throw Error('Невалидна сума или описание.');
-     Object.assign(payload,{amount:Number(amount.replace(',','.')),category,description:desc.trim()});
+    if(!moneyValid(amount)||fmtAmount(amount)<=0||!desc.trim())throw Error('Въведи сума и описание.');
+    Object.assign(payload,{amount:fmtAmount(amount),category,description:desc.trim()});
    }
    if(operation==='expense-edit'||operation==='expense-delete'){
-     if(!expense)throw Error('Няма избран разход.');
-     payload.original=Object.fromEntries(['trip_id','date','amount','category','description','type','liters','current_km'].map(k=>[k,String(expense[k]??'')]));
+    if(!expense)throw Error('Не е избран разход.');
+    payload.original=Object.fromEntries(['trip_id','date','amount','category','description','type','liters','current_km'].map(k=>[k,String(expense[k]??'')]));
    }
-   const result=await onSave(payload);setConfirmed(false);setOriginal(null);
-   // On success obtain a verified snapshot; never show a claimed state from a local guess.
-   const verified=await onPreflight();setProof(verified);setBudget(verified.budgets?.find(x=>x.category==='__GLOBAL__')?.budget||'0');
-   setMsg('✅ Промяната е потвърдена в Google Drive. Архив: '+result.backup_id);
+   const result=await onSave(payload);
+   // Re-read the backend-verified snapshot instead of assuming success from local state.
+   const verified=await onPreflight();setProof(verified);
+   setBudget(verified.budgets?.find(x=>x.category==='__GLOBAL__')?.budget||'0');
+   resetExpense();
+   setMsg('✅ Запазено и проверено в Google Drive. Резервно копие: '+(result.backup_id||'създадено'));
    await onSaved();
-  }catch(e){setConfirmed(false);setMsg('⚠️ '+String(e.message||e)+' Не повтаряй запис, преди да проверим данните.')}finally{setBusy(false)}}
- useEffect(()=>{check()},[]);
+  }catch(e){setMsg('⚠️ '+String(e.message||e)+' Провери данните, преди да опиташ отново.');}
+  finally{setBusy(false)}
+ }
+ useEffect(()=>{check(true)},[]);
  const expenses=(proof?.expenses||[]).filter(x=>x.type==='expense');
- return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Тестови финанси" onClick={e=>e.stopPropagation()}>
- <div className="dialoghead"><h3>{expensesOnly?"💳 Разходи · новото пътуване":"🎯 Бюджет и разходи"}</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
- <p className="p26-modal-safe">Защитен режим само за „ТЕСТ НОВО – PixelApp“. Старите пътувания и горивото остават само за четене. Не записвай паралелно през Streamlit.</p>
- <button type="button" className="ghost" disabled={busy} onClick={check}>{busy?'⏳ Проверявам…':'🔄 Провери данните отново'}</button>
- {proof&&<div className="travel-card"><p><b>Тестово пътуване:</b> {proof.test_trip_found?'✅ Намерено':'⚠️ Липсва'}</p><p><b>Бюджет CSV:</b> {proof.files?.budgets?.drive_matches_local?'✅ Съвпада':'⚠️ Разминаване'}</p><p><b>Разходи CSV:</b> {proof.files?.expenses?.drive_matches_local?'✅ Съвпадат':'⚠️ Разминаване'}</p><p><b>Тестов запис:</b> {proof.armed?'⚠️ Разрешен':'🔒 Заключен'}</p></div>}
- {proof?.can_write&&<p className="muted">✅ Защитен пилот: записите са разрешени само за това пътуване. Не редактирай едновременно същите данни от Streamlit.</p>}
- <div className="quick-demo-form">
- {!expensesOnly&&<><h4>🎯 Общ бюджет</h4><label>Бюджет (€)<input type="text" inputMode="decimal" value={budget} onChange={e=>{setBudget(e.target.value);setConfirmed(false)}} placeholder="280.00"/></label>
- <button type="button" disabled={!proof?.can_write||busy||!moneyValid(budget)} onClick={()=>change('budget')}>💾 Запази бюджета</button></>}
- <h4>💳 Разход {original?'· редакция':'· нов'}</h4>
- <label>Сума (€)<input type="text" inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);setConfirmed(false)}} placeholder="7.00"/></label>
- <label>Категория<select value={category} onChange={e=>{setCategory(e.target.value);setConfirmed(false)}}>{['Храна и напитки','Транспорт','Други','Нощувки/Хотел'].map(x=><option key={x}>{x}</option>)}</select></label>
- <label>Описание<input type="text" value={desc} maxLength={120} onChange={e=>{setDesc(e.target.value);setConfirmed(false)}}/></label>
- <button type="button" disabled={!proof?.can_write||busy||!moneyValid(amount)||Number(amount.replace(',','.'))<=0||!desc.trim()} onClick={()=>change(original?'expense-edit':'expense-add',original)}>{original?'💾 Запази редакцията':'➕ Добави разход'}</button>
- {original&&<button type="button" className="ghost" onClick={()=>{setOriginal(null);setDesc('');setConfirmed(false)}}>Откажи редакцията</button>}
- <h4>🧾 Разходи на пътуването</h4>
- {expenses.length===0&&<p className="muted">Все още няма разходи.</p>}
- {expenses.map((x,i)=><div key={i} className="travel-card" style={{padding:12,marginBottom:8}}><b>{x.description}</b><p>{x.category} · {money(Number(x.amount||0))}</p>{x.description?.startsWith('[P62] ')&&<div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className="ghost" disabled={busy} onClick={()=>{setOriginal(x);setAmount(x.amount);setCategory(x.category);setDesc(x.description.slice(6));setConfirmed(false)}}>✏️ Редактирай</button><button type="button" className="ghost" disabled={busy||!proof?.can_write} onClick={()=>{if(window.confirm('Да изтрия ли само този тестов разход?'))change('expense-delete',x)}}>🗑️ Изтрий</button></div>}</div>)}
+ const spent=expenses.reduce((sum,x)=>sum+Number(x.amount||0),0);
+ const budgetNumber=Number(proof?.budgets?.find(x=>x.category==='__GLOBAL__')?.budget||0);
+ const eligible=x=>x.description?.startsWith('[P62] ')&&x.type==='expense'&&['0','0.0','0.00',''].includes(String(x.liters??''))&&['0','0.0','0.00',''].includes(String(x.current_km??''));
+ function beginEdit(x){setView('expenses');setOriginal(x);setAmount(String(x.amount||''));setCategory(x.category||'Други');setDesc(String(x.description||'').replace(/^\[P62\] /,''));setMsg('')}
+ return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Разходи и бюджет" onClick={e=>e.stopPropagation()}>
+ <div className="dialoghead"><h3>💳 Разходи и бюджет</h3><button type="button" className="ghost" onClick={onClose} aria-label="Затвори">✕</button></div>
+ <p className="muted" style={{marginTop:0}}>🚙 ТЕСТ НОВО – PixelApp</p>
+ <div className="actions" style={{gap:8,display:'flex',flexWrap:'wrap',marginBottom:12}}>
+  <button type="button" className={view==='expenses'?'':'ghost'} onClick={()=>setView('expenses')}>💳 Разходи</button>
+  <button type="button" className={view==='budget'?'':'ghost'} onClick={()=>setView('budget')}>🎯 Бюджет</button>
  </div>
+ {!proof?<p className="muted">{busy?'⏳ Проверявам данните в Google Drive…':'⚠️ Няма потвърдени данни. Използвай „Обнови данните“.'}</p>:<div className="quick-demo-grid" style={{marginBottom:14}}>
+  <div><small>Бюджет</small><strong>{money(budgetNumber)}</strong></div>
+  <div><small>Разходи</small><strong>{money(spent)}</strong></div>
+  <div><small>Остават</small><strong>{money(budgetNumber-spent)}</strong></div>
+ </div>}
+ {!proof?.can_write&&proof&&<p className="error">🔒 Записът е недостъпен. Провери дали данните в Drive съвпадат.</p>}
+ <div className="quick-demo-form">
+ {view==='budget'?<>
+  <h4>🎯 Общ бюджет на пътуването</h4>
+  <label>Общ бюджет (€)<input type="text" inputMode="decimal" value={budget} placeholder="Например 280,00" onChange={e=>setBudget(e.target.value)} /></label>
+  <button type="button" disabled={!proof?.can_write||busy||!moneyValid(budget)} onClick={()=>change('budget')}>{busy?'⏳ Записвам…':'💾 Запази бюджета'}</button>
+  <small className="muted">Сумата се записва само за новото тестово пътуване.</small>
+ </>:<>
+  <h4>{original?'✏️ Редактирай разход':'➕ Нов разход'}</h4>
+  <label>Сума (€)<input type="text" inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00" /></label>
+  <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{['Храна и напитки','Транспорт','Други','Нощувки/Хотел'].map(x=><option key={x}>{x}</option>)}</select></label>
+  <label>Описание<input type="text" maxLength={120} value={desc} onChange={e=>setDesc(e.target.value)} placeholder="За какво е разходът?" /></label>
+  <small className="muted">Дата: автоматично при записването. Зарежданията на гориво ще бъдат в отделния модул.</small>
+  <div className="actions" style={{display:'flex',flexWrap:'wrap',gap:8}}>
+   <button type="button" disabled={!proof?.can_write||busy||!moneyValid(amount)||fmtAmount(amount)<=0||!desc.trim()} onClick={()=>change(original?'expense-edit':'expense-add',original)}>{busy?'⏳ Записвам…':original?'💾 Запази редакцията':'➕ Добави разход'}</button>
+   {original&&<button type="button" className="ghost" disabled={busy} onClick={resetExpense}>Откажи</button>}
+  </div>
+  <h4>🧾 Записани разходи</h4>
+  {!expenses.length&&<p className="muted">Няма записани разходи.</p>}
+  {expenses.map((x,i)=><div key={`${x.date}-${x.description}-${i}`} className="travel-card" style={{padding:12,marginBottom:8}}>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'start',gap:8}}><div><b>{String(x.description||'').replace(/^\[P62\] /,'')}</b><div className="muted" style={{fontSize:12}}>{x.category} · {x.date}</div></div><strong>{money(x.amount)}</strong></div>
+   {eligible(x)&&<div className="actions" style={{display:'flex',gap:8,marginTop:8}}>
+    <button type="button" className="ghost" disabled={busy} onClick={()=>beginEdit(x)}>✏️ Редактирай</button>
+    <button type="button" className="ghost" disabled={busy||!proof?.can_write} onClick={()=>{if(window.confirm('Да изтрия ли този тестов разход?'))change('expense-delete',x)}}>🗑️ Изтрий</button>
+   </div>}
+  </div>)}
+ </>}
+ </div>
+ <details style={{marginTop:12}} open={showSafety} onToggle={e=>setShowSafety(e.currentTarget.open)}><summary className="muted">🔐 Защита и синхронизация</summary>
+  <p className="muted">Записва се само в „ТЕСТ НОВО – PixelApp“. Старите пътувания са само за четене. Не прави едновременно промени през Streamlit.</p>
+  {proof&&<p className="muted">Google Drive: {proof.files?.budgets?.drive_matches_local&&proof.files?.expenses?.drive_matches_local?'✅ Синхронизиран':'⚠️ Разминаване'} · {proof.can_write?'✅ Пилотът е разрешен':'🔒 Заключено'}</p>}
+  <button type="button" className="ghost" disabled={busy} onClick={()=>check(false)}>🔄 Обнови данните</button>
+ </details>
  {msg&&<p role="status" className={msg.startsWith('⚠️')?'error':'muted'}>{msg}</p>}
  </div></div>;
 }
