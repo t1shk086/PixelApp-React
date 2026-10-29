@@ -874,7 +874,10 @@ def test_trip_edit(payload: TestTripEdit):
 
 # Patch 62: isolated finances for the NEW test trip only. Ordinary CRUD remains locked.
 # Enabling requires a dedicated, temporary Render environment switch.
-TEST_FINANCE_ARMED = os.getenv('PIXELAPP_TEST_FINANCE_ARMED', '') == 'I_ACCEPT_TEST_FINANCES_ONLY'
+# Persistent, server-scoped finance pilot. Only TEST_TRIP_ID is writable.
+# Set PIXELAPP_PILOT_FINANCE_ENABLED=false to instantly disable without a code change.
+# Existing legacy/test finance environment switches do not grant access to other trips.
+TEST_FINANCE_ARMED = os.getenv('PIXELAPP_PILOT_FINANCE_ENABLED', 'true').strip().lower() == 'true'
 FINANCE_CATEGORIES = ('Храна и напитки', 'Транспорт', 'Други', 'Нощувки/Хотел')
 
 class TestFinanceChange(BaseModel):
@@ -939,7 +942,7 @@ def test_finance_preflight():
 @app.post('/safety/test-finance', dependencies=[Depends(authorize)])
 def test_finance_change(payload: TestFinanceChange):
     if not TEST_FINANCE_ARMED:
-        raise HTTPException(423, 'Финансовото тестово записване е заключено.')
+        raise HTTPException(423, 'Пилотното финансово записване е заключено.')
     if payload.confirmation != 'ЗАПИШИ САМО ТЕСТОВИ ФИНАНСИ':
         raise HTTPException(400, 'Липсва тестовото потвърждение.')
     if payload.operation not in ('budget', 'expense-add', 'expense-edit', 'expense-delete'):
