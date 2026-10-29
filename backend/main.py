@@ -5,6 +5,7 @@ Production requires HTTPS and a secret API key, held server-side or sent via an
 authenticated reverse proxy. Never expose the Google refresh token to the browser.
 """
 import csv
+import json
 import hashlib
 import re
 from decimal import Decimal, InvalidOperation
@@ -872,6 +873,67 @@ def test_trip_edit(payload: TestTripEdit):
         return {'ok':True,'trip_id':TEST_TRIP_ID,'backup_id':backup['id']}
 
 
+# Patch 68: persistent allowlist of trips created by React, stored in Drive.
+# The two explicitly verified pilot trips are allowed; historical trips are NOT.
+REACT_OWNED_FILENAME = 'pixelapp_react_owned_trips.json'
+REACT_OWNED_PILOTS = frozenset((TEST_TRIP_ID, 'ТЕСТ_67_PixelApp'))
+
+
+def _react_owned_ids(service, mapping):
+    fid = mapping.get(REACT_OWNED_FILENAME)
+    if not fid:
+        return set(REACT_OWNED_PILOTS)
+    try:
+        raw = service.files().get_media(fileId=fid).execute()
+        parsed = json.loads(raw.decode('utf-8'))
+        if parsed.get('schema') != 1 or not isinstance(parsed.get('trip_ids'), list) or any(not isinstance(x, str) for x in parsed['trip_ids']):
+            raise ValueError('Invalid ownership registry')
+        return set(parsed['trip_ids']) | set(REACT_OWNED_PILOTS)
+    except Exception:
+        raise HTTPException(503, 'Регистърът на новите пътувания не може да се прочете. Записването е спряно.')
+
+
+def _register_react_trip(service, folder_id, mapping, tid):
+    """Write ownership BEFORE creating a trip; orphan registration is harmless.
+
+    A trip is never writable unless it exists in settings and the registry.
+    """
+    owned = _react_owned_ids(service, mapping)
+    if tid in owned:
+        return
+    owned.add(tid)
+    raw = json.dumps({'schema': 1, 'trip_ids': sorted(owned)}, ensure_ascii=False, indent=2).encode('utf-8')
+    from googleapiclient.http import MediaIoBaseUpload
+    media = MediaIoBaseUpload(io.BytesIO(raw), mimetype='application/json', resumable=False)
+    fid = mapping.get(REACT_OWNED_FILENAME)
+    try:
+        if fid:
+            old = service.files().get_media(fileId=fid).execute()
+            service.files().copy(fileId=fid, body={'name':'P68_REGISTRY_BACKUP_'+uuid.uuid4().hex}, fields='id').execute()
+            if service.files().get_media(fileId=fid).execute() != old:
+                raise HTTPException(409, 'Регистърът беше променен от друго устройство.')
+            service.files().update(fileId=fid, media_body=media).execute()
+        else:
+            created = service.files().create(body={'name': REACT_OWNED_FILENAME, 'parents': [folder_id]}, media_body=media, fields='id').execute()
+            fid = created['id']
+        verified = service.files().get_media(fileId=fid).execute()
+        if verified != raw:
+            raise ValueError('Ownership registry verification failed')
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, 'Неуспешно потвърждение на регистъра на новите пътувания. Няма създадено пътуване.')
+
+
+def _assert_react_owned_trip(trip_id, service, mapping):
+    if trip_id not in _react_owned_ids(service, mapping):
+        raise HTTPException(403, 'Старите пътувания са само за четене.')
+    settings = [r for r in load_rows('settings') if r.get('trip_id') == trip_id]
+    if len(settings) != 1 or settings[0].get('trip_finished', 'Не') == 'Да':
+        raise HTTPException(409, 'Пътуването липсва или е приключено.')
+    return settings[0]
+
+
 # Patch 62: isolated finances for the NEW test trip only. Ordinary CRUD remains locked.
 # Enabling requires a dedicated, temporary Render environment switch.
 # Persistent, server-scoped finance pilot. Only TEST_TRIP_ID is writable.
@@ -915,32 +977,34 @@ def _finance_remote(kind, service, mapping):
     return fid, path, remote, local, columns, rows
 
 
-@app.get('/safety/test-finance-preflight', dependencies=[Depends(authorize)])
-def test_finance_preflight():
+@app.get('/safe/trip-finance-preflight/{trip_id}', dependencies=[Depends(authorize)])
+def safe_trip_finance_preflight(trip_id: str):
     ensure_local_snapshot()
     with LOCK:
         service = drive_service()
         if not service:
             raise HTTPException(503, 'Няма връзка с Drive.')
         _, mapping = folder_and_files(service)
-        settings = load_rows('settings')
-        found = [r for r in settings if r.get('trip_id') == TEST_TRIP_ID]
+        _assert_react_owned_trip(trip_id, service, mapping)
         snapshots = {}
         results = {}
         for kind in ('budgets', 'expenses'):
             _, _, remote, local, _, rows = _finance_remote(kind, service, mapping)
             match = hashlib.sha256(remote).digest() == hashlib.sha256(local).digest()
             results[kind] = {'drive_matches_local': match, 'sha256': hashlib.sha256(remote).hexdigest()}
-            snapshots[kind] = [r for r in rows if r.get('trip_id') == TEST_TRIP_ID]
-        # Provide only own test-trip rows; existing/legacy trips stay private to regular UI.
-        return {'armed': TEST_FINANCE_ARMED, 'test_trip_found':len(found)==1,
-                'can_write': TEST_FINANCE_ARMED and len(found)==1 and found[0].get('trip_finished','Не')!='Да' and all(x['drive_matches_local'] for x in results.values()),
-                'files': results,
-                'budgets':snapshots['budgets'], 'expenses':snapshots['expenses']}
+            snapshots[kind] = [r for r in rows if r.get('trip_id') == trip_id]
+        return {'armed': TEST_FINANCE_ARMED, 'test_trip_found': True, 'trip_id': trip_id,
+                'can_write': TEST_FINANCE_ARMED and all(x['drive_matches_local'] for x in results.values()),
+                'files': results, 'budgets': snapshots['budgets'], 'expenses': snapshots['expenses']}
 
 
-@app.post('/safety/test-finance', dependencies=[Depends(authorize)])
-def test_finance_change(payload: TestFinanceChange):
+@app.get('/safety/test-finance-preflight', dependencies=[Depends(authorize)])
+def test_finance_preflight():
+    return safe_trip_finance_preflight(TEST_TRIP_ID)
+
+
+@app.post('/safe/trip-finance/{trip_id}', dependencies=[Depends(authorize)])
+def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
     if not TEST_FINANCE_ARMED:
         raise HTTPException(423, 'Пилотното финансово записване е заключено.')
     if payload.confirmation != 'ЗАПИШИ САМО ТЕСТОВИ ФИНАНСИ':
@@ -961,31 +1025,29 @@ def test_finance_change(payload: TestFinanceChange):
         desc = ''
     ensure_local_snapshot()
     with LOCK:
-        settings = [r for r in load_rows('settings') if r.get('trip_id') == TEST_TRIP_ID]
-        if len(settings) != 1 or settings[0].get('trip_finished','Не') == 'Да':
-            raise HTTPException(409, 'Тестовото пътуване не е налично или е приключено.')
         service = drive_service()
         if not service:
             raise HTTPException(503, 'Google Drive не е достъпен.')
         _, mapping = folder_and_files(service)
+        _assert_react_owned_trip(trip_id, service, mapping)
         fid, path, remote, local, columns, rows = _finance_remote(kind, service, mapping)
         digest = hashlib.sha256(remote).hexdigest()
         if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest() != digest:
             raise HTTPException(409, 'Има промяна в Drive или Render. Направи нова проверка.')
-        existing = [r for r in rows if r.get('trip_id') == TEST_TRIP_ID]
+        existing = [r for r in rows if r.get('trip_id') == trip_id]
         if payload.operation == 'budget':
             if any(r.get('category') != '__GLOBAL__' for r in existing):
                 raise HTTPException(409, 'Има бюджет по категории; не го презаписваме автоматично.')
-            rows = [r for r in rows if not (r.get('trip_id')==TEST_TRIP_ID and r.get('category')=='__GLOBAL__')]
+            rows = [r for r in rows if not (r.get('trip_id')==trip_id and r.get('category')=='__GLOBAL__')]
             if amount != '0.00':
                 row = {k:'' for k in columns}
-                row.update(trip_id=TEST_TRIP_ID, category='__GLOBAL__', budget=amount)
+                row.update(trip_id=trip_id, category='__GLOBAL__', budget=amount)
                 rows.append(row)
         elif payload.operation == 'expense-add':
-            if any(r.get('trip_id')==TEST_TRIP_ID and r.get('description')=='[P62] '+desc for r in rows):
+            if any(r.get('trip_id')==trip_id and r.get('description')=='[P62] '+desc for r in rows):
                 raise HTTPException(409, 'Разход с това описание вече съществува.')
             row = {k:'' for k in columns}
-            row.update(trip_id=TEST_TRIP_ID, date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
+            row.update(trip_id=trip_id, date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
                        amount=amount, category=payload.category, description='[P62] '+desc,
                        type='expense',liters='0',current_km='0')
             rows.append(row)
@@ -994,8 +1056,8 @@ def test_finance_change(payload: TestFinanceChange):
             fields = COLUMNS['expenses']
             if set(original) != set(fields) or any(not isinstance(v,str) for v in original.values()):
                 raise HTTPException(422, 'Невалиден оригинален запис.')
-            if original.get('trip_id') != TEST_TRIP_ID or not original.get('description','').startswith('[P62] ') or original.get('type') != 'expense' or original.get('liters') not in ('0','0.0','0.00','') or original.get('current_km') not in ('0','0.0','0.00',''):
-                raise HTTPException(403, 'Позволени са само обикновени разходи, създадени с Пач 62.')
+            if original.get('trip_id') != trip_id or not original.get('description','').startswith('[P62] ') or original.get('type') != 'expense' or original.get('liters') not in ('0','0.0','0.00','') or original.get('current_km') not in ('0','0.0','0.00',''):
+                raise HTTPException(403, 'Позволени са само обикновени разходи, създадени с PixelApp.')
             matches = [i for i,r in enumerate(rows) if all(str(r.get(k,'')) == original[k] for k in fields)]
             if len(matches) != 1:
                 raise HTTPException(409, 'Записът липсва или не е еднозначен. Няма промяна.')
@@ -1003,7 +1065,7 @@ def test_finance_change(payload: TestFinanceChange):
             if payload.operation == 'expense-delete':
                 del rows[index]
             else:
-                if any(r.get('trip_id')==TEST_TRIP_ID and r.get('description')=='[P62] '+desc and i != index for i,r in enumerate(rows)):
+                if any(r.get('trip_id')==trip_id and r.get('description')=='[P62] '+desc and i != index for i,r in enumerate(rows)):
                     raise HTTPException(409, 'Разход с това описание вече съществува.')
                 rows[index].update(amount=amount, category=payload.category, description='[P62] '+desc)
         out = io.StringIO(newline='')
@@ -1011,7 +1073,7 @@ def test_finance_change(payload: TestFinanceChange):
         writer.writeheader();writer.writerows(rows)
         updated = out.getvalue().encode('utf-8')
         try:
-            backup = service.files().copy(fileId=fid,body={'name':'P62_TEST_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES[kind]},fields='id').execute()
+            backup = service.files().copy(fileId=fid,body={'name':'P68_FINANCE_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES[kind]},fields='id').execute()
         except Exception:
             raise HTTPException(503, 'Архивът не е създаден. Няма запис.')
         if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest() != digest:
@@ -1029,6 +1091,22 @@ def test_finance_change(payload: TestFinanceChange):
         tmp.write_bytes(verified)
         os.replace(tmp, path)
         return {'ok':True, 'operation':payload.operation, 'backup_id':backup['id']}
+
+
+@app.post('/safety/test-finance', dependencies=[Depends(authorize)])
+def test_finance_change(payload: TestFinanceChange):
+    return safe_trip_finance_change(TEST_TRIP_ID, payload)
+
+
+@app.get('/safe/react-owned-trips', dependencies=[Depends(authorize)])
+def react_owned_trips():
+    ensure_local_snapshot()
+    with LOCK:
+        service = drive_service()
+        if not service:
+            raise HTTPException(503, 'Google Drive не е достъпен.')
+        _, mapping = folder_and_files(service)
+        return {'trip_ids': sorted(_react_owned_ids(service, mapping))}
 
 
 # Patch 67: create NEW trips only. Existing rows are immutable through this route.
@@ -1089,7 +1167,7 @@ def safe_new_trip_create(payload: SafeNewTrip):
         service = drive_service()
         if service is None:
             raise HTTPException(503, 'Google Drive не е конфигуриран.')
-        _, mapping = folder_and_files(service)
+        folder_id, mapping = folder_and_files(service)
         fid = mapping.get(FILENAMES['settings'])
         if not fid:
             raise HTTPException(409, 'Липсва CSV файлът на пътуванията.')
@@ -1104,6 +1182,8 @@ def safe_new_trip_create(payload: SafeNewTrip):
         rows = list(reader)
         if any(r.get('trip_id', '').casefold() == tid.casefold() for r in rows):
             raise HTTPException(409, 'Вече има пътуване с това име. Избери различно.')
+        # Record proven React ownership first; never unlock a legacy trip by date/name.
+        _register_react_trip(service, folder_id, mapping, tid)
         newrow = {k: '' for k in cols}
         newrow.update({'trip_id': tid, 'car_trip': 'Да' if payload.car_trip else 'Не',
             'track_fuel': 'Да' if payload.car_trip else 'Добави впоследствие',
