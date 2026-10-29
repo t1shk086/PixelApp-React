@@ -94,6 +94,73 @@ def folder_and_files(service):
     return folder, {x['name']:x['id'] for x in records.get('files',[])}
 
 
+
+# Patch 58: Restore a clean Render instance from Drive on its first authenticated
+# read. Render's ephemeral filesystem can be empty after redeployment.
+# This code NEVER uploads, creates, updates, or deletes files in Google Drive.
+BOOTSTRAP_REQUIRED = ('settings', 'expenses', 'budgets')
+BOOTSTRAP_STATE = {'restored': False}
+
+
+def ensure_local_snapshot():
+    """Read-only cold-start restore, serialized across simultaneous HTTP reads.
+
+    Only bootstrap a completely empty local data directory. If some CSVs are
+    already present, never replace them automatically; ask for manual recovery
+    instead, because they might contain changes that have not reached Drive.
+    """
+    with LOCK:
+        if all((DATA_DIR / FILENAMES[kind]).is_file() for kind in BOOTSTRAP_REQUIRED):
+            return
+        existing = [name for name in FILENAMES.values() if (DATA_DIR / name).exists()]
+        if existing:
+            raise HTTPException(503, 'Непълен локален архив. Автоматичното възстановяване е отказано, за да не се презапишат данни. Провери Render.')
+        service = drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е конфигуриран. Не могат да се заредят пътуванията.')
+        try:
+            _, mapping = folder_and_files(service)
+            missing = [FILENAMES[k] for k in BOOTSTRAP_REQUIRED if FILENAMES[k] not in mapping]
+            if missing:
+                raise HTTPException(503, 'В Google Drive липсват основни CSV файлове. Не показваме празни пътувания.')
+            staged = {}
+            for kind, name in FILENAMES.items():
+                if name not in mapping:
+                    continue  # optional CSV absent in Drive
+                raw = service.files().get_media(fileId=mapping[name]).execute()
+                if not isinstance(raw, bytes):
+                    raise ValueError('Invalid Drive response')
+                reader = csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))
+                required = COLUMNS[kind]
+                if not reader.fieldnames or any(col not in reader.fieldnames for col in required):
+                    raise ValueError('Unknown CSV schema: ' + name)
+                list(reader)  # validate CSV decoding before touching the local files
+                staged[name] = raw
+        except HTTPException:
+            raise
+        except Exception as exc:
+            # Do not accidentally expose OAuth details in an HTTP response.
+            raise HTTPException(503, 'Автоматичното четене от Google Drive не успя. Опитай отново.') from exc
+        # All required files are downloaded and validated before installing any.
+        # Unique names prevent accidental collisions with other temporary files.
+        created = []
+        try:
+            for name, raw in staged.items():
+                target = DATA_DIR / name
+                if target.exists():
+                    raise RuntimeError('Local data appeared while bootstrapping')
+                tmp = DATA_DIR / ('.bootstrap_' + uuid.uuid4().hex + '_' + name)
+                tmp.write_bytes(raw)
+                os.replace(tmp, target)
+                created.append(target)
+            BOOTSTRAP_STATE['restored'] = True
+        except Exception as exc:
+            # Fresh cold start only: these files were created by this routine.
+            for target in created:
+                target.unlink(missing_ok=True)
+            raise HTTPException(503, 'Неуспешно локално зареждане на CSV файловете.') from exc
+
+
 def load_rows(kind):
     path = DATA_DIR / FILENAMES[kind]
     if not path.exists(): return []
@@ -411,6 +478,7 @@ def experimental_test_expense_change(payload: ExperimentalExpenseChange):
 
 @app.get('/trips',dependencies=[Depends(authorize)])
 def list_trips():
+    ensure_local_snapshot()
     with LOCK:
         settings=load_rows('settings'); expenses=load_rows('expenses'); budgets=load_rows('budgets')
         ids=list(dict.fromkeys([x.get('trip_id','') for group in (settings,budgets,expenses) for x in group if x.get('trip_id')]))
@@ -433,6 +501,7 @@ def list_trips():
 
 @app.get('/home/places', dependencies=[Depends(authorize)])
 def home_places():
+    ensure_local_snapshot()
     """All saved places from the imported map CSV; read-only, no geocoding."""
     import math
     with LOCK:
@@ -459,6 +528,7 @@ def home_places():
 
 @app.get('/dashboard', dependencies=[Depends(authorize)])
 def dashboard():
+    ensure_local_snapshot()
     """Read-only summary for the original PixelApp home screen."""
     from datetime import date
     with LOCK:
@@ -516,6 +586,7 @@ def create_trip(payload:TripIn):
 
 @app.get('/trips/{trip_id}',dependencies=[Depends(authorize)])
 def trip_detail(trip_id:str):
+    ensure_local_snapshot()
     with LOCK:
         return {'settings':next((x for x in load_rows('settings') if x.get('trip_id')==trip_id),{}),
                 'expenses':[x for x in load_rows('expenses') if x.get('trip_id')==trip_id],
