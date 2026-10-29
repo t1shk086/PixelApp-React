@@ -703,7 +703,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
 
 
 // Пач 21: изцяло локален тест на настройките и приключването; без API записи.
-function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPanel='basic',expenseDrafts={},onUpdateDraft,onTestTripPreflight,onTestTripSave,onSaved}){
+function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPanel='basic',expenseDrafts={},onUpdateDraft}){
  const blank=()=>({name:'',startDate:'',endDate:'',car:true,trackFuel:'Да',startKm:'',endKm:'',manualFuel:'',finished:false});
  const [source,setSource]=useState(initialTripId||'__new');
  const [panel,setPanel]=useState(defaultPanel);
@@ -733,10 +733,6 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
  const [manualLiters,setManualLiters]=useState('');
  const [manualHasPrice,setManualHasPrice]=useState(false);
  const [manualAmount,setManualAmount]=useState('');
-  // Patch 57: strictly gated, explicit TEST-only settings write.
-  const [realTripConsent,setRealTripConsent]=useState(false);
-  const [realTripBusy,setRealTripBusy]=useState(false);
-  const [realTripMessage,setRealTripMessage]=useState('');
  const [sourceDetail,setSourceDetail]=useState(null);
  const [detailBusy,setDetailBusy]=useState(false);
  const [detailError,setDetailError]=useState('');
@@ -749,32 +745,11 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
   return ()=>{alive=false};
  },[source]);
 
-  const isP57Test=String(source||'').replace(/[^\p{L}\p{N}]/gu,'').toLocaleLowerCase()===String('ТЕСТ PixelApp').replace(/[^\p{L}\p{N}]/gu,'').toLocaleLowerCase();
-  async function saveRealTestTrip(){
-   if(!isP57Test||!realTripConsent||realTripBusy||source==='__new')return;
-   setRealTripMessage('');setRealTripBusy(true);
-   try{
-    if(form.name.trim()!==String(initial.name||'').trim())throw Error('Пач 57 не променя името на пътуването.');
-    if(!dateValid||!carReady)throw Error('Поправи невалидните дати или километраж.');
-    if(form.car&&form.finished&&!kmValid)throw Error('Въведи валиден краен километраж.');
-    const proof=await onTestTripPreflight();
-    if(!proof.test_write_armed||!proof.drive_matches_local||proof.test_trip_id!==source||!proof.settings_sha256||!proof.settings)throw Error('Неуспешна проверка или тестовият запис е заключен в Render.');
-    const result=await onTestTripSave({trip_id:source,expected_sha256:proof.settings_sha256,original:proof.settings,
-      start_date:dateBG(form.startDate),end_date:dateBG(form.endDate),car_trip:form.car,
-      track_fuel:form.trackFuel,start_km:form.car?Number(form.startKm||0):0,
-      end_km:form.car&&form.finished?Number(form.endKm||0):0,finish:form.finished,
-      confirmation:'ПРОМЕНИ САМО ТЕСТОВО ПЪТУВАНЕ P57'});
-    setRealTripMessage('✅ Записано и проверено в Drive. Архив: '+result.backup_id);
-    setRealTripConsent(false);
-    if(onSaved)await onSaved(source);
-   }catch(e){setRealTripMessage('⚠️ '+String(e.message||e)+' Не повтаряй, преди да провериш Drive.');}
-   finally{setRealTripBusy(false)}
-  }
  const resetManual=()=>{if(source==='__new')setNewTripManualEntries([]);setManualLiters('');setManualHasPrice(false);setManualAmount('')};
  const patch=(key,value)=>{setForm(f=>({...f,[key]:value}));setConfirmed(false);setNotice('')};
  const toISO=value=>{const m=String(value||'').match(/^(\d\d)\.(\d\d)\.(\d{4})$/);return m?`${m[3]}-${m[2]}-${m[1]}`:''};
  const dateBG=value=>value?value.split('-').reverse().join('.'):'';
- const load=(id)=>{setSource(id);setRealTripConsent(false);setRealTripMessage('');let next;if(id==='__new'){next=blank()}else{const tr=trips.find(t=>t.id===id)||{};const s=tr.settings||{};next={name:tr.name||tr.id||'',startDate:toISO(s.start_date),endDate:toISO(s.end_date),car:String(s.car_trip||'').toLowerCase()==='да',trackFuel:String(s.track_fuel||'Добави впоследствие'),startKm:String(Number(s.start_km||0)||''),endKm:String(Number(s.end_km||0)||''),manualFuel:String(Number(s.manual_fuel||0)||''),finished:String(s.trip_finished||'').toLowerCase()==='да'||Number(s.end_km||0)>0}}setForm(next);setInitial({...next});setConfirmed(false);setNotice('');resetManual()};
+ const load=(id)=>{setSource(id);let next;if(id==='__new'){next=blank()}else{const tr=trips.find(t=>t.id===id)||{};const s=tr.settings||{};next={name:tr.name||tr.id||'',startDate:toISO(s.start_date),endDate:toISO(s.end_date),car:String(s.car_trip||'').toLowerCase()==='да',trackFuel:String(s.track_fuel||'Добави впоследствие'),startKm:String(Number(s.start_km||0)||''),endKm:String(Number(s.end_km||0)||''),manualFuel:String(Number(s.manual_fuel||0)||''),finished:String(s.trip_finished||'').toLowerCase()==='да'||Number(s.end_km||0)>0}}setForm(next);setInitial({...next});setConfirmed(false);setNotice('');resetManual()};
  useEffect(()=>{if(initialTripId)load(initialTripId)},[initialTripId]);
  const startKm=Number(form.startKm),endKm=Number(form.endKm),kmValid=Number.isFinite(startKm)&&Number.isFinite(endKm)&&endKm>=startKm&&String(form.endKm).trim()!=='';
  const dateValid=!(form.startDate&&form.endDate&&form.endDate<form.startDate);
@@ -868,14 +843,6 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
    {manualEntries.length>0&&<><div className="p22-entry-list">{manualEntries.map(entry=><div key={entry.id} className="p22-entry"><span><strong>{entry.hasPrice?'💵 С известна сума':'📝 Само литри'}</strong><small>{entry.liters.toLocaleString('bg-BG')} л · {entry.description}</small></span><b>{entry.hasPrice?money(entry.amount):'Без цена'}</b><button type="button" className="ghost" title="Премахни пробния запис" onClick={()=>setManualEntries(rows=>rows.filter(r=>r.id!==entry.id))}>✕</button></div>)}</div><button type="button" className="ghost" onClick={resetManual}>🗑️ Изчисти само пробното ръчно гориво</button></>}
   </section>}
   {panel==='fuel'&&!form.car&&<p className="p21-warning">За ръчно гориво първо избери „С автомобил“ в „Основни“.</p>}
-   {isP57Test&&<section className="p21-section p57-test-control" style={{border:'1px solid rgba(96,194,231,.45)',padding:14,borderRadius:12,marginTop:16}}>
-     <h4>🛡️ Пач 57 · Истински запис — само ТЕСТ</h4>
-     <p className="muted">Разрешава се само със специалната настройка в Render. Сверява CSV в Drive, прави резервно копие и променя само настройките на тестовото пътуване. Не записва име, бюджет, разходи или пропуснато гориво.</p>
-     <label className="p42-confirm"><input type="checkbox" checked={realTripConsent} onChange={e=>setRealTripConsent(e.target.checked)} disabled={realTripBusy}/> Streamlit е затворен, имам пълен архив и приемам запис само в „ТЕСТ – PixelApp“.</label>
-     <button type="button" disabled={!realTripConsent||realTripBusy||!dateValid||!carReady||form.name.trim()!==String(initial.name||'').trim()} onClick={saveRealTestTrip}>{realTripBusy?'⏳ Проверявам и записвам…':'💾 Запиши настройките в Drive · САМО ТЕСТ'}</button>
-     {realTripMessage&&<p role="status">{realTripMessage}</p>}
-     <small className="muted">Няма общо заключване със Streamlit. Не използвай при отворен Streamlit или други записи в Drive.</small>
-   </section>}
   {panel==='finish'&&<section className="p21-section"><h4>🏁 Приключване на пътуването</h4>{form.car&&<label>Краен километраж — въвежда се едва при приключване<input type="number" min="0" step="1" value={form.endKm} onChange={e=>patch('endKm',e.target.value)} placeholder="Напр. 100950"/></label>}<div className="p21-grid"><div className="p21-number"><small>Начален километраж</small><strong>{form.car&&form.startKm!==''?startKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number"><small>Краен километраж</small><strong>{form.car&&form.endKm!==''?endKm.toLocaleString('bg-BG')+' км':'—'}</strong></div><div className="p21-number p21-wide"><small>Общ пробег</small><strong>{form.car&&totalKm!==null?totalKm.toLocaleString('bg-BG')+' км':form.car?'Въведи валидни километри':'Без автомобил'}</strong></div></div>
    {form.car&&form.endKm!==''&&!kmValid&&<p className="p21-warning">Крайните километри не могат да са по-малко от началните.</p>}
    <div className="p21-actions"><button type="button" disabled={!finishReady} onClick={finish}>🏁 Приключи пробно</button><button type="button" className="ghost" onClick={()=>{setForm({...initial});setConfirmed(false);setNotice('Пробните промени са върнати.');resetManual()}}>↶ Възстанови</button></div>
@@ -1094,7 +1061,7 @@ function App(){
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} expenseDraft={currentExpenseDraft} onOpenPreview={setModal}/>}</>}
  {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
- {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} onTestTripPreflight={()=>req('/safety/test-trip-settings/preflight')} onTestTripSave={payload=>req('/safety/test-trip-settings','POST',payload)} onSaved={id=>reload(id)} onClose={()=>setModal('')}/>}
+ {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onSafetyPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} onTestChange={payload=>req('/safety/test-expense-change','POST',payload)} onSaved={id=>reload(id)} onClose={()=>setModal('')}/>}
  {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
