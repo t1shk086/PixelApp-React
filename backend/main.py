@@ -995,7 +995,8 @@ def safe_trip_finance_preflight(trip_id: str):
             snapshots[kind] = [r for r in rows if r.get('trip_id') == trip_id]
         return {'armed': TEST_FINANCE_ARMED, 'test_trip_found': True, 'trip_id': trip_id,
                 'can_write': TEST_FINANCE_ARMED and all(x['drive_matches_local'] for x in results.values()),
-                'files': results, 'budgets': snapshots['budgets'], 'expenses': snapshots['expenses']}
+                'files': results, 'budgets': snapshots['budgets'], 'expenses': snapshots['expenses'],
+                'start_km': next((r.get('start_km', '0') for r in load_rows('settings') if r.get('trip_id') == trip_id), '0')}
 
 
 @app.get('/safety/test-finance-preflight', dependencies=[Depends(authorize)])
@@ -1091,6 +1092,90 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
         tmp.write_bytes(verified)
         os.replace(tmp, path)
         return {'ok':True, 'operation':payload.operation, 'backup_id':backup['id']}
+
+
+# Patch 69: safe, normal refuel for React-created trips. Legacy trips stay read-only.
+class SafeFuelAdd(BaseModel):
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmation: str
+    amount: Decimal
+    liters: Decimal
+    current_km: int
+    fuel_kind: str
+    description: str = ''
+
+
+@app.post('/safe/trip-fuel/{trip_id}', dependencies=[Depends(authorize)])
+def safe_trip_fuel_add(trip_id: str, payload: SafeFuelAdd):
+    if not TEST_FINANCE_ARMED:
+        raise HTTPException(423, 'Записването е заключено от сървъра.')
+    if payload.confirmation != 'ЗАПИШИ ЗАРЕЖДАНЕ':
+        raise HTTPException(400, 'Липсва потвърждение.')
+    if payload.fuel_kind not in ('full', 'partial'):
+        raise HTTPException(422, 'Избери пълно или частично зареждане.')
+    amount = _finance_decimal(payload.amount)
+    if (not payload.liters.is_finite() or payload.liters <= 0 or
+        payload.liters > Decimal('300') or payload.liters.as_tuple().exponent < -2):
+        raise HTTPException(422, 'Литрите трябва да са от 0,01 до 300,00.')
+    liters = str(payload.liters.quantize(Decimal('0.01')))
+    desc = payload.description.strip()
+    if len(desc) > 90 or '\n' in desc or '\r' in desc:
+        raise HTTPException(422, 'Описанието е твърде дълго.')
+    if not (0 < payload.current_km <= 9999999):
+        raise HTTPException(422, 'Невалиден километраж.')
+    ensure_local_snapshot()
+    with LOCK:
+        service = drive_service()
+        if not service:
+            raise HTTPException(503, 'Няма връзка с Google Drive.')
+        _, mapping = folder_and_files(service)
+        settings = _assert_react_owned_trip(trip_id, service, mapping)
+        if settings.get('car_trip') != 'Да' or settings.get('track_fuel') != 'Да':
+            raise HTTPException(409, 'За това пътуване не е включено проследяване на гориво.')
+        fid, path, remote, local, columns, rows = _finance_remote('expenses', service, mapping)
+        digest = hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or digest != hashlib.sha256(local).hexdigest():
+            raise HTTPException(409, 'Данните в Drive са променени. Обнови и провери пак.')
+        fuel_rows = [r for r in rows if r.get('trip_id') == trip_id and
+                     r.get('type') == 'expense' and r.get('category') == 'Транспорт' and
+                     Decimal(str(r.get('liters') or '0')) > 0 and
+                     Decimal(str(r.get('current_km') or '0')) > 0]
+        start = int(Decimal(str(settings.get('start_km') or '0')))
+        last = max([start] + [int(Decimal(str(r['current_km']))) for r in fuel_rows])
+        if payload.current_km <= last:
+            raise HTTPException(422, f'Километражът трябва да е над {last} км.')
+        label = 'ПЪЛНО' if payload.fuel_kind == 'full' else 'ЧАСТИЧНО'
+        fuel_desc = f'[{label} ЗАРЕЖДАНЕ] {desc or "Гориво"}'
+        # Keep original Streamlit CSV schema and description prefix, without computing
+        # an unverified real-consumption estimate on the first full refill.
+        newrow = {k: '' for k in columns}
+        newrow.update(trip_id=trip_id, date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
+                      amount=amount, category='Транспорт', description=fuel_desc,
+                      type='expense', liters=liters, current_km=str(payload.current_km))
+        rows.append(newrow)
+        out = io.StringIO(newline='')
+        writer = csv.DictWriter(out, fieldnames=columns, extrasaction='ignore', lineterminator='\n')
+        writer.writeheader(); writer.writerows(rows)
+        updated = out.getvalue().encode('utf-8')
+        try:
+            backup = service.files().copy(fileId=fid, body={'name': 'P69_FUEL_BACKUP_' + uuid.uuid4().hex + '_' + FILENAMES['expenses']}, fields='id').execute()
+        except Exception:
+            raise HTTPException(503, 'Не е създаден архив. Няма запис.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest() != digest:
+            raise HTTPException(409, 'Данните са променени след архива. Няма запис.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            media = MediaIoBaseUpload(io.BytesIO(updated), mimetype='text/csv', resumable=False)
+            service.files().update(fileId=fid, media_body=media).execute()
+            verified = service.files().get_media(fileId=fid).execute()
+            if hashlib.sha256(verified).digest() != hashlib.sha256(updated).digest():
+                raise RuntimeError('Drive verification failed')
+        except Exception:
+            raise HTTPException(503, 'Неясен резултат от запис. Не натискай повторно преди проверка.')
+        tmp = path.with_suffix('.p69_verified')
+        tmp.write_bytes(verified)
+        os.replace(tmp, path)
+        return {'ok': True, 'backup_id': backup['id'], 'km': payload.current_km}
 
 
 @app.post('/safety/test-finance', dependencies=[Depends(authorize)])
