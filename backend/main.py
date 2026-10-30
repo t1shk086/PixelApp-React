@@ -1675,3 +1675,83 @@ def safe_route_change(trip_id:str,payload:SafeRouteChange):
         except Exception: raise HTTPException(503,'Записът не е потвърден. Провери данните, преди да повториш.')
         temp=path.with_suffix('.p76_verified');temp.write_bytes(verified);os.replace(temp,path)
         return {'ok':True,'backup_id':backup['id']}
+
+
+# P80: shared favourites, separate from the route stops of individual trips.
+FAVORITES_TRIP_ID = '__PIXELAPP_SHARED_FAVORITES__'
+FAVORITES_COLOR = 'blue'
+FAVORITES_PREFIX = 'fav: '
+
+class SafeFavoriteChange(BaseModel):
+    operation: str
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    index: int = -1
+    title: str = ''
+    lat: float = 0
+    lon: float = 0
+
+def _favorite_indices(rows):
+    return [i for i,r in enumerate(rows) if r.get('trip_id') == FAVORITES_TRIP_ID and
+            str(r.get('title','')).startswith(FAVORITES_PREFIX) and r.get('color') == FAVORITES_COLOR]
+
+@app.get('/safe/favorites', dependencies=[Depends(authorize)])
+def safe_favorites():
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+        _, mapping=folder_and_files(service)
+        _,_,remote,local,_,rows=_finance_remote('points',service,mapping)
+        indices=_favorite_indices(rows)
+        return {'sha256':hashlib.sha256(remote).hexdigest(),
+                'can_write':hashlib.sha256(local).hexdigest()==hashlib.sha256(remote).hexdigest(),
+                'places':[{'index':n,'title':rows[i]['title'][len(FAVORITES_PREFIX):],
+                           'lat':rows[i]['lat'],'lon':rows[i]['lon']} for n,i in enumerate(indices)]}
+
+@app.post('/safe/favorites/{trip_id}', dependencies=[Depends(authorize)])
+def safe_favorites_change(trip_id:str,payload:SafeFavoriteChange):
+    if payload.operation not in ('add','edit','delete'):
+        raise HTTPException(422,'Неподдържано действие.')
+    name=payload.title.strip()
+    if payload.operation in ('add','edit'):
+        if not name or len(name)>150 or not all(map(math.isfinite,(payload.lat,payload.lon))) or abs(payload.lat)>90 or abs(payload.lon)>180:
+            raise HTTPException(422,'Въведи валидно име и координати.')
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        _assert_react_owned_trip(trip_id,service,mapping)
+        fid,path,remote,local,columns,rows=_finance_remote('points',service,mapping)
+        digest=hashlib.sha256(remote).hexdigest()
+        if digest!=payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
+            raise HTTPException(409,'Местата са променени от друг телефон. Обнови страницата.')
+        indices=_favorite_indices(rows)
+        if payload.operation=='add':
+            if any(rows[i]['title'][len(FAVORITES_PREFIX):].casefold()==name.casefold() and abs(float(rows[i]['lat'])-payload.lat)<0.00001 and abs(float(rows[i]['lon'])-payload.lon)<0.00001 for i in indices):
+                raise HTTPException(409,'Това любимо място вече съществува.')
+            new={c:'' for c in columns}
+            new.update(trip_id=FAVORITES_TRIP_ID,lat=str(payload.lat),lon=str(payload.lon),title=FAVORITES_PREFIX+name,color=FAVORITES_COLOR,stop_type='favorite')
+            rows.append(new)
+        else:
+            if payload.index<0 or payload.index>=len(indices):raise HTTPException(409,'Мястото е променено. Обнови страницата.')
+            i=indices[payload.index]
+            if payload.operation=='delete':rows.pop(i)
+            else:rows[i].update(title=FAVORITES_PREFIX+name,lat=str(payload.lat),lon=str(payload.lon))
+        output=io.StringIO(newline='')
+        writer=csv.DictWriter(output,fieldnames=columns,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated=output.getvalue().encode('utf-8')
+        try:
+            backup=service.files().copy(fileId=fid,body={'name':'P80_FAVORITES_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['points']},fields='id').execute()
+        except Exception:raise HTTPException(503,'Архивът не успя. Няма запис.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
+            raise HTTPException(409,'Данните се промениха. Няма запис.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            service.files().update(fileId=fid,media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)).execute()
+            verified=service.files().get_media(fileId=fid).execute()
+            if verified!=updated:raise RuntimeError('Drive verification mismatch')
+        except Exception:raise HTTPException(503,'Записът не е потвърден. Провери преди повторение.')
+        temp=path.with_suffix('.p80_verified');temp.write_bytes(verified);os.replace(temp,path)
+        return {'ok':True,'backup_id':backup['id']}
