@@ -45,6 +45,24 @@ COLUMNS = {
     'labels': ['pet','hotel','deposit','planned_stops_label','saved_place_label','my_location_label','fuel_red_threshold'],
 }
 LOCK = threading.RLock()
+# P89: serialize protected writes across worker processes on the same Render host.
+# This is NOT a distributed lock across Render instances or the legacy Streamlit host.
+from contextlib import contextmanager
+import fcntl
+
+@contextmanager
+def guarded_csv_write():
+    # Both locks cover the entire read/check/backup/update/verify transaction.
+    # Keep ordinary GETs unchanged to preserve fast P87.4 startup.
+    with LOCK:
+        lock_path = DATA_DIR / '.pixelapp_csv_write.lock'
+        with open(lock_path, 'a+b') as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
 # Safe by default: legacy Streamlit can still write the same CSVs.
 # Do not enable writes until cross-device synchronization and conflict handling are implemented.
 # Patch 41: fail closed even if the legacy environment flag was left enabled.
@@ -1189,7 +1207,7 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
     else:
         desc = ''
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service = drive_service()
         if not service:
             raise HTTPException(503, 'Google Drive не е достъпен.')
@@ -1324,7 +1342,7 @@ def safe_fuel_add(trip_id: str, payload: SafeFuelAdd):
     if not re.search(r'газ|гориво|зареждане|бензин|дизел', description, re.I):
         raise HTTPException(422, 'Описанието на горивото трябва да съдържа ключова дума от стария PixelApp.')
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service = drive_service()
         if service is None:
             raise HTTPException(503, 'Google Drive не е достъпен.')
@@ -1393,7 +1411,7 @@ def safe_missed_fuel_add(trip_id: str, payload: MissedFuelAdd):
             payload.amount > Decimal('10000') or payload.amount.as_tuple().exponent < -2):
         raise HTTPException(422, 'Сумата трябва да е от 0 до 10000 €, с до два знака.')
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service=drive_service()
         if service is None:
             raise HTTPException(503, 'Google Drive не е достъпен.')
@@ -1510,7 +1528,7 @@ def safe_new_trip_create(payload: SafeNewTrip):
         raise HTTPException(423, 'Създаването на нови пътувания е временно изключено.')
     tid = safe_new_trip_id(payload)
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         path = DATA_DIR / FILENAMES['settings']
         local = path.read_bytes()
         service = drive_service()
@@ -1622,7 +1640,7 @@ def safe_finish_trip(trip_id: str, payload: FinishTripPayload):
     if not FINISH_WRITE_ENABLED:
         raise HTTPException(423,'Приключването е временно заключено.')
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service=drive_service()
         if service is None:
             raise HTTPException(503,'Google Drive не е достъпен.')
@@ -1710,7 +1728,7 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
     if payload.operation in ('add','edit') and (not title or len(title)>200):
         raise HTTPException(422,'Задачата трябва да е между 1 и 200 символа.')
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service=drive_service()
         if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
         _,mapping=folder_and_files(service)
@@ -1794,7 +1812,7 @@ def safe_route_change(trip_id:str,payload:SafeRouteChange):
         if payload.stop_type not in ('planned','unplanned'):
             raise HTTPException(422,'Невалиден тип спирка.')
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service=drive_service()
         if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
         _,mapping=folder_and_files(service)
@@ -1881,7 +1899,7 @@ def safe_favorites_change(trip_id:str,payload:SafeFavoriteChange):
         if not name or len(name)>150 or not all(map(math.isfinite,(payload.lat,payload.lon))) or abs(payload.lat)>90 or abs(payload.lon)>180:
             raise HTTPException(422,'Въведи валидно име и координати.')
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service=drive_service()
         if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
         _,mapping=folder_and_files(service)
@@ -1946,7 +1964,7 @@ def trip_places_change(trip_id: str, payload:SafeFavoriteChange):
     if payload.operation!='delete' and (not name or len(name)>150 or not all(map(math.isfinite,(payload.lat,payload.lon))) or abs(payload.lat)>90 or abs(payload.lon)>180):
         raise HTTPException(422,'Невалидно име или координати.')
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service=drive_service()
         if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
         _,mapping=folder_and_files(service)
@@ -2030,7 +2048,7 @@ def safe_basic_save(trip_id:str,payload:SafeBasicSettings):
         raise HTTPException(422,'Невалидна настройка за горивото.')
     _validate_basic_dates(payload.start_date,payload.end_date)
     ensure_local_snapshot()
-    with LOCK:
+    with guarded_csv_write():
         service=drive_service()
         if service is None: raise HTTPException(503,'Drive не е достъпен.')
         _,mapping=folder_and_files(service)
