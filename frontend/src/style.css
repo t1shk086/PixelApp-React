@@ -685,3 +685,8 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .route82-tabs button:nth-child(2).active{border-color:#bd85f7 !important;color:#eddbff !important;background:#251c3b !important;box-shadow:inset 0 0 0 1px #bd85f732,0 0 9px #ae65ff20 !important}
 .route82-tabs button:nth-child(3).active{border-color:#58d5d8 !important;color:#ccffff !important;background:#123439 !important;box-shadow:inset 0 0 0 1px #58d5d832,0 0 9px #3fdad920 !important}
 .route82-tabs button:focus-visible{outline:2px solid #e4f5ff;outline-offset:3px}
+
+/* P87.2: settings rendered as an inline panel instead of a fixed overlay. */
+.p881-admin-inline{display:block;position:relative;z-index:1;margin:8px 0 18px;scroll-margin-top:12px}
+.p881-admin-inline .p37-admin-dialog{max-width:100%;width:100%;max-height:none;overflow:visible;box-shadow:0 10px 28px #0006}
+.p37-settings-button[aria-expanded="true"]{border-color:#56c6ec;background:#193a4c;color:#ecfbff}
