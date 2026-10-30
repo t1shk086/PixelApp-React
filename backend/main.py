@@ -5,6 +5,7 @@ Production requires HTTPS and a secret API key, held server-side or sent via an
 authenticated reverse proxy. Never expose the Google refresh token to the browser.
 """
 import csv
+import math
 import json
 import hashlib
 import re
@@ -1585,3 +1586,92 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
             raise HTTPException(503,'Записът не е потвърден. Провери данните преди нов опит.')
         tmp=path.with_suffix('.p75_verified');tmp.write_bytes(verified);os.replace(tmp,path)
         return {'ok':True,'item_id':item_id,'backup_id':backup['id']}
+
+
+# P76: protected route stops, preserving Streamlit CSV order and 3b: naming.
+ROUTE_WRITE_ENABLED = os.getenv('PIXELAPP_ROUTE_WRITE_ENABLED','true').lower() == 'true'
+
+class SafeRouteChange(BaseModel):
+    operation: str
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    index: int = -1
+    title: str = ''
+    lat: float = 0
+    lon: float = 0
+    stop_type: str = 'planned'
+    position: int = -1
+
+def _route_stops(rows,trip_id):
+    return [i for i,r in enumerate(rows) if r.get('trip_id')==trip_id and str(r.get('title','')).startswith('3b:') and r.get('color') in ('purple','orange')]
+
+@app.get('/safe/route-preflight/{trip_id}',dependencies=[Depends(authorize)])
+def safe_route_preflight(trip_id:str):
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        _assert_react_owned_trip(trip_id,service,mapping)
+        _,_,remote,local,_,rows=_finance_remote('points',service,mapping)
+        digest=hashlib.sha256(remote).hexdigest()
+        same=hashlib.sha256(local).hexdigest()==digest
+        return {'can_write':ROUTE_WRITE_ENABLED and same,'sha256':digest,'drive_matches_local':same,
+                'stops':[dict(rows[i],route_index=n) for n,i in enumerate(_route_stops(rows,trip_id))]}
+
+@app.post('/safe/route/{trip_id}',dependencies=[Depends(authorize)])
+def safe_route_change(trip_id:str,payload:SafeRouteChange):
+    if not ROUTE_WRITE_ENABLED: raise HTTPException(423,'Редакцията на маршрута е заключена.')
+    if payload.operation not in ('add','delete','move'):
+        raise HTTPException(422,'Неподдържано действие.')
+    title=payload.title.strip()
+    if payload.operation=='add':
+        if not title or len(title)>150 or not all(map(math.isfinite,(payload.lat,payload.lon))) or abs(payload.lat)>90 or abs(payload.lon)>180:
+            raise HTTPException(422,'Въведи валидно име и координати.')
+        if payload.stop_type not in ('planned','unplanned'):
+            raise HTTPException(422,'Невалиден тип спирка.')
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        _assert_react_owned_trip(trip_id,service,mapping)
+        fid,path,remote,local,columns,rows=_finance_remote('points',service,mapping)
+        digest=hashlib.sha256(remote).hexdigest()
+        if digest!=payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
+            raise HTTPException(409,'Маршрутът е променен от друг телефон. Обнови страницата.')
+        indices=_route_stops(rows,trip_id)
+        if payload.operation=='add':
+            row={col:'' for col in columns}
+            row.update(trip_id=trip_id,lat=str(payload.lat),lon=str(payload.lon),title='3b: '+title,
+                       color='purple' if payload.stop_type=='planned' else 'orange',stop_type=payload.stop_type)
+            if payload.position < 0 or payload.position >= len(indices):
+                insert_at=(indices[-1]+1) if indices else len(rows)
+            else: insert_at=indices[payload.position]
+            rows.insert(insert_at,row)
+        else:
+            if payload.index<0 or payload.index>=len(indices): raise HTTPException(409,'Спирката вече не съществува.')
+            idx=indices[payload.index]
+            if payload.operation=='delete': rows.pop(idx)
+            else:
+                next_idx=payload.index+payload.position
+                if payload.position not in (-1,1) or next_idx<0 or next_idx>=len(indices):
+                    raise HTTPException(422,'Невъзможно преместване.')
+                other=indices[next_idx]
+                rows[idx],rows[other]=rows[other],rows[idx]
+        output=io.StringIO(newline='')
+        writer=csv.DictWriter(output,fieldnames=columns,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated=output.getvalue().encode('utf-8')
+        try:
+            backup=service.files().copy(fileId=fid,body={'name':'P76_ROUTE_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['points']},fields='id').execute()
+        except Exception: raise HTTPException(503,'Архивът не успя. Няма запис.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
+            raise HTTPException(409,'Google Drive се е променил. Няма запис.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            service.files().update(fileId=fid,media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)).execute()
+            verified=service.files().get_media(fileId=fid).execute()
+            if verified!=updated: raise RuntimeError('Drive verification mismatch')
+        except Exception: raise HTTPException(503,'Записът не е потвърден. Провери данните, преди да повториш.')
+        temp=path.with_suffix('.p76_verified');temp.write_bytes(verified);os.replace(temp,path)
+        return {'ok':True,'backup_id':backup['id']}
