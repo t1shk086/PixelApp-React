@@ -1402,3 +1402,112 @@ def safe_new_trip_create(payload: SafeNewTrip):
         temp.write_bytes(confirmed)
         os.replace(temp, path)
         return {'ok': True, 'trip_id': tid, 'backup_id': backup_id}
+
+
+# Safe trip finalization: updates one React-owned settings row only.
+# Existing Streamlit trips remain read-only. No expense or fuel rows are changed.
+FINISH_WRITE_ENABLED = os.getenv('PIXELAPP_FINISH_ENABLED', 'true').lower() == 'true'
+
+class FinishTripPayload(BaseModel):
+    end_km: int = Field(ge=0, le=9999999)
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+def _finish_snapshot(trip_id, service, mapping):
+    if trip_id not in _react_owned_ids(service, mapping):
+        raise HTTPException(403, 'Старите пътувания остават само за четене.')
+    filename=FILENAMES['settings']
+    fid=mapping.get(filename)
+    path=DATA_DIR/filename
+    if not fid or not path.exists():
+        raise HTTPException(409, 'Липсва файлът с настройките.')
+    remote=service.files().get_media(fileId=fid).execute()
+    local=path.read_bytes()
+    reader=csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+    cols=reader.fieldnames
+    if not cols or any(c not in cols for c in COLUMNS['settings']):
+        raise HTTPException(422, 'Непознат формат на настройките.')
+    rows=list(reader)
+    matches=[r for r in rows if r.get('trip_id')==trip_id]
+    if len(matches)!=1:
+        raise HTTPException(409, 'Нееднозначно пътуване. Записът е отказан.')
+    return fid,path,remote,local,cols,rows,matches[0]
+
+
+@app.get('/safe/finish-preflight/{trip_id}',dependencies=[Depends(authorize)])
+def safe_finish_preflight(trip_id: str):
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None:
+            raise HTTPException(503,'Google Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        fid,path,remote,local,cols,rows,item=_finish_snapshot(trip_id,service,mapping)
+        finished=str(item.get('trip_finished','')).casefold()=='да' or Decimal(str(item.get('end_km') or '0'))>0
+        car=item.get('car_trip')=='Да'
+        start=int(Decimal(str(item.get('start_km') or '0')))
+        digest=hashlib.sha256(remote).hexdigest()
+        return {'can_write':FINISH_WRITE_ENABLED and not finished and hashlib.sha256(local).hexdigest()==digest,
+                'drive_matches_local':hashlib.sha256(local).hexdigest()==digest,'sha256':digest,
+                'car_trip':car,'start_km':start,'finished':finished}
+
+
+@app.post('/safe/finish/{trip_id}',dependencies=[Depends(authorize)])
+def safe_finish_trip(trip_id: str, payload: FinishTripPayload):
+    if not FINISH_WRITE_ENABLED:
+        raise HTTPException(423,'Приключването е временно заключено.')
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None:
+            raise HTTPException(503,'Google Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        fid,path,remote,local,cols,rows,item=_finish_snapshot(trip_id,service,mapping)
+        digest=hashlib.sha256(remote).hexdigest()
+        if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
+            raise HTTPException(409,'Настройките са променени. Обнови приложението.')
+        if str(item.get('trip_finished','')).casefold()=='да' or Decimal(str(item.get('end_km') or '0'))>0:
+            raise HTTPException(423,'Пътуването вече е приключено. Няма втори запис.')
+        car=item.get('car_trip')=='Да'
+        start=int(Decimal(str(item.get('start_km') or '0')))
+        if car:
+            if payload.end_km<=start:
+                raise HTTPException(422,'Крайният километраж трябва да е по-голям от началния.')
+            # A finish cannot predate any real refueling odometer reading.
+            expfid= mapping.get(FILENAMES['expenses'])
+            if not expfid:
+                raise HTTPException(409,'Липсва историята на разходите.')
+            expraw=service.files().get_media(fileId=expfid).execute()
+            expenses=list(csv.DictReader(io.StringIO(expraw.decode('utf-8-sig'))))
+            last=_fuel_last_km(expenses,trip_id,start)
+            if payload.end_km<last:
+                raise HTTPException(422,f'Крайният километраж не може да е под последното зареждане ({last} км).')
+            item['end_km']=str(payload.end_km)
+            # Streamlit uses nonzero end_km for car trip closure.
+            item['trip_finished']='Не'
+        else:
+            if payload.end_km!=0:
+                raise HTTPException(422,'За пътуване без автомобил километражът е 0.')
+            item['trip_finished']='Да'
+        out=io.StringIO(newline='')
+        writer=csv.DictWriter(out,fieldnames=cols,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated=out.getvalue().encode('utf-8')
+        try:
+            backup=service.files().copy(fileId=fid,body={'name':'P73_FINISH_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['settings']},fields='id').execute()
+        except Exception:
+            raise HTTPException(503,'Архивът не успя. Пътуването не е приключено.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
+            raise HTTPException(409,'Drive се е променил след архива. Няма запис.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            service.files().update(fileId=fid,media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)).execute()
+            verified=service.files().get_media(fileId=fid).execute()
+            if verified!=updated:
+                raise RuntimeError('Verification mismatch')
+        except Exception:
+            raise HTTPException(503,'Записът не е потвърден. Провери статуса преди повторен опит.')
+        tmp=path.with_suffix('.p73_verified')
+        tmp.write_bytes(verified)
+        os.replace(tmp,path)
+        return {'ok':True,'backup_id':backup['id'],'end_km':payload.end_km,'finished':True}
