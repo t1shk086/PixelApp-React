@@ -1511,3 +1511,77 @@ def safe_finish_trip(trip_id: str, payload: FinishTripPayload):
         tmp.write_bytes(verified)
         os.replace(tmp,path)
         return {'ok':True,'backup_id':backup['id'],'end_km':payload.end_km,'finished':True}
+
+
+# Patch 75: protected task writes for React-owned, active trips only.
+TASK_WRITE_ENABLED = os.getenv('PIXELAPP_TASK_WRITE_ENABLED', 'true').lower() == 'true'
+
+class SafeTaskChange(BaseModel):
+    operation: str
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    item_id: str = ''
+    title: str = ''
+
+@app.get('/safe/tasks-preflight/{trip_id}', dependencies=[Depends(authorize)])
+def safe_tasks_preflight(trip_id: str):
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        _assert_react_owned_trip(trip_id,service,mapping)
+        _,_,remote,local,_,rows=_finance_remote('tasks',service,mapping)
+        digest=hashlib.sha256(remote).hexdigest()
+        same=hashlib.sha256(local).hexdigest()==digest
+        return {'can_write':TASK_WRITE_ENABLED and same,'sha256':digest,
+                'drive_matches_local':same,'tasks':[x for x in rows if x.get('trip_id')==trip_id]}
+
+@app.post('/safe/tasks/{trip_id}', dependencies=[Depends(authorize)])
+def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
+    if not TASK_WRITE_ENABLED: raise HTTPException(423,'Записването на задачи е заключено.')
+    if payload.operation not in ('add','edit','toggle','delete'):
+        raise HTTPException(422,'Неподдържано действие.')
+    title=payload.title.strip()
+    if payload.operation in ('add','edit') and (not title or len(title)>200):
+        raise HTTPException(422,'Задачата трябва да е между 1 и 200 символа.')
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        _assert_react_owned_trip(trip_id,service,mapping)
+        fid,path,remote,local,columns,rows=_finance_remote('tasks',service,mapping)
+        digest=hashlib.sha256(remote).hexdigest()
+        if digest!=payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
+            raise HTTPException(409,'Данните са променени от друг телефон. Обнови и опитай отново.')
+        if payload.operation=='add':
+            item_id=f'{trip_id}_{datetime.now().strftime("%Y%m%d%H%M%S%f")}_{uuid.uuid4().hex[:6]}'
+            row={col:'' for col in columns}
+            row.update(trip_id=trip_id,item_id=item_id,title=title,done='False',created=datetime.now().strftime('%d.%m.%Y %H:%M'))
+            rows.append(row)
+        else:
+            matched=[r for r in rows if r.get('trip_id')==trip_id and r.get('item_id')==payload.item_id]
+            if len(matched)!=1: raise HTTPException(404,'Задачата не е намерена еднозначно.')
+            row=matched[0]
+            if payload.operation=='edit': row['title']=title
+            elif payload.operation=='toggle': row['done']='False' if str(row.get('done','')).lower() in ('true','1','yes','да') else 'True'
+            else: rows.remove(row)
+            item_id=payload.item_id
+        out=io.StringIO(newline='')
+        writer=csv.DictWriter(out,fieldnames=columns,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated=out.getvalue().encode('utf-8')
+        try:
+            backup=service.files().copy(fileId=fid,body={'name':'P75_TASKS_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['tasks']},fields='id').execute()
+        except Exception: raise HTTPException(503,'Неуспешно резервно копие. Няма запис.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
+            raise HTTPException(409,'Drive е променен преди записа. Няма запис.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            service.files().update(fileId=fid,media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)).execute()
+            verified=service.files().get_media(fileId=fid).execute()
+            if verified!=updated: raise RuntimeError('Mismatch')
+        except Exception:
+            raise HTTPException(503,'Записът не е потвърден. Провери данните преди нов опит.')
+        tmp=path.with_suffix('.p75_verified');tmp.write_bytes(verified);os.replace(tmp,path)
+        return {'ok':True,'item_id':item_id,'backup_id':backup['id']}
