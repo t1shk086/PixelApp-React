@@ -668,3 +668,20 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p83-quick button{width:37px!important;max-width:37px!important;height:37px!important;min-height:37px!important;padding:0!important;display:grid!important;place-items:center;background:#284258!important;color:#a6e9fc!important;border:1px solid #3d6179!important;border-radius:9px;font-size:19px!important}
 .route82-favorite-panel .p83-add{display:block;width:100%;margin-top:11px;padding:12px!important;min-height:43px;background:transparent!important;border:1px dashed #486780!important;border-radius:11px!important;color:#b7d8ea!important;font-size:13px!important;font-weight:650}
 @media(max-width:440px){.route82-tabs button{font-size:12px!important;padding:10px 3px!important}.route82-favorite-panel .p83-card{padding:11px!important}}
+
+/* P84 — outlined map tabs: visual-only override; no JS or data changes. */
+.route82-tabs button,
+.route82-tabs button.active {
+  background:#152438 !important;
+  box-shadow:none !important;
+  border-width:1.5px !important;
+  color:#dceafa !important;
+  transition:border-color .18s ease,background-color .18s ease,box-shadow .18s ease;
+}
+.route82-tabs button:nth-child(1){border-color:#426b9b !important}
+.route82-tabs button:nth-child(2){border-color:#7952a0 !important}
+.route82-tabs button:nth-child(3){border-color:#328a93 !important}
+.route82-tabs button:nth-child(1).active{border-color:#52a6ff !important;color:#b9ddff !important;background:#142b45 !important;box-shadow:inset 0 0 0 1px #52a6ff32,0 0 9px #3a8dff20 !important}
+.route82-tabs button:nth-child(2).active{border-color:#bd85f7 !important;color:#eddbff !important;background:#251c3b !important;box-shadow:inset 0 0 0 1px #bd85f732,0 0 9px #ae65ff20 !important}
+.route82-tabs button:nth-child(3).active{border-color:#58d5d8 !important;color:#ccffff !important;background:#123439 !important;box-shadow:inset 0 0 0 1px #58d5d832,0 0 9px #3fdad920 !important}
+.route82-tabs button:focus-visible{outline:2px solid #e4f5ff;outline-offset:3px}
