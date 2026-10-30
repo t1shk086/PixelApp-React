@@ -1684,6 +1684,44 @@ function App(){
   fetch(`${apiBase}/health`,{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('health');return r.json()}).then(x=>{if(live){setReadOnly(x.read_only!==false);setTestWriteArmed(x.test_write_armed===true)}}).catch(()=>{if(live){setReadOnly(true);setTestWriteArmed(false)}});
   return()=>{live=false};
  },[key]);
+ // P89.1: Refresh read-only views when this browser tab becomes active again.
+ // This is best-effort UI synchronization; write conflict checks remain server-side.
+ useEffect(()=>{
+  if(!key)return;
+  let disposed=false;
+  let inFlight=false;
+  let lastChecked=Date.now(); // initial load already runs above
+  const refreshOnReturn=async()=>{
+   if(disposed||inFlight||document.visibilityState==='hidden'||modal)return;
+   if(Date.now()-lastChecked<2000)return;
+   // Avoid overwriting what someone is in the middle of typing or editing.
+   const editing=document.querySelector('.task-preview-edit, .task-preview-form input');
+   if(editing?.matches?.('.task-preview-edit'))return;
+   if(editing?.value?.trim())return;
+   const active=document.activeElement;
+   if(active?.matches?.('input,textarea,select,[contenteditable="true"]'))return;
+   lastChecked=Date.now();inFlight=true;
+   try{
+    if(current){
+     const freshDetail=await req(`/trips/${encodeURIComponent(current)}`);
+     if(!disposed)setDetail(freshDetail);
+    }else{
+     const freshTrips=await req('/trips');
+     if(!disposed&&Array.isArray(freshTrips)){
+      setTrips(freshTrips);
+      setDataFreshness('fresh');
+      setCachedAt(Date.now());
+     }
+    }
+   }catch(err){/* Keep the existing data; manual Refresh remains available. */}
+   finally{inFlight=false}
+  };
+  const onFocus=()=>{void refreshOnReturn()};
+  const onVisibility=()=>{if(document.visibilityState==='visible')void refreshOnReturn()};
+  window.addEventListener('focus',onFocus);
+  document.addEventListener('visibilitychange',onVisibility);
+  return()=>{disposed=true;window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility)};
+ },[key,current,modal,authMode]);
  const chosen=trips.find(x=>x.id===current);
  async function run(job){if(readOnly||dataFreshness!=='fresh'){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
  const comparisonLoader=React.useCallback(id=>req(`/trips/${encodeURIComponent(id)}`),[key]);
