@@ -1070,13 +1070,14 @@ function TestTripEditPreview({onClose,onPreflight,onEdit,onSaved}){
 // Patch 62: dedicated, lockable financial test for the NEW trip only.
 // Patch 65: normal expense editor using verified Patch 64 server protection.
 // The server still restricts writes to the single test trip; this UI does not grant permissions.
-function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,onFuelSave,carTrip=false,expensesOnly=false,tripName='ТЕСТ НОВО – PixelApp'}){
+function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,onFuelSave,onMissedFuelSave,carTrip=false,expensesOnly=false,tripName='ТЕСТ НОВО – PixelApp'}){
  const [proof,setProof]=useState(null),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
  const [view,setView]=useState(expensesOnly?'expenses':'budget');
  const [budget,setBudget]=useState('');
  const [amount,setAmount]=useState(''),[category,setCategory]=useState('Храна и напитки'),[desc,setDesc]=useState('');
  const [original,setOriginal]=useState(null),[showSafety,setShowSafety]=useState(false);
  const [fuelLiters,setFuelLiters]=useState(''),[fuelKm,setFuelKm]=useState(''),[fuelFull,setFuelFull]=useState(true);
+ const [missedLiters,setMissedLiters]=useState(''),[missedPaid,setMissedPaid]=useState(false),[missedAmount,setMissedAmount]=useState('');
  const fuelSelected=category==='Транспорт'&&/газ|гориво|зареждане|бензин|дизел/i.test(desc.trim());
  const fuelNumeric=v=>/^\d+(?:[.,]\d{1,2})?$/.test(String(v).trim())&&Number(String(v).replace(',','.'))>0;
  const fuelReady=original?false:!fuelSelected||(carTrip&&!!onFuelPreflight&&!!onFuelSave&&fuelNumeric(fuelLiters)&&fmtFuel(fuelLiters)<=200&&/^\d+$/.test(fuelKm)&&Number(fuelKm)>0);
@@ -1133,6 +1134,24 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
   }catch(e){setMsg('⚠️ '+String(e.message||e)+' Провери данните, преди да опиташ отново.');}
   finally{setBusy(false)}
  }
+ async function saveMissed(){
+  if(!proof?.can_write||busy||!onFuelPreflight||!onMissedFuelSave)return;
+  if(!fuelNumeric(missedLiters)||fmtFuel(missedLiters)>500||missedPaid&&(!moneyValid(missedAmount)||fmtAmount(missedAmount)<=0)){
+   setMsg('⚠️ Попълни валидни литри и сума.');return;
+  }
+  setBusy(true);setMsg('');
+  try{
+   const state=await onFuelPreflight();
+   if(!state?.can_write||!state.sha256)throw Error('Горивото е заключено или данните не съвпадат.');
+   const requestId=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');
+   const response=await onMissedFuelSave({liters:fmtFuel(missedLiters),amount:missedPaid?fmtAmount(missedAmount):0,expected_sha256:state.sha256,request_id:requestId});
+   if(!response.ok)throw Error('Липсва потвърждение от сървъра.');
+   setMissedLiters('');setMissedAmount('');setMissedPaid(false);
+   setMsg('✅ Пропуснатите литри са записани в Google Drive. '+(response.backup_id?'Архив: '+response.backup_id:response.note||''));
+   const verified=await onPreflight();setProof(verified);await onSaved();
+  }catch(e){setMsg('⚠️ '+String(e.message||e)+' Не повтаряй без проверка на данните.');}
+  finally{setBusy(false)}
+ }
  useEffect(()=>{check(true)},[]);
  const expenses=(proof?.expenses||[]).filter(x=>x.type==='expense');
  const spent=expenses.reduce((sum,x)=>sum+Number(x.amount||0),0);
@@ -1145,6 +1164,7 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
  <div className="actions" style={{gap:8,display:'flex',flexWrap:'wrap',marginBottom:12}}>
   <button type="button" className={view==='expenses'?'':'ghost'} onClick={()=>setView('expenses')}>💳 Разходи</button>
   <button type="button" className={view==='budget'?'':'ghost'} onClick={()=>setView('budget')}>🎯 Бюджет</button>
+  {carTrip&&<button type="button" className={view==='missed'?'':'ghost'} onClick={()=>setView('missed')}>✍️ Пропуснати литри</button>}
  </div>
  {!proof?<p className="muted">{busy?'⏳ Проверявам данните в Google Drive…':'⚠️ Няма потвърдени данни. Използвай „Обнови данните“.'}</p>:<div className="quick-demo-grid" style={{marginBottom:14}}>
   <div><small>Бюджет</small><strong>{money(budgetNumber)}</strong></div>
@@ -1153,7 +1173,15 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
  </div>}
  {!proof?.can_write&&proof&&<p className="error">🔒 Записът е недостъпен. Провери дали данните в Drive съвпадат.</p>}
  <div className="quick-demo-form">
- {view==='budget'?<>
+ {view==='missed'?<>
+  <h4>✍️ Пропуснато гориво</h4>
+  <p className="muted">За забравени литри. Не се изисква километраж и не се отчита като ново пълно зареждане.</p>
+  <label>Пропуснати литри<input type="text" inputMode="decimal" value={missedLiters} onChange={e=>setMissedLiters(e.target.value)} placeholder="Напр. 15,5" /></label>
+  <label style={{display:'flex',gap:8,alignItems:'center'}}><input type="checkbox" checked={missedPaid} onChange={e=>setMissedPaid(e.target.checked)} /> Помня платената сума</label>
+  {missedPaid&&<label>Платена сума (€)<input type="text" inputMode="decimal" value={missedAmount} onChange={e=>setMissedAmount(e.target.value)} placeholder="Напр. 20,00" /></label>}
+  <p className="muted">Литрите се включват веднъж в общото гориво. Без сума бюджетът не се променя; със сума тя се отчита като един транспортен разход.</p>
+  <button type="button" disabled={!proof?.can_write||busy||!fuelNumeric(missedLiters)||fmtFuel(missedLiters)>500||(missedPaid&&(!moneyValid(missedAmount)||fmtAmount(missedAmount)<=0))} onClick={saveMissed}>{busy?'⏳ Записвам…':'💾 Запиши пропуснатите литри'}</button>
+ </>:view==='budget'?<>
   <h4>🎯 Общ бюджет на пътуването</h4>
   <label>Общ бюджет (€)<input type="text" inputMode="decimal" value={budget} placeholder="Например 280,00" onChange={e=>setBudget(e.target.value)} /></label>
   <button type="button" disabled={!proof?.can_write||busy||!moneyValid(budget)} onClick={()=>change('budget')}>{busy?'⏳ Записвам…':'💾 Запази бюджета'}</button>
@@ -1322,8 +1350,8 @@ function App(){
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
  </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
  {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
-  {modal==='normal-expenses'&&<TestFinancePreview expensesOnly carTrip={trips.find(t=>t.id===newTestTripId)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(newTestTripId)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(newTestTripId)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload(current===newTestTripId?current:null)}/> }
-  {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
+  {modal==='normal-expenses'&&<TestFinancePreview expensesOnly carTrip={trips.find(t=>t.id===newTestTripId)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(newTestTripId)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(newTestTripId)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(newTestTripId)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload(current===newTestTripId?current:null)}/> }
+  {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
   {modal==='test-finance'&&<TestFinancePreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload()}/> }
  {modal==='edit-test-trip'&&<TestTripEditPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-trip-edit-preflight')} onEdit={payload=>req('/safety/test-trip-edit','POST',payload)} onSaved={()=>reload()}/> }
  {modal==='regular-new-trip'&&<RegularNewTrip onClose={()=>setModal('')} onPreflight={()=>req('/safe/new-trip-preflight')} onCreate={payload=>req('/safe/new-trip','POST',payload)} onSaved={async()=>{await reload();}}/>}
