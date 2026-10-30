@@ -1755,3 +1755,82 @@ def safe_favorites_change(trip_id:str,payload:SafeFavoriteChange):
         except Exception:raise HTTPException(503,'Записът не е потвърден. Провери преди повторение.')
         temp=path.with_suffix('.p80_verified');temp.write_bytes(verified);os.replace(temp,path)
         return {'ok':True,'backup_id':backup['id']}
+
+
+# P85: narrow, conflict-checked editing of non-identity trip settings.
+class SafeBasicSettings(BaseModel):
+    start_date: str
+    end_date: str
+    track_fuel: str
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+def _validate_basic_dates(start, end):
+    from datetime import datetime as dt
+    for date in (start,end):
+        try:
+            if dt.strptime(date,'%d.%m.%Y').strftime('%d.%m.%Y') != date:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(422, 'Въведи валидни дати.')
+    if dt.strptime(end,'%d.%m.%Y') < dt.strptime(start,'%d.%m.%Y'):
+        raise HTTPException(422, 'Крайната дата е преди началната.')
+
+
+@app.get('/safe/basic-preflight/{trip_id}',dependencies=[Depends(authorize)])
+def safe_basic_preflight(trip_id: str):
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        fid,path,remote,local,cols,rows,item=_finish_snapshot(trip_id,service,mapping)
+        if trip_id not in _react_owned_ids(service,mapping):
+            raise HTTPException(403,'Старите пътувания са само за четене.')
+        finished=str(item.get('trip_finished','')).casefold()=='да' or Decimal(str(item.get('end_km') or '0'))>0
+        digest=hashlib.sha256(remote).hexdigest()
+        return {'can_write':not finished and hashlib.sha256(local).hexdigest()==digest,
+                'sha256':digest,'drive_matches_local':hashlib.sha256(local).hexdigest()==digest,
+                'start_date':item.get('start_date',''),'end_date':item.get('end_date',''),
+                'track_fuel':item.get('track_fuel','')}
+
+
+@app.post('/safe/basic/{trip_id}',dependencies=[Depends(authorize)])
+def safe_basic_save(trip_id:str,payload:SafeBasicSettings):
+    if payload.track_fuel not in ('Да','Не','Добави впоследствие'):
+        raise HTTPException(422,'Невалидна настройка за горивото.')
+    _validate_basic_dates(payload.start_date,payload.end_date)
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Drive не е достъпен.')
+        _,mapping=folder_and_files(service)
+        fid,path,remote,local,cols,rows,item=_finish_snapshot(trip_id,service,mapping)
+        if trip_id not in _react_owned_ids(service,mapping):
+            raise HTTPException(403,'Старите пътувания са само за четене.')
+        if str(item.get('trip_finished','')).casefold()=='да' or Decimal(str(item.get('end_km') or '0'))>0:
+            raise HTTPException(423,'Приключено пътуване не се редактира.')
+        digest=hashlib.sha256(remote).hexdigest()
+        if digest!=payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
+            raise HTTPException(409,'Данните са променени. Обнови пътуването.')
+        item['start_date']=payload.start_date
+        item['end_date']=payload.end_date
+        item['track_fuel']=payload.track_fuel
+        out=io.StringIO(newline='')
+        writer=csv.DictWriter(out,fieldnames=cols,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated=out.getvalue().encode('utf-8')
+        try:
+            backup=service.files().copy(fileId=fid,body={'name':'P85_BASIC_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['settings']},fields='id').execute()
+        except Exception: raise HTTPException(503,'Архивът не успя. Няма запис.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
+            raise HTTPException(409,'Drive се промени преди записа. Няма запис.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            service.files().update(fileId=fid,media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)).execute()
+            verified=service.files().get_media(fileId=fid).execute()
+            if verified!=updated: raise RuntimeError('Verification mismatch')
+        except Exception:
+            raise HTTPException(503,'Неуспешна проверка след запис. Провери преди повторен опит.')
+        tmp=path.with_suffix('.p85_verified');tmp.write_bytes(verified);os.replace(tmp,path)
+        return {'ok':True,'backup_id':backup['id']}
