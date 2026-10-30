@@ -601,3 +601,15 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 
 /* P79: mobile GPS and saved-place shortcuts */
 .route79-gps{margin:12px 0;display:grid;gap:7px}.route79-gps button{background:#174858;color:#e6faff;border:1px solid #32879b;border-radius:12px;min-height:44px;padding:10px;font-weight:750}.route79-gps button:disabled{opacity:.5}.route79-gps small,.route79-gps p{font-size:12px;color:#a7bcd0;margin:0;line-height:1.4}.route79-saved{margin:18px 0;padding:14px;border:1px solid #304458;border-radius:16px}.route79-saved h3{margin:0 0 12px}.route79-saved-list{display:grid;gap:9px}.route79-saved-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#1a2939;border:1px solid #334659;padding:12px;border-radius:13px}.route79-saved-row>div{flex:1 1 170px;min-width:120px;display:grid;gap:3px}.route79-saved-row small{font-size:11px;color:#9db7cb}.route79-saved-row button{border:1px solid #38607a;background:#20384a;border-radius:10px;padding:9px 10px;color:#d3f1ff;min-height:39px;font-weight:650}@media(max-width:480px){.route79-saved-row button{flex:1 1 auto}}
+
+/* P80 shared favourites: mobile first, no changes to route cards */
+.route80-favorite{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.route80-favorite>div:first-child{min-width:150px;flex:1}
+.route80-buttons{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.route80-buttons button{min-height:38px;padding:8px 12px;border-radius:10px}
+.route80-editor{display:grid;gap:10px;margin-top:14px;padding:14px;border:1px solid #315268;border-radius:14px;background:rgba(12,39,55,.32)}
+.route80-editor input{width:100%;min-width:0}
+.route80-editor h4{margin:0}
+.route80-editor p{margin:0}
+.route80-import{max-width:100%;white-space:normal}
+@media(max-width:550px){.route80-favorite{display:block}.route80-favorite .route80-buttons{margin-top:10px}.route80-buttons button{flex:1}.route80-editor{padding:11px}}
