@@ -320,6 +320,45 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  const [routeLon,setRouteLon]=useState('');
  const [routeType,setRouteType]=useState('planned');
  const [routePosition,setRoutePosition]=useState('-1');
+
+ const [placeQuery,setPlaceQuery]=useState('');
+ const [placeResults,setPlaceResults]=useState([]);
+ const [placeSearching,setPlaceSearching]=useState(false);
+ const [placeSearchError,setPlaceSearchError]=useState('');
+ const placeSearchLast=useRef(0);
+ const placeSearchSeq=useRef(0);
+ const searchRoutePlace=async(e)=>{
+  e.preventDefault();
+  const query=placeQuery.trim();
+  if(query.length<3||placeSearching)return;
+  const now=Date.now();
+  if(now-placeSearchLast.current<1100){setPlaceSearchError('Изчакай секунда преди ново търсене.');return;}
+  placeSearchLast.current=now;
+  const requestId=++placeSearchSeq.current;
+  setPlaceSearching(true);setPlaceSearchError('');setPlaceResults([]);
+  try{
+   // Nominatim public search: only explicit user clicks, no autocomplete/bulk requests.
+   const url=new URL('https://nominatim.openstreetmap.org/search');
+   url.searchParams.set('q',query);url.searchParams.set('format','jsonv2');
+   url.searchParams.set('limit','5');url.searchParams.set('addressdetails','1');
+   url.searchParams.set('accept-language','bg,en');
+   const response=await fetch(url.toString(),{headers:{Accept:'application/json'}});
+   if(!response.ok)throw new Error(`Услугата за търсене не отговори (${response.status}).`);
+   const results=await response.json();
+   if(requestId!==placeSearchSeq.current)return;
+   if(!Array.isArray(results))throw new Error('Невалиден отговор от търсенето.');
+   setPlaceResults(results.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).slice(0,5));
+   if(!results.length)setPlaceSearchError('Няма намерени места. Опитай с град и държава.');
+  }catch(error){if(requestId===placeSearchSeq.current)setPlaceSearchError('Търсенето не успя. Можеш да въведеш координатите ръчно. '+String(error.message||error));}
+  finally{if(requestId===placeSearchSeq.current)setPlaceSearching(false);}
+ };
+ const chooseRoutePlace=(p)=>{
+  const fullName=String(p.display_name||'').trim();
+  const shortName=String(p.name||fullName.split(',')[0]||placeQuery).trim();
+  setRouteName(shortName.slice(0,150));setRouteLat(String(p.lat));setRouteLon(String(p.lon));
+  setPlaceQuery(fullName);setPlaceResults([]);setPlaceSearchError('');
+ };
+
  useEffect(()=>{setSection('summary');setTaskName('');setTaskEditing(null);setTaskMessage('');},[trip?.id]);
  const rows=applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
@@ -448,7 +487,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  {routeStops.map((p,i)=><div key={`${p.lat}-${p.lon}-${i}`} className="route76-stop"><span className="route76-num">{i+1}</span><div className="route76-info"><b>{String(p.title||'').replace(/^3b:\s*/,'')}</b><small>{p.color==='orange'?'🟠 Непланирана':'🟣 Планирана'} · {Number(p.lat).toFixed(4)}, {Number(p.lon).toFixed(4)}</small></div>{routeEditable&&<div className="route76-actions"><button type="button" disabled={routeBusy||i===0} onClick={()=>routeAction('move',i,-1)} title="Нагоре">↑</button><button type="button" disabled={routeBusy||i===routeStops.length-1} onClick={()=>routeAction('move',i,1)} title="Надолу">↓</button><button type="button" disabled={routeBusy} onClick={()=>{if(window.confirm('Да изтрия спирката?'))void routeAction('delete',i)}} title="Изтрий">×</button></div>}</div>)}
  {googleRouteLink&&<a href={googleRouteLink} target="_blank" rel="noopener noreferrer" className="route76-nav">🗺️ Отвори първите {Math.min(routeStops.length,5)} точки в Google Maps</a>}
  {routeStops.length>5&&<p className="muted">За безопасна навигация линкът включва само първите 5 точки. Разделянето на целия маршрут на етапи предстои.</p>}
- {routeEditable?<form className="route76-form" onSubmit={e=>{e.preventDefault();void routeAction('add',-1,Number(routePosition))}}><h3>➕ Нова спирка</h3><input aria-label="Име на спирката" placeholder="Име на мястото" required maxLength={150} value={routeName} onChange={e=>setRouteName(e.target.value)}/><div className="route76-grid"><input type="number" step="any" min="-90" max="90" required placeholder="Ширина (lat)" aria-label="Географска ширина" value={routeLat} onChange={e=>setRouteLat(e.target.value)}/><input type="number" step="any" min="-180" max="180" required placeholder="Дължина (lon)" aria-label="Географска дължина" value={routeLon} onChange={e=>setRouteLon(e.target.value)}/></div><div className="route76-grid"><select value={routeType} onChange={e=>setRouteType(e.target.value)} aria-label="Тип спирка"><option value="planned">Планирана</option><option value="unplanned">Непланирана</option></select><select value={routePosition} onChange={e=>setRoutePosition(e.target.value)} aria-label="Позиция"><option value="-1">В края</option>{routeStops.map((p,i)=><option key={i} value={i}>Преди {i+1}. {String(p.title||'').replace(/^3b:\s*/,'')}</option>)}</select></div><button type="submit" disabled={routeBusy||!routeName.trim()||!routeLat.trim()||!routeLon.trim()}>💾 Запиши спирката</button><small className="muted">За този първи тест въведи координатите от познато тестово място. Търсене по адрес ще добавим отделно.</small></form>:<p className="muted">🔒 За старите и приключените пътувания маршрутът е само за преглед.</p>}
+ {routeEditable?<form className="route76-form" onSubmit={e=>{e.preventDefault();void routeAction('add',-1,Number(routePosition))}}><h3>➕ Нова спирка</h3><div className="route77-search"><label htmlFor="route77-place">🔎 Намери място по име или адрес</label><div className="route77-search-row"><input id="route77-place" type="search" value={placeQuery} onChange={e=>{setPlaceQuery(e.target.value);setPlaceResults([]);setPlaceSearchError('');}} placeholder="Напр. Колизеум, Рим" minLength={3} maxLength={180}/><button type="button" onClick={searchRoutePlace} disabled={placeSearching||placeQuery.trim().length<3}>{placeSearching?'Търся…':'Търси'}</button></div>{placeSearchError&&<p className="route77-search-message" role="status">{placeSearchError}</p>}{placeResults.length>0&&<div className="route77-results" aria-label="Намерени места">{placeResults.map((p,i)=><button key={`${p.place_id||i}-${p.lat}`} type="button" onClick={()=>chooseRoutePlace(p)}><span>📍 {String(p.display_name||p.name||'Място')}</span><small>{Number(p.lat).toFixed(5)}, {Number(p.lon).toFixed(5)}</small></button>)}</div>}<small>Търсене чрез © OpenStreetMap contributors / Nominatim. Избери резултат, после провери данните и запиши спирката.</small></div><input aria-label="Име на спирката placeholder="Име на мястото" required maxLength={150} value={routeName} onChange={e=>setRouteName(e.target.value)}/><div className="route76-grid"><input type="number" step="any" min="-90" max="90" required placeholder="Ширина (lat)" aria-label="Географска ширина" value={routeLat} onChange={e=>setRouteLat(e.target.value)}/><input type="number" step="any" min="-180" max="180" required placeholder="Дължина (lon)" aria-label="Географска дължина" value={routeLon} onChange={e=>setRouteLon(e.target.value)}/></div><div className="route76-grid"><select value={routeType} onChange={e=>setRouteType(e.target.value)} aria-label="Тип спирка"><option value="planned">Планирана</option><option value="unplanned">Непланирана</option></select><select value={routePosition} onChange={e=>setRoutePosition(e.target.value)} aria-label="Позиция"><option value="-1">В края</option>{routeStops.map((p,i)=><option key={i} value={i}>Преди {i+1}. {String(p.title||'').replace(/^3b:\s*/,'')}</option>)}</select></div><button type="submit" disabled={routeBusy||!routeName.trim()||!routeLat.trim()||!routeLon.trim()}>💾 Запиши спирката</button><small className="muted">Координатите се попълват при избор от търсенето. Можеш и да ги въведеш ръчно.</small></form>:<p className="muted">🔒 За старите и приключените пътувания маршрутът е само за преглед.</p>}
  {routeBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}{routeMessage&&<p role="status" className="muted">{routeMessage}</p>}</div></div>}
  {section==='check'&&<div className="travel-card visual-section">
  <h3>🧮 Контрол на изчисленията</h3>

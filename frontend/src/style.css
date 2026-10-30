@@ -570,3 +570,19 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 
 /* PixelApp P76 route editor: mobile-first, scoped to map section */
 .route76-wrap{display:grid;gap:12px;margin-top:18px}.route76-stop{display:flex;align-items:center;gap:10px;padding:12px;border-radius:14px;background:rgba(128,146,173,.09);border:1px solid rgba(128,146,173,.15)}.route76-num{display:grid;place-items:center;flex:0 0 30px;height:30px;border-radius:50%;background:#6458bc;color:white;font-weight:700}.route76-info{flex:1;min-width:0;display:grid;gap:4px}.route76-info b{overflow-wrap:anywhere}.route76-info small{color:var(--muted,#9ca3af)}.route76-actions{display:flex;gap:4px}.route76-actions button{padding:6px 9px;min-width:30px}.route76-nav{display:block;text-align:center;padding:12px 16px;border-radius:14px;background:#3b69d8;color:white;text-decoration:none;font-weight:700}.route76-form{display:grid;gap:10px;padding:14px;border:1px solid rgba(128,146,173,.2);border-radius:16px}.route76-form input,.route76-form select{width:100%;min-width:0;padding:10px;border-radius:10px}.route76-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}@media(max-width:380px){.route76-stop{flex-wrap:wrap}.route76-actions{margin-left:40px}}
+
+/* P77 - address search, explicit requests only; no change to existing map/write API */
+.route77-search{display:grid;gap:8px;padding:12px;border:1px solid rgba(61,199,218,.26);border-radius:13px;background:rgba(20,66,82,.19)}
+.route77-search label{font-size:12px;font-weight:750;color:#b9eaf1}
+.route77-search-row{display:flex;gap:8px;align-items:stretch}
+.route77-search-row input{flex:1;min-width:0;margin:0}
+.route77-search-row button{flex:0 0 auto;padding:10px 14px;min-height:42px;border:1px solid #41bbc8;border-radius:10px;background:#1b5168;color:white;font-weight:750}
+.route77-search-row button:disabled{opacity:.5;cursor:not-allowed}
+.route77-search>small{font-size:10px;line-height:1.45;color:#9cb5c6}
+.route77-search-message{margin:0;color:#f4ca8b;font-size:12px;line-height:1.4}
+.route77-results{display:grid;gap:5px;max-height:264px;overflow-y:auto}
+.route77-results button{display:grid;gap:5px;text-align:left;padding:10px;border:1px solid rgba(116,188,206,.2);border-radius:10px;background:#102a3c;color:#e3f4fa;cursor:pointer;white-space:normal}
+.route77-results button:hover,.route77-results button:focus-visible{border-color:#45d5de;background:#183e51}
+.route77-results button span{font-size:12px;overflow-wrap:anywhere}
+.route77-results button small{font-size:10px;color:#9cc8d6}
+@media(max-width:360px){.route77-search-row{flex-wrap:wrap}.route77-search-row button{width:100%}}
