@@ -183,6 +183,32 @@ function FuelHistory({rows}) {
  </div>;
 }
 
+// Patch 71: confirmed full-to-full consumption, independently derived from stored fuel rows.
+// First full tank is a reference point, not a measured stage. Partial refills between
+// two full tanks are included in the second full tank's measured fuel.
+function confirmedFuelStage(rows,startKm){
+ const number=v=>{const n=Number(String(v??'').replace(',','.'));return Number.isFinite(n)?n:0};
+ const readings=(rows||[]).filter(r=>String(r.type)==='expense'&&String(r.category)==='Транспорт'&&number(r.liters)>0&&number(r.current_km)>0)
+  .map(r=>({km:number(r.current_km),liters:number(r.liters),desc:String(r.description||'')}))
+  .sort((a,b)=>a.km-b.km);
+ let lastFull=null,partial=0,latest=null;
+ for(const r of readings){
+  if(r.km<=number(startKm))continue;
+  const full=/\[ПЪЛН(?:О|ЕН)\s+ЗАРЕЖДАНЕ\]/i.test(r.desc);
+  const part=/\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(r.desc);
+  if(!full&&!part)continue;
+  if(full){
+   if(lastFull&&r.km>lastFull.km){
+    const distance=r.km-lastFull.km;
+    const usedLiters=partial+r.liters;
+    latest={distance,liters:usedLiters,consumption:usedLiters/distance*100,fromKm:lastFull.km,toKm:r.km};
+   }
+   lastFull=r;partial=0;
+  }else if(lastFull){partial+=r.liters}
+ }
+ return latest;
+}
+
 // Пач 27: обща временна памет за пробните разходи; никога не изпраща POST към Drive.
 const blankExpenseDraft=()=>({newRows:[],edits:{},deleted:[],baseRows:[]});
 const paymentRow=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
@@ -307,10 +333,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  const km=Math.max(0,effectiveReading-begin);
  const avgLiters=rows.reduce((sum,r)=>sum+number(r.liters),0)+number(settings.manual_fuel)+paidManualPreview;
  const avg=km>0&&avgLiters>0?avgLiters/km*100:0;
- const fullFuelRows=rows.filter(r=>r.type==='expense'&&r.category==='Транспорт'&&number(r.current_km)>begin&&/ПЪЛЕН|ПЪЛНО/i.test(String(r.description||'')));
- const lastFull=[...fullFuelRows].sort((a,b)=>number(a.current_km)-number(b.current_km)).at(-1);
- const realMatch=lastFull&&String(lastFull.description||'').match(/(?:Реален разход:|Разход:)\s*([0-9]+(?:[.,][0-9]+)?)/i);
- const realConsumption=realMatch?number(realMatch[1].replace(',','.')):0;
+ const measuredFuel=confirmedFuelStage(rows,begin);
+ const realConsumption=measuredFuel?.consumption??0;
  // Контролна справка — не променя основните изчисления или данните.
  const budgetCats=new Set(budgetEntries.map(b=>b.category));
  const budgetScopedCosts=globalBudget>0||!budgetCats.size?allCosts:rows.reduce((sum,r)=>{
@@ -357,7 +381,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  {finish>begin&&<p className="fuel-note">Пътуването има записани крайни километри.</p>}
  </div>
  <div className="travel-card"><h3>⛽ Разход на гориво</h3>
- {finish>begin?<div className="fuel-metrics visual-gauges"><div><small className="gauge-label gauge-label-red">РЕАЛЕН РАЗХОД</small><div className="gauge-circle gauge-circle-red"><b>{realConsumption>0?realConsumption.toFixed(1):'—'}</b><em>л/100 км</em></div><small>{realConsumption>0?'Потвърден етап „до горе“':'Няма потвърден етап'}</small></div><div><small className="gauge-label gauge-label-orange">СРЕДЕН РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{avg>0?avg.toFixed(1):'—'}</b><em>л/100 км</em></div><small>Ориентир: всички литри ÷ целия пробег</small></div></div>:<div className="fuel-metrics visual-gauges p20-active-gauge"><div><small className="gauge-label gauge-label-orange">ТЕКУЩ РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{(realConsumption>0?realConsumption:avg)>0?(realConsumption>0?realConsumption:avg).toFixed(1):'—'}</b><em>л/100 км</em></div><small>{realConsumption>0?'Последен потвърден етап „до горе“':'Ориентир до момента по общите литри'}</small></div></div>}
+ {finish>begin?<div className="fuel-metrics visual-gauges"><div><small className="gauge-label gauge-label-red">РЕАЛЕН РАЗХОД</small><div className="gauge-circle gauge-circle-red"><b>{realConsumption>0?realConsumption.toFixed(1):'—'}</b><em>л/100 км</em></div><small>{measuredFuel?`Етап: ${measuredFuel.fromKm.toLocaleString('bg-BG')} → ${measuredFuel.toKm.toLocaleString('bg-BG')} км · ${measuredFuel.liters.toLocaleString('bg-BG')} л`:'Нужни са две пълни зареждания'}</small></div><div><small className="gauge-label gauge-label-orange">СРЕДЕН РАЗХОД</small><div className="gauge-circle gauge-circle-orange"><b>{avg>0?avg.toFixed(1):'—'}</b><em>л/100 км</em></div><small>Ориентир: всички литри ÷ целия пробег</small></div></div>:<div className="fuel-metrics visual-gauges p20-active-gauge"><div><small className="gauge-label gauge-label-orange">{measuredFuel?'РЕАЛЕН РАЗХОД · ЕТАП':'ОРИЕНТИРОВЪЧЕН РАЗХОД'}</small><div className="gauge-circle gauge-circle-orange"><b>{(realConsumption>0?realConsumption:avg)>0?(realConsumption>0?realConsumption:avg).toFixed(1):'—'}</b><em>л/100 км</em></div><small>{measuredFuel?`Етап между пълни зареждания: ${measuredFuel.distance.toLocaleString('bg-BG')} км · ${measuredFuel.liters.toLocaleString('bg-BG')} л`:'Само ориентир по общите литри; нужен е етап между две пълни зареждания'}</small></div></div>}
  <div className="p35-fuel-summary"><div className="p35-fuel-total"><div className="p35-summary-heading"><span className="p35-summary-icon">⛽</span><small>Общо гориво</small></div><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л</strong><small>Всички отчетени литри</small></div><div className="p35-fuel-paid"><div className="p35-summary-heading"><span className="p35-summary-icon">💳</span><small>Платено гориво</small></div><strong>{money(fuelSpend)}</strong><small>Известни разходи за гориво</small></div></div>
  {number(settings.manual_fuel)>0&&<p className="fuel-note">В общото количество са включени {number(settings.manual_fuel).toLocaleString('bg-BG')} л ръчно добавено гориво.</p>}
  </div>
