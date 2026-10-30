@@ -1585,6 +1585,19 @@ function App(){
  const [modal,setModal]=useState('');const [name,setName]=useState('');const [start,setStart]=useState('');const [end,setEnd]=useState('');const [car,setCar]=useState(false);
  const [amount,setAmount]=useState('');const [category,setCategory]=useState(categories[0]);const [desc,setDesc]=useState('');const [task,setTask]=useState('');
  const [budget,setBudget]=useState('');const [tab,setTab]=useState('overview');const [dashboard,setDashboard]=useState(null);const [showFinished,setShowFinished]=useState(false);const [homePlaces,setHomePlaces]=useState([]);
+ // Retry only transient connection/server errors. Authentication and client errors must not be retried.
+ async function reqWithRetry(path,attempts=3){
+  let lastError;
+  for(let attempt=0;attempt<attempts;attempt++){
+   try{return await req(path)}catch(err){
+    lastError=err;
+    const message=String(err?.message||err);
+    if(/^4\d\d:/.test(message) || !(/^(500|502|503|504):/.test(message)||err instanceof TypeError))throw err;
+    if(attempt+1<attempts)await new Promise(resolve=>setTimeout(resolve,1200*(attempt+1)));
+   }
+  }
+  throw lastError;
+ }
  async function req(path,method='GET',body){const r=await fetch(`${apiBase}${path}`,{method,headers:{...(authMode==='accounts'?{'Authorization':`Bearer ${key}`}:{'X-API-Key':key}),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json()}
  async function reload(selected=current){
   if(!key)return;
@@ -1594,17 +1607,20 @@ function App(){
    const ownedPromise=req('/safe/react-owned-trips').catch(()=>null);
    const dashboardPromise=req('/dashboard').catch(()=>null);
    const placesPromise=req('/home/places').catch(()=>null);
-   const freshTrips=await req('/trips');
+   const freshTrips=await reqWithRetry('/trips');
    if(!Array.isArray(freshTrips))throw Error('Невалиден списък с пътувания от сървъра.');
    // Show the trips as soon as they arrive, without waiting for optional widgets.
    setTrips(freshTrips);setDataFreshness('fresh');setCachedAt(Date.now());
+   // The trip list is authoritative even when optional dashboard/place requests fail.
+   // Never replace a previously valid nonempty offline snapshot with an unexpected empty response.
+   if(freshTrips.length>0)void writeFastCache(key,{trips:freshTrips,dashboard:null,homePlaces:[]});
    const [freshDashboard,placesRaw,ownedRaw]=await Promise.all([dashboardPromise,placesPromise,ownedPromise]);
    if(ownedRaw?.trip_ids) setReactOwnedTrips(ownedRaw.trip_ids);
    const freshPlaces=Array.isArray(placesRaw)?placesRaw:null;
    if(freshDashboard!==null)setDashboard(freshDashboard);
    if(freshPlaces!==null)setHomePlaces(freshPlaces);
    // Persist only a fully read snapshot. Do not overwrite the previous cache on partial failure.
-   if(freshDashboard!==null&&freshPlaces!==null)void writeFastCache(key,{trips:freshTrips,dashboard:freshDashboard,homePlaces:freshPlaces});
+   if(freshTrips.length>0&&freshDashboard!==null&&freshPlaces!==null)void writeFastCache(key,{trips:freshTrips,dashboard:freshDashboard,homePlaces:freshPlaces});
    if(selected){const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}
   }catch(e){if(authMode==='accounts'&&String(e.message||e).startsWith('401:')){sessionStorage.removeItem('pixel_auth_session');setKey('');return;}setError(`Неуспешно обновяване: ${String(e.message||e)}. ${dataFreshness==='cached'?'Показани са последно запазените данни.':''}`)}
   finally{setLoading(false)}
@@ -1658,7 +1674,9 @@ function App(){
  {visible.map(t=>{const state=tripState(t),previewSpent=Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]),pct=t.budget>0?Math.min(100,Math.max(0,previewSpent/t.budget*100)):0;return <button key={t.id} className={'trip home-trip state-'+state} onClick={async()=>{setCurrent(t.id);setTab('overview');setDetail(null);try{setDetail(await req(`/trips/${encodeURIComponent(t.id)}`))}catch(e){setError(e.message)}}}><div className="triptitle">🚙 {t.name}</div><div className="tripstatus">{statusDot[state]} {statusText[state]} <span>{t.settings.start_date||''}{t.settings.end_date&&t.settings.end_date!==t.settings.start_date?' → '+t.settings.end_date:''}</span></div>{state==='finished'?<div className="numbers">💰 Общо изхарчено: <strong>{money(Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]))}</strong>{hasExpenseChanges(expenseDrafts[t.id])&&<small className="p27-draft-label"> · временно</small>}</div>:t.budget>0?<><div className="numbers"><strong>{money(previewSpent)}</strong> / {money(t.budget)} <strong> · {Math.round(pct)}%</strong></div><div className="remaining">💳 Остават <strong>{money(Math.max(0,t.budget-previewSpent))}</strong></div><div className="track"><div style={{width:`${pct}%`}}/></div></>:<div className="numbers">💳 Разходи: <strong>{money(previewSpent)}</strong><small className="muted"> · Без зададен бюджет</small></div>}</button>})}
  {ended.length>1&&<button className="show-completed" onClick={()=>setShowFinished(x=>!x)}>{showFinished?'Скрий старите приключения':'Виж всички приключени'} · {ended.length}</button>}
  </>})()}
- {!trips.length&&!loading&&<p className="muted">Няма заредени пътувания. Използвай „Прочети данните от Google Drive“.</p>}
+ {!trips.length&&loading&&<p role="status" className="muted">⏳ Зареждам пътуванията от сървъра. При първо отваряне Render може да се събужда…</p>}
+ {!trips.length&&!loading&&dataFreshness==='none'&&<p role="alert" className="muted">⚠️ Пътуванията още не са заредени. Това не означава, че са изтрити. Натисни „Обнови“ за повторен опит.</p>}
+ {!trips.length&&!loading&&dataFreshness==='fresh'&&<p className="muted">Сървърът върна празен списък с пътувания. Провери синхронизацията с Google Drive преди нов запис.</p>}
  {Object.values(expenseDrafts).some(hasExpenseChanges)&&<div className="p27-home-warning">● Сумите за пътуванията включват временни промени. Те ще изчезнат при презареждане. Google Drive не е променен.</div>}
  {dashboard?.last_activity&&<LatestActivityCard activity={dashboard.last_activity}/>}
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
