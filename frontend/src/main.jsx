@@ -62,6 +62,13 @@ function FitPlaces({points}){
  },[map,points]);
  return null;
 }
+function FocusRoutePoint({target}){
+ const map=useMap();
+ useEffect(()=>{if(target && Number.isFinite(target.lat) && Number.isFinite(target.lon)){
+  map.flyTo([target.lat,target.lon],Math.max(map.getZoom(),10),{duration:0.65});
+ }},[map,target]);
+ return null;
+}
 function HomePlaces({points}){
  const safe=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180).map(p=>({...p,lat:Number(p.lat),lon:Number(p.lon)}));
  return <section className="home-places"><div className="home-places-head"><b>🌍 МОИТЕ МЕСТА</b><span>{safe.length} места</span></div>
@@ -320,6 +327,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  const [routeLon,setRouteLon]=useState('');
  const [routeType,setRouteType]=useState('planned');
  const [routePosition,setRoutePosition]=useState('-1');
+ const [routeFocus,setRouteFocus]=useState(null);
+ const [roadRoute,setRoadRoute]=useState({status:'idle',legs:[],total:0});
 
  const [placeQuery,setPlaceQuery]=useState('');
  const [placeResults,setPlaceResults]=useState([]);
@@ -437,6 +446,34 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  const validPoints=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180);
  const routeStops=validPoints.filter(p=>String(p.title||'').startsWith('3b:')&&['purple','orange'].includes(p.color));
  const routeEditable=financeOwned && tripState(trip)!=='finished';
+ const routeSignature=routeStops.map(p=>`${Number(p.lat).toFixed(5)},${Number(p.lon).toFixed(5)}`).join(';');
+ useEffect(()=>{
+  const coords=routeSignature.split(';').filter(Boolean);
+  if(coords.length<2){setRoadRoute({status:'idle',legs:[],total:0});return;}
+  // OSRM returns road distances for the ordered route. Never write these to Drive.
+  const controller=new AbortController();
+  setRoadRoute({status:'loading',legs:[],total:0});
+  const path=coords.map(c=>{const [lat,lon]=c.split(',');return `${lon},${lat}`}).join(';');
+  fetch(`https://router.project-osrm.org/route/v1/driving/${path}?overview=false&steps=false`,{signal:controller.signal})
+   .then(r=>{if(!r.ok)throw Error('Routing service unavailable');return r.json()})
+   .then(data=>{
+    const legs=data?.routes?.[0]?.legs;
+    if(data?.code!=='Ok'||!Array.isArray(legs)||legs.length!==coords.length-1)throw Error('Road route not found');
+    setRoadRoute({status:'ready',legs:legs.map(x=>x.distance/1000),total:legs.reduce((sum,x)=>sum+x.distance/1000,0)});
+   }).catch(error=>{if(error.name!=='AbortError')setRoadRoute({status:'error',legs:[],total:0})});
+  return ()=>controller.abort();
+ },[routeSignature]);
+ const roadCumulative=index=>roadRoute.legs.slice(0,index).reduce((a,b)=>a+b,0);
+ const routeSegments=[];
+ // Shared boundary stop between segments; maximum 5 points (3 middle waypoints) per link.
+ for(let start=0;start<routeStops.length-1;start+=4)routeSegments.push(routeStops.slice(start,Math.min(start+5,routeStops.length)));
+ const makeGoogleRouteLink=p=>{
+  const coord=x=>`${Number(x.lat)},${Number(x.lon)}`;
+  const url=new URL('https://www.google.com/maps/dir/');
+  url.searchParams.set('api','1');url.searchParams.set('origin',coord(p[0]));url.searchParams.set('destination',coord(p[p.length-1]));
+  if(p.length>2)url.searchParams.set('waypoints',p.slice(1,-1).map(coord).join('|'));
+  url.searchParams.set('travelmode','driving');return url.toString();
+ };
  const routeAction=async(operation,index=-1,position=-1)=>{
   if(!routeEditable||routeBusy)return;
   setRouteBusy(true);setRouteMessage('');
@@ -447,13 +484,6 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
    await onRouteSaved();setRouteName('');setRouteLat('');setRouteLon('');setRouteMessage('✅ Записано и проверено в Google Drive.');
   }catch(e){setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
  };
- const googleRouteLink=routeStops.length>=2?(()=>{
-  const p=routeStops.slice(0,5),coord=x=>`${Number(x.lat)},${Number(x.lon)}`;
-  const url=new URL('https://www.google.com/maps/dir/');
-  url.searchParams.set('api','1');url.searchParams.set('origin',coord(p[0]));url.searchParams.set('destination',coord(p[p.length-1]));
-  if(p.length>2)url.searchParams.set('waypoints',p.slice(1,-1).map(coord).join('|'));
-  url.searchParams.set('travelmode','driving');return url.toString();
- })():null;
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
@@ -503,12 +533,20 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  </div>
  </>}
  {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Места и маршрут <span className="map-point-count">{validPoints.length} точки</span></h3>
- {validPoints.length?<div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{String(p.title||'Място').replace(/^3b:\s*/,'')}</Popup></Marker>)}</MapContainer></div>:<p className="muted">Все още няма точки за това пътуване.</p>}
+ {validPoints.length?<div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><FocusRoutePoint target={routeFocus}/><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{String(p.title||'Място').replace(/^3b:\s*/,'')}</Popup></Marker>)}</MapContainer></div>:<p className="muted">Все още няма точки за това пътуване.</p>}
  <div className="route76-wrap"><h3>🧭 Спирки по маршрута <span className="map-point-count">{routeStops.length}</span></h3>
  <p className="muted">Подредбата е същата като в стария Streamlit. Лилаво = планирана, оранжево = непланирана.</p>
- {routeStops.map((p,i)=><div key={`${p.lat}-${p.lon}-${i}`} className="route76-stop"><span className="route76-num">{i+1}</span><div className="route76-info"><b>{String(p.title||'').replace(/^3b:\s*/,'')}</b><small>{p.color==='orange'?'🟠 Непланирана':'🟣 Планирана'} · {Number(p.lat).toFixed(4)}, {Number(p.lon).toFixed(4)}</small></div>{routeEditable&&<div className="route76-actions"><button type="button" disabled={routeBusy||i===0} onClick={()=>routeAction('move',i,-1)} title="Нагоре">↑</button><button type="button" disabled={routeBusy||i===routeStops.length-1} onClick={()=>routeAction('move',i,1)} title="Надолу">↓</button><button type="button" disabled={routeBusy} onClick={()=>{if(window.confirm('Да изтрия спирката?'))void routeAction('delete',i)}} title="Изтрий">×</button></div>}</div>)}
- {googleRouteLink&&<a href={googleRouteLink} target="_blank" rel="noopener noreferrer" className="route76-nav">🗺️ Отвори първите {Math.min(routeStops.length,5)} точки в Google Maps</a>}
- {routeStops.length>5&&<p className="muted">За безопасна навигация линкът включва само първите 5 точки. Разделянето на целия маршрут на етапи предстои.</p>}
+ {routeStops.map((p,i)=><div key={`${p.lat}-${p.lon}-${i}`} className="route76-stop route78-stop">
+  <button type="button" className="route78-stop-head" onClick={()=>{setRouteFocus({lat:Number(p.lat),lon:Number(p.lon)});}} title="Покажи на картата" aria-label={`Покажи ${String(p.title||'').replace(/^3b:\s*/,'')} на картата`}>
+   <span className="route76-num">{i+1}</span><span className="route76-info"><b>{String(p.title||'').replace(/^3b:\s*/,'')}</b><small>{p.color==='orange'?'🟠 Непланирана':'🟣 Планирана'} · 📍 На картата</small></span><span className="route78-pin">⌖</span>
+  </button>
+  {roadRoute.status==='ready'&&i>0&&<div className="route78-kms"><span>🚗 От предишната: <b>{Math.round(roadRoute.legs[i-1]).toLocaleString('bg-BG')} км</b></span><span>Σ От началото: <b>{Math.round(roadCumulative(i)).toLocaleString('bg-BG')} км</b></span></div>}
+  {routeEditable&&<div className="route76-actions"><button type="button" disabled={routeBusy||i===0} onClick={()=>routeAction('move',i,-1)} title="Нагоре" aria-label="Премести нагоре">↑</button><button type="button" disabled={routeBusy||i===routeStops.length-1} onClick={()=>routeAction('move',i,1)} title="Надолу" aria-label="Премести надолу">↓</button><button type="button" disabled={routeBusy} onClick={()=>{if(window.confirm('Да изтрия спирката?'))void routeAction('delete',i)}} title="Изтрий" aria-label="Изтрий спирката">×</button></div>}
+ </div>)}
+ {roadRoute.status==='loading'&&<p className="muted">🚗 Изчислявам пътните разстояния…</p>}
+ {roadRoute.status==='error'&&routeStops.length>1&&<p className="muted">Пътните километри временно не са достъпни. Маршрутът и Google Maps продължават да работят.</p>}
+ {roadRoute.status==='ready'&&<div className="route78-total">🚗 Ориентировъчен маршрут по пътищата: <b>{Math.round(roadRoute.total).toLocaleString('bg-BG')} км</b><small>OSRM · не влияе на действителния пробег и горивото</small></div>}
+ {routeSegments.length>0&&<div className="route78-links"><b>🗺️ Навигация в Google Maps</b>{routeSegments.map((part,i)=><a key={i} href={makeGoogleRouteLink(part)} target="_blank" rel="noopener noreferrer" className="route76-nav">Етап {i+1}/{routeSegments.length} · точки {i*4+1}–{i*4+part.length}</a>)}{routeSegments.length>1&&<small>Всеки следващ етап започва от последната точка на предишния.</small>}</div>}
  {routeEditable?<form className="route76-form" onSubmit={e=>{e.preventDefault();void routeAction('add',-1,Number(routePosition))}}><h3>➕ Нова спирка</h3><div className="route77-search"><label htmlFor="route77-place">🔎 Намери място по име или адрес</label><div className="route77-search-row"><input id="route77-place" type="search" value={placeQuery} onChange={e=>{setPlaceQuery(e.target.value);setPlaceResults([]);setPlaceSearchError('');}} placeholder="Напр. Колизеум, Рим" minLength={3} maxLength={180}/><button type="button" onClick={searchRoutePlace} disabled={placeSearching||placeQuery.trim().length<3}>{placeSearching?'Търся…':'Търси'}</button></div>{placeSearchError&&<p className="route77-search-message" role="status">{placeSearchError}</p>}{placeResults.length>0&&<div className="route77-results" aria-label="Намерени места">{placeResults.map((p,i)=><button key={`${p.place_id||i}-${p.lat}`} type="button" onClick={()=>chooseRoutePlace(p)}><span>📍 {String(p.display_name||p.name||'Място')}</span><small>{Number(p.lat).toFixed(5)}, {Number(p.lon).toFixed(5)}</small></button>)}</div>}<small>Търсене чрез © OpenStreetMap contributors / Nominatim. Избери резултат, после провери данните и запиши спирката.</small></div><input aria-label="Име на спирката" placeholder="Име на мястото" required maxLength={150} value={routeName} onChange={e=>setRouteName(e.target.value)}/><div className="route76-grid"><input type="number" step="any" min="-90" max="90" required placeholder="Ширина (lat)" aria-label="Географска ширина" value={routeLat} onChange={e=>setRouteLat(e.target.value)}/><input type="number" step="any" min="-180" max="180" required placeholder="Дължина (lon)" aria-label="Географска дължина" value={routeLon} onChange={e=>setRouteLon(e.target.value)}/></div><div className="route76-grid"><select value={routeType} onChange={e=>setRouteType(e.target.value)} aria-label="Тип спирка"><option value="planned">Планирана</option><option value="unplanned">Непланирана</option></select><select value={routePosition} onChange={e=>setRoutePosition(e.target.value)} aria-label="Позиция"><option value="-1">В края</option>{routeStops.map((p,i)=><option key={i} value={i}>Преди {i+1}. {String(p.title||'').replace(/^3b:\s*/,'')}</option>)}</select></div><button type="submit" disabled={routeBusy||!routeName.trim()||!routeLat.trim()||!routeLon.trim()}>💾 Запиши спирката</button><small className="muted">Координатите се попълват при избор от търсенето. Можеш и да ги въведеш ръчно.</small></form>:<p className="muted">🔒 За старите и приключените пътувания маршрутът е само за преглед.</p>}
  {routeBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}{routeMessage&&<p role="status" className="muted">{routeMessage}</p>}</div></div>}
  {section==='check'&&<div className="travel-card visual-section">

@@ -586,3 +586,15 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .route77-results button span{font-size:12px;overflow-wrap:anywhere}
 .route77-results button small{font-size:10px;color:#9cc8d6}
 @media(max-width:360px){.route77-search-row{flex-wrap:wrap}.route77-search-row button{width:100%}}
+
+/* P78: spacious names, touch-friendly actions and read-only road distances. */
+.route78-stop{display:flex;flex-direction:column;align-items:stretch;gap:9px;padding:12px;min-width:0}
+.route78-stop-head{display:flex;align-items:center;gap:12px;width:100%;min-width:0;text-align:left;background:transparent;border:0;color:inherit;padding:1px;cursor:pointer}
+.route78-stop-head .route76-info{min-width:0;display:grid;gap:4px}.route78-stop-head .route76-info b{font-size:14px;line-height:1.35;overflow-wrap:anywhere}.route78-stop-head .route76-info small{font-size:11px}
+.route78-pin{font-size:21px;color:#73c6dd;flex-shrink:0}.route78-stop .route76-actions{display:flex;justify-content:flex-end;align-self:stretch;margin:0;gap:9px}
+.route78-stop .route76-actions button{min-width:44px;min-height:40px;border-radius:10px;background:rgba(111,141,178,.15);color:inherit;border:1px solid rgba(125,153,180,.32);font-size:18px}
+.route78-stop .route76-actions button:last-child{color:#ffb3b3;background:rgba(180,59,68,.14)}.route78-stop .route76-actions button:disabled{opacity:.28}
+.route78-kms{display:flex;flex-wrap:wrap;gap:6px 14px;margin-left:42px;font-size:11px;color:#aac8d6}.route78-kms b{color:#d3eefd}
+.route78-total{display:grid;gap:4px;padding:12px;border-radius:12px;background:rgba(31,113,124,.17);border:1px solid rgba(80,198,202,.25)}.route78-total b{color:#6ce4d9}.route78-total small{font-size:11px;opacity:.7}
+.route78-links{display:grid;gap:8px}.route78-links>small{font-size:11px;opacity:.75}
+@media(max-width:480px){.route78-stop{padding:11px}.route78-kms{margin-left:0;display:grid;gap:4px}.route78-stop-head .route76-info b{font-size:13px}}
