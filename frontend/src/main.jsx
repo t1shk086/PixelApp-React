@@ -1536,6 +1536,34 @@ function RegularNewTrip({onClose,onPreflight,onCreate,onSaved}){
  </div></div>;
 }
 
+function MyProfile({username,onChangePassword,onLogout,onClose}){
+ const [oldPass,setOldPass]=useState('');
+ const [newPass,setNewPass]=useState('');
+ const [repeat,setRepeat]=useState('');
+ const [busy,setBusy]=useState(false);
+ const [message,setMessage]=useState('');
+ async function save(e){
+  e.preventDefault();setMessage('');
+  if(newPass!==repeat){setMessage('Новите пароли не съвпадат.');return;}
+  setBusy(true);
+  try{await onChangePassword({current_password:oldPass,new_password:newPass});setOldPass('');setNewPass('');setRepeat('');setMessage('✅ Паролата е сменена и потвърдена.');}
+  catch(err){setMessage('⚠️ '+String(err.message||err))}
+  finally{setBusy(false)}
+ }
+ return <section className="panel" style={{margin:'12px 0',padding:16}} aria-label="Моят профил">
+  <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center'}}><h3 style={{margin:0}}>Моят профил</h3><button type="button" className="ghost" onClick={onClose}>Затвори</button></div>
+  <p>Влязъл профил: <strong>{username||'Зарежда се…'}</strong></p>
+  <form onSubmit={save} style={{display:'grid',gap:10,maxWidth:420}}>
+   <label>Текуща парола<input type="password" autoComplete="current-password" value={oldPass} onChange={e=>setOldPass(e.target.value)} required/></label>
+   <label>Нова парола (4–12 символа)<input type="password" autoComplete="new-password" minLength={4} maxLength={12} value={newPass} onChange={e=>setNewPass(e.target.value)} required/></label>
+   <label>Повтори новата парола<input type="password" autoComplete="new-password" minLength={4} maxLength={12} value={repeat} onChange={e=>setRepeat(e.target.value)} required/></label>
+   <button type="submit" disabled={busy}>{busy?'Записвам…':'Смени паролата'}</button>
+  </form>
+  {message&&<p role="status">{message}</p>}
+  <button type="button" className="ghost" onClick={onLogout} style={{marginTop:12}}>Изход от профила</button>
+ </section>
+}
+
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_auth_session')||sessionStorage.getItem('pixel_api_key')||'');
  // A previously authenticated session can render immediately. The server still verifies each request.
@@ -1570,6 +1598,15 @@ function App(){
  const newTestTripId='ТЕСТ_НОВО_–_PixelApp';
  const [reactOwnedTrips,setReactOwnedTrips]=useState([]);
  const [adminOpen,setAdminOpen]=useState(false);
+ const [profileOpen,setProfileOpen]=useState(false);
+ const [profileUser,setProfileUser]=useState(()=>sessionStorage.getItem('pixel_account_name')||'');
+ useEffect(()=>{if(authMode!=='accounts'||!key)return;let active=true;
+  fetch(`${apiBase}/auth/me`,{headers:{Authorization:`Bearer ${key}`}})
+   .then(r=>r.ok?r.json():Promise.reject(Error('session')))
+   .then(x=>{if(active){setProfileUser(x.username||'');sessionStorage.setItem('pixel_account_name',x.username||'')}})
+   .catch(()=>{});
+  return()=>{active=false};
+ },[authMode,key]);
  const [comparisonOpen,setComparisonOpen]=useState(false);
  const [readOnly,setReadOnly]=useState(true);
  const [testWriteArmed,setTestWriteArmed]=useState(false);
@@ -1657,17 +1694,18 @@ function App(){
     const response=await fetch(`${apiBase}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:authUser.trim(),password:authPassword})});
     if(!response.ok)throw Error(response.status===401?'Неправилно потребителско име или парола.':'Неуспешен вход. Провери настройките на сървъра.');
     const result=await response.json();sessionStorage.setItem('pixel_auth_session',result.token);sessionStorage.removeItem('pixel_api_key');
-    setAuthPassword('');setKey(result.token);
+    setAuthPassword('');setProfileUser(result.username||'');sessionStorage.setItem('pixel_account_name',result.username||'');setKey(result.token);
    }catch(err){setAuthError(String(err.message||err))}
    return;
   }
   const value=entry.trim();if(!value)return;sessionStorage.setItem('pixel_api_key',value);setKey(value);setEntry('');
  }
- function logout(){sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
+ function logout(){setProfileOpen(false);setProfileUser('');sessionStorage.removeItem('pixel_account_name');sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
  if(authMode==='checking'||authMode==='error'||!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager</p><section className="panel"><h3>{authMode==='accounts'?'Вход в профила':authMode==='legacy'?'Личен достъп':'Проверка на връзката'}</h3>{authMode==='error'?<><p role="alert" className="error">{authConfigError}</p><p>Опитай отново. Ако проблемът продължи, провери дали Render е Live и дали адресът на API е правилен.</p><button type="button" onClick={()=>setAuthRetry(n=>n+1)}>Провери отново</button></>:authMode==='checking'?<p>Проверявам какъв вход използва сървърът…</p>:<form onSubmit={connect}>{authMode==='accounts'?<><input autoComplete="username" value={authUser} onChange={e=>setAuthUser(e.target.value)} placeholder="Потребителско име" required/><input type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Парола" required/></>:<><p>Въведи личния API ключ. Google токените не се въвеждат тук.</p><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ" required/></>}<button>Влез</button></form>}{authError&&authMode!=='error'&&<p className="error" role="alert">{authError}</p>}</section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
  {readOnly&&!current&&<aside className="p34-global-read-only">🔒 Обикновените промени са временни · защитените тестови записи са отделни</aside>}
- <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else if(comparisonOpen){setComparisonOpen(false)}else{logout()}}}>{current||comparisonOpen?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&!comparisonOpen&&<button type="button" aria-expanded={adminOpen} aria-controls="pixelapp-admin-settings" className="ghost p37-settings-button" onClick={()=>setAdminOpen(v=>!v)}>⚙️ {adminOpen?"Затвори настройки":"Настройки"}</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
+ <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else if(comparisonOpen){setComparisonOpen(false)}else{logout()}}}>{current||comparisonOpen?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&!comparisonOpen&&<button type="button" aria-expanded={adminOpen} aria-controls="pixelapp-admin-settings" className="ghost p37-settings-button" onClick={()=>setAdminOpen(v=>!v)}>⚙️ {adminOpen?"Затвори настройки":"Настройки"}</button>}{authMode==='accounts'&&!current&&!comparisonOpen&&<button className="ghost" type="button" onClick={()=>{setAdminOpen(false);setProfileOpen(v=>!v)}}>Моят профил</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
+ {!current&&!comparisonOpen&&profileOpen&&authMode==='accounts'&&<MyProfile username={profileUser} onChangePassword={payload=>req('/auth/change-password','POST',payload)} onLogout={logout} onClose={()=>setProfileOpen(false)}/>}
  {!current&&!comparisonOpen&&adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
  {dataFreshness==='cached'&&<aside role="status" style={{padding:'10px 12px',borderRadius:10,background:'rgba(255,190,80,.12)',color:'inherit',margin:'10px 0',fontSize:13}}>🕘 Показани са последно запазените данни{cachedAt?` (${new Date(cachedAt).toLocaleString('bg-BG')})`:''}. Обновяването още не е потвърдено. Записването върху тези данни не е разрешено.</aside>}
  {error&&<aside className="error">{error}</aside>}{loading&&<div className="muted">🔄 Обновявам данните…</div>}
