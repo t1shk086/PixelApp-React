@@ -1538,7 +1538,8 @@ function RegularNewTrip({onClose,onPreflight,onCreate,onSaved}){
 
 function App(){
  const [key,setKey]=useState(sessionStorage.getItem('pixel_auth_session')||sessionStorage.getItem('pixel_api_key')||'');
- const [authMode,setAuthMode]=useState('checking');
+ // A previously authenticated session can render immediately. The server still verifies each request.
+ const [authMode,setAuthMode]=useState(()=>sessionStorage.getItem('pixel_auth_session')?'accounts':'checking');
  const [authConfigError,setAuthConfigError]=useState('');
  const [authRetry,setAuthRetry]=useState(0);
  const [authUser,setAuthUser]=useState('');
@@ -1546,7 +1547,9 @@ function App(){
  const [authError,setAuthError]=useState('');
  useEffect(()=>{
   let live=true;
-  setAuthMode('checking');setAuthConfigError('');
+  // Do not block an existing account session on a second cold-start request.
+  if(!sessionStorage.getItem('pixel_auth_session'))setAuthMode('checking');
+  setAuthConfigError('');
   fetch(`${apiBase}/auth/config`,{cache:'no-store',headers:{'Accept':'application/json'}})
    .then(async r=>{if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()})
    .then(x=>{
@@ -1603,24 +1606,28 @@ function App(){
   if(!key)return;
   setLoading(true);setError('');
   try{
-   // These API calls are independent. Do not wait for the slowest one before showing trips.
-   const ownedPromise=req('/safe/react-owned-trips').catch(()=>null);
-   const dashboardPromise=req('/dashboard').catch(()=>null);
-   const placesPromise=req('/home/places').catch(()=>null);
+   // Fetch the trip index FIRST: optional widgets can trigger multiple Drive reads
+   // and compete with it on a cold Render instance.
    const freshTrips=await reqWithRetry('/trips');
    if(!Array.isArray(freshTrips))throw Error('Невалиден списък с пътувания от сървъра.');
-   // Show the trips as soon as they arrive, without waiting for optional widgets.
    setTrips(freshTrips);setDataFreshness('fresh');setCachedAt(Date.now());
-   // The trip list is authoritative even when optional dashboard/place requests fail.
-   // Never replace a previously valid nonempty offline snapshot with an unexpected empty response.
    if(freshTrips.length>0)void writeFastCache(key,{trips:freshTrips,dashboard:null,homePlaces:[]});
-   const [freshDashboard,placesRaw,ownedRaw]=await Promise.all([dashboardPromise,placesPromise,ownedPromise]);
-   if(ownedRaw?.trip_ids) setReactOwnedTrips(ownedRaw.trip_ids);
-   const freshPlaces=Array.isArray(placesRaw)?placesRaw:null;
-   if(freshDashboard!==null)setDashboard(freshDashboard);
-   if(freshPlaces!==null)setHomePlaces(freshPlaces);
-   // Persist only a fully read snapshot. Do not overwrite the previous cache on partial failure.
-   if(freshTrips.length>0&&freshDashboard!==null&&freshPlaces!==null)void writeFastCache(key,{trips:freshTrips,dashboard:freshDashboard,homePlaces:freshPlaces});
+   // Optional sections start after the trips become available. Their failures
+   // must never hide the list or discard a previously successful snapshot.
+   const extras=Promise.all([
+    req('/dashboard').catch(()=>null),
+    req('/home/places').catch(()=>null),
+    req('/safe/react-owned-trips').catch(()=>null)
+   ]).then(([freshDashboard,placesRaw,ownedRaw])=>{
+    if(ownedRaw?.trip_ids)setReactOwnedTrips(ownedRaw.trip_ids);
+    const freshPlaces=Array.isArray(placesRaw)?placesRaw:null;
+    if(freshDashboard!==null)setDashboard(freshDashboard);
+    if(freshPlaces!==null)setHomePlaces(freshPlaces);
+    if(freshTrips.length>0&&freshDashboard!==null&&freshPlaces!==null)
+     void writeFastCache(key,{trips:freshTrips,dashboard:freshDashboard,homePlaces:freshPlaces});
+   });
+   // Don't await optional extras for the initial loading indicator.
+   void extras;
    if(selected){const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}
   }catch(e){if(authMode==='accounts'&&String(e.message||e).startsWith('401:')){sessionStorage.removeItem('pixel_auth_session');setKey('');return;}setError(`Неуспешно обновяване: ${String(e.message||e)}. ${dataFreshness==='cached'?'Показани са последно запазените данни.':''}`)}
   finally{setLoading(false)}
