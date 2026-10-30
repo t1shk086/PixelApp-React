@@ -1704,6 +1704,8 @@ class SafeTaskChange(BaseModel):
     expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
     item_id: str = ''
     title: str = ''
+    expected_title: str | None = None
+    expected_done: str | None = None
 
 @app.get('/safe/tasks-preflight/{trip_id}', dependencies=[Depends(authorize)])
 def safe_tasks_preflight(trip_id: str):
@@ -1746,7 +1748,15 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
             matched=[r for r in rows if r.get('trip_id')==trip_id and r.get('item_id')==payload.item_id]
             if len(matched)!=1: raise HTTPException(404,'Задачата не е намерена еднозначно.')
             row=matched[0]
-            if payload.operation=='edit': row['title']=title
+            if payload.operation=='edit':
+                # A client must prove which specific task state its editor opened.
+                # This protects against stale editors, even when a UI refresh happens.
+                if payload.expected_title is None or payload.expected_done is None:
+                    raise HTTPException(409,'Редакцията е от стара версия. Отвори задачата отново.')
+                if (str(row.get('title') or '') != payload.expected_title or
+                        str(row.get('done') or '').lower() != payload.expected_done.lower()):
+                    raise HTTPException(409,'Тази задача е редактирана от друг профил. Обнови я и опитай отново.')
+                row['title']=title
             elif payload.operation=='toggle': row['done']='False' if str(row.get('done','')).lower() in ('true','1','yes','да') else 'True'
             else: rows.remove(row)
             item_id=payload.item_id
