@@ -335,6 +335,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  const [favoriteBusy,setFavoriteBusy]=useState(false);
  const [favoriteMessage,setFavoriteMessage]=useState('');
  const [favoriteEditing,setFavoriteEditing]=useState(-1);
+ const [favoriteEditorOpen,setFavoriteEditorOpen]=useState(false);
  const [favoriteName,setFavoriteName]=useState('');
  const [favoriteLat,setFavoriteLat]=useState('');
  const [favoriteLon,setFavoriteLon]=useState('');
@@ -354,7 +355,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
    const current=await onFavoritesLoad();
    if(!current.can_write)throw Error('Google Drive се е променил. Обнови страницата.');
    await onFavoriteChange({operation,index,title,lat,lon,expected_sha256:current.sha256});
-   await refreshFavorites();setFavoriteEditing(-1);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');
+   await refreshFavorites();setFavoriteEditing(-1);setFavoriteEditorOpen(false);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');
    setFavoriteMessage('✅ Записано и проверено в Google Drive.');
   }catch(e){setFavoriteMessage('⚠️ '+String(e.message||e))}finally{setFavoriteBusy(false)}
  };
@@ -596,15 +597,17 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  {roadRoute.status==='error'&&routeStops.length>1&&<p className="muted">Пътните километри временно не са достъпни. Маршрутът и Google Maps продължават да работят.</p>}
  {roadRoute.status==='ready'&&<div className="route78-total">🚗 Ориентировъчен маршрут по пътищата: <b>{Math.round(roadRoute.total).toLocaleString('bg-BG')} км</b><small>OSRM · не влияе на действителния пробег и горивото</small></div>}
  {routeSegments.length>0&&<div className="route78-links"><b>🗺️ Навигация в Google Maps</b>{routeSegments.map((part,i)=><a key={i} href={makeGoogleRouteLink(part)} target="_blank" rel="noopener noreferrer" className="route76-nav">Етап {i+1}/{routeSegments.length} · точки {i*4+1}–{i*4+part.length}</a>)}{routeSegments.length>1&&<small>Всеки следващ етап започва от последната точка на предишния.</small>}</div>}
- <section className="route79-saved" aria-label="Запазени места"><h3>❤️ Любими места <span className="map-point-count">{favorites.length}</span></h3>
- <p className="muted">Общи за двата телефона и всички пътувания. Не се включват автоматично в маршрута.</p>
- {favorites.length?<div className="route79-saved-list">{favorites.map(p=><div key={p.index} className="route79-saved-row route80-favorite"><div><b>❤️ {p.title}</b><small>📍 {Number(p.lat).toFixed(4)}, {Number(p.lon).toFixed(4)}</small></div><div className="route80-buttons"><button type="button" onClick={()=>setRouteFocus({lat:Number(p.lat),lon:Number(p.lon)})}>📍 Карта</button>{routeEditable&&<><button type="button" onClick={()=>{setRouteName(p.title);setRouteLat(String(p.lat));setRouteLon(String(p.lon));setGpsMessage('Избрано любимо място — запиши като спирка по-долу.');}}>➕ Спирка</button><button type="button" onClick={()=>{setFavoriteEditing(p.index);setFavoriteName(p.title);setFavoriteLat(String(p.lat));setFavoriteLon(String(p.lon));}}>✎</button><button type="button" disabled={favoriteBusy} onClick={()=>{if(window.confirm('Да изтрия любимото място?'))void saveFavorite('delete',p.index)}}>×</button></>}</div></div>)}</div>:<p className="muted">Още няма любими места.</p>}
- {routeEditable&&<div className="route80-editor"><h4>{favoriteEditing>=0?'✏️ Редакция на любимо място':'➕ Добави любимо място'}</h4>
- <p className="muted">Можеш да използваш координатите от GPS или резултат от търсенето за спирка.</p>
- <button type="button" className="route80-import" onClick={()=>{setFavoriteName(routeName);setFavoriteLat(routeLat);setFavoriteLon(routeLon);}}>📋 Вземи избраното място от формата за спирка</button>
+ <section className="route79-saved route81-favorites" aria-label="Любими места">
+ <div className="route81-heading"><h3>❤️ Любими места <span className="map-point-count">{favorites.length}</span></h3>{routeEditable&&<button className="route81-add" type="button" onClick={()=>{if(favoriteEditorOpen&&favoriteEditing<0){setFavoriteEditorOpen(false)}else{setFavoriteEditing(-1);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');setFavoriteEditorOpen(true)}}} aria-expanded={favoriteEditorOpen}>＋ {favoriteEditorOpen&&favoriteEditing<0?'Затвори':'Добави място'}</button>}</div>
+ {favorites.length?<div className="route81-list">{favorites.map(p=><div key={p.index} className="route81-card">
+ <button type="button" className="route81-place" title="Покажи на картата" onClick={()=>setRouteFocus({lat:Number(p.lat),lon:Number(p.lon)})}><span className="route81-pin" aria-hidden="true">📍</span><span className="route81-place-name">{p.title}</span></button>
+ <div className="route81-actions"><button type="button" title="Покажи на картата" aria-label={`Покажи ${p.title} на картата`} onClick={()=>setRouteFocus({lat:Number(p.lat),lon:Number(p.lon)})}>⌖</button>{routeEditable&&<><button type="button" title="Добави към маршрута" aria-label={`Избери ${p.title} за нова спирка`} onClick={()=>{setRouteName(p.title);setRouteLat(String(p.lat));setRouteLon(String(p.lon));setGpsMessage('Избрано любимо място — запиши като спирка по-долу.');}}>＋</button><button type="button" title="Редактирай" aria-label={`Редактирай ${p.title}`} onClick={()=>{setFavoriteEditing(p.index);setFavoriteName(p.title);setFavoriteLat(String(p.lat));setFavoriteLon(String(p.lon));setFavoriteEditorOpen(true);}}>✎</button><button type="button" className="route81-delete" title="Изтрий" aria-label={`Изтрий ${p.title}`} disabled={favoriteBusy} onClick={()=>{if(window.confirm('Да изтрия любимото място?'))void saveFavorite('delete',p.index)}}>×</button></>}</div>
+ </div>)}</div>:<p className="muted">Все още няма любими места.</p>}
+ {routeEditable&&favoriteEditorOpen&&<div className="route80-editor route81-editor"><div className="route81-editor-head"><h4>{favoriteEditing>=0?'✏️ Редактирай място':'➕ Ново любимо място'}</h4><button type="button" aria-label="Затвори формата" onClick={()=>{setFavoriteEditorOpen(false);setFavoriteEditing(-1);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');}}>×</button></div>
+ <button type="button" className="route80-import" onClick={()=>{setFavoriteName(routeName);setFavoriteLat(routeLat);setFavoriteLon(routeLon);}}>📋 Използвай избраното място от търсенето/GPS</button>
  <input placeholder="Име на любимо място" aria-label="Име на любимо място" maxLength={150} value={favoriteName} onChange={e=>setFavoriteName(e.target.value)}/>
  <div className="route76-grid"><input type="number" step="any" min="-90" max="90" placeholder="Ширина" aria-label="Ширина на любимо място" value={favoriteLat} onChange={e=>setFavoriteLat(e.target.value)}/><input type="number" step="any" min="-180" max="180" placeholder="Дължина" aria-label="Дължина на любимо място" value={favoriteLon} onChange={e=>setFavoriteLon(e.target.value)}/></div>
- <div className="route80-buttons"><button type="button" disabled={favoriteBusy||!favoriteName.trim()||!favoriteLat.trim()||!favoriteLon.trim()} onClick={()=>void saveFavorite(favoriteEditing>=0?'edit':'add',favoriteEditing)}>💾 {favoriteEditing>=0?'Запази промяната':'Запази любимо място'}</button>{favoriteEditing>=0&&<button type="button" onClick={()=>{setFavoriteEditing(-1);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');}}>Отказ</button>}</div>
+ <div className="route81-editor-actions"><button type="button" disabled={favoriteBusy||!favoriteName.trim()||!favoriteLat.trim()||!favoriteLon.trim()} onClick={()=>void saveFavorite(favoriteEditing>=0?'edit':'add',favoriteEditing)}>💾 {favoriteEditing>=0?'Запази промяната':'Запази мястото'}</button><button type="button" onClick={()=>{setFavoriteEditorOpen(false);setFavoriteEditing(-1);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');}}>Отказ</button></div>
  </div>}
  {favoriteMessage&&<p role="status" className="muted">{favoriteMessage}</p>}
  </section>
