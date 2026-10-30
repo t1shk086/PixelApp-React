@@ -690,3 +690,12 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .p881-admin-inline{display:block;position:relative;z-index:1;margin:8px 0 18px;scroll-margin-top:12px}
 .p881-admin-inline .p37-admin-dialog{max-width:100%;width:100%;max-height:none;overflow:visible;box-shadow:0 10px 28px #0006}
 .p37-settings-button[aria-expanded="true"]{border-color:#56c6ec;background:#193a4c;color:#ecfbff}
+
+/* P90: legacy test tools remain available, but no longer dominate the home screen. */
+.p90-test-tools{margin:4px 0 12px;color:var(--muted,#94a3b8);font-size:12px}
+.p90-test-tools summary{display:inline-block;cursor:pointer;padding:7px 10px;border-radius:10px;border:1px solid rgba(148,163,184,.23);list-style:none}
+.p90-test-tools summary::-webkit-details-marker{display:none}
+.p90-test-tools summary::before{content:"▸ ";opacity:.8}
+.p90-test-tools[open] summary::before{content:"▾ "}
+.p90-test-tools-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.p90-test-tools-actions button{font-size:12px}
