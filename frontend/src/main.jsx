@@ -306,14 +306,14 @@ function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,bu
  </section>;
 }
 
-function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwned=false}) {
+function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved}) {
  const [section,setSection]=useState('summary');
- const [taskDrafts,setTaskDrafts]=useState([]);
- const [taskOverrides,setTaskOverrides]=useState({});
+ const [taskBusy,setTaskBusy]=useState(false);
+ const [taskMessage,setTaskMessage]=useState('');
  const [taskName,setTaskName]=useState('');
  const [taskEditing,setTaskEditing]=useState(null);
  const [taskEditText,setTaskEditText]=useState('');
- useEffect(()=>{setSection('summary');setTaskDrafts([]);setTaskOverrides({});setTaskName('');setTaskEditing(null);},[trip?.id]);
+ useEffect(()=>{setSection('summary');setTaskName('');setTaskEditing(null);setTaskMessage('');},[trip?.id]);
  const rows=applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
@@ -350,14 +350,22 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  ];
  const controlOk=controlRows.every(([,a,b])=>near(a,b));
  const taskIsDone=t=>['true','1','да','yes'].includes(String(t.done??'').toLowerCase());
- const previewTasks=tasks.map((t,i)=>({...t,...(taskOverrides[String(t.item_id??`old-${i}`)]||{}),_previewKey:String(t.item_id??`old-${i}`)})).concat(taskDrafts);
+ const previewTasks=tasks.map((t,i)=>({...t,_previewKey:String(t.item_id??`old-${i}`)}));
  const done=previewTasks.filter(taskIsDone).length;
- const setPreviewTask=(t,changes)=>{
-  if(t._isDraft)setTaskDrafts(items=>items.map(x=>x._previewKey===t._previewKey?{...x,...changes}:x));
-  else setTaskOverrides(old=>({...old,[t._previewKey]:{...(old[t._previewKey]||{}),...changes}}));
+ const taskEditable=financeOwned && !trip?.settings?.trip_finished?.toLowerCase?.().includes('да');
+ const changeTask=async(operation,t=null,title='')=>{
+  if(!taskEditable||taskBusy)return;
+  setTaskBusy(true);setTaskMessage('');
+  try{
+   const pre=await onTaskPreflight();
+   if(!pre.can_write)throw Error('Записът не е разрешен или Google Drive е променен. Обнови страницата.');
+   await onTaskChange({operation,item_id:t?.item_id||'',title,expected_sha256:pre.sha256});
+   await onTasksSaved();
+   setTaskName('');setTaskEditing(null);setTaskMessage('✅ Записано и проверено в Google Drive.');
+  }catch(err){setTaskMessage('⚠️ '+String(err.message||err));}
+  finally{setTaskBusy(false);}
  };
- const addPreviewTask=e=>{e.preventDefault();const name=taskName.trim();if(!name)return;setTaskDrafts(items=>items.concat([{_previewKey:`test-${Date.now()}-${items.length}`,_isDraft:true,title:name,done:false}]));setTaskName('')};
- const resetTaskPreview=()=>{setTaskDrafts([]);setTaskOverrides({});setTaskEditing(null);setTaskName('')};
+ const addPreviewTask=e=>{e.preventDefault();if(taskName.trim())void changeTask('add',null,taskName.trim())};
  const validPoints=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180);
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
@@ -397,12 +405,14 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  <div className="travel-card task-preview-panel">
   <div className="task-preview-heading"><h3>📋 Списък със задачи</h3></div>
   
-  <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова задача" value={taskName} maxLength={200} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" disabled={!taskName.trim()}>➕ Добави</button></form>
+   {taskEditable?<p className="muted">🔐 Запис в Google Drive с проверка за промени и резервно копие.</p>:<p className="muted">🔒 Старите и приключените пътувания са само за преглед.</p>}
+  <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова задача" value={taskName} maxLength={200} disabled={!taskEditable||taskBusy} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" disabled={!taskEditable||taskBusy||!taskName.trim()}>➕ Добави</button></form>
   {previewTasks.length?previewTasks.map(t=>{const complete=taskIsDone(t);const isEditing=taskEditing===t._previewKey;return <div key={t._previewKey} className={'task-visual-item task-preview-item'+(complete?' task-visual-done':'')}>
-   <button type="button" className="task-preview-check" aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>setPreviewTask(t,{done:!complete})}>{complete?'✓':'○'}</button>
-   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())setPreviewTask(t,{title:taskEditText.trim()});setTaskEditing(null)}}><input autoFocus value={taskEditText} maxLength={200} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit">Запази</button><button type="button" className="ghost" onClick={()=>setTaskEditing(null)}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}</span><button type="button" className="task-preview-action" onClick={()=>{setTaskEditing(t._previewKey);setTaskEditText(t.title||'')}} aria-label={'Редактирай '+(t.title||'задача')}>✎</button>{t._isDraft&&<button type="button" className="task-preview-action" aria-label="Премахни пробната задача" onClick={()=>setTaskDrafts(items=>items.filter(x=>x._previewKey!==t._previewKey))}>✕</button>}</>}
+   <button type="button" className="task-preview-check" disabled={!taskEditable||taskBusy} aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>changeTask('toggle',t)}>{complete?'✓':'○'}</button>
+   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())void changeTask('edit',t,taskEditText.trim())}}><input autoFocus value={taskEditText} maxLength={200} disabled={taskBusy} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit" disabled={taskBusy||!taskEditText.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>setTaskEditing(null)}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}</span>{taskEditable&&<><button type="button" className="task-preview-action" disabled={taskBusy} onClick={()=>{setTaskEditing(t._previewKey);setTaskEditText(t.title||'')}} aria-label={'Редактирай '+(t.title||'задача')}>✎</button><button type="button" className="task-preview-action" disabled={taskBusy} aria-label="Изтрий задача" onClick={()=>{if(window.confirm('Изтриване на задача: '+t.title+'?'))void changeTask('delete',t)}}>✕</button></>}</>}
   </div>}):<p className="muted">Няма задачи за това пътуване.</p>}
-  {(taskDrafts.length>0||Object.keys(taskOverrides).length>0)&&<button type="button" className="task-preview-reset" onClick={resetTaskPreview}>↺ Отмени промените</button>}
+  {taskBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}
+  {taskMessage&&<p role="status" className="muted">{taskMessage}</p>}
  </div>
  </>}
  {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Маршрут и места <span className="map-point-count">{validPoints.length} точки</span></h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div><div className="map-place-list">{validPoints.map((p,i)=><div key={i} className="map-place-row"><span className="map-place-pin">📍</span><div><strong>{p.title||'Място'}</strong><small>{Number(p.lat).toFixed(4)}°, {Number(p.lon).toFixed(4)}°</small></div></div>)}</div></>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
@@ -1393,7 +1403,7 @@ function App(){
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
- </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
+ </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>reload(current)} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
  {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
   {modal==='normal-expenses'&&<TestFinancePreview expensesOnly carTrip={trips.find(t=>t.id===newTestTripId)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(newTestTripId)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(newTestTripId)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(newTestTripId)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload(current===newTestTripId?current:null)}/> }
   {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
