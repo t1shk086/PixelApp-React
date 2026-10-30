@@ -306,13 +306,20 @@ function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,bu
  </section>;
 }
 
-function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved}) {
+function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved}) {
  const [section,setSection]=useState('summary');
  const [taskBusy,setTaskBusy]=useState(false);
  const [taskMessage,setTaskMessage]=useState('');
  const [taskName,setTaskName]=useState('');
  const [taskEditing,setTaskEditing]=useState(null);
  const [taskEditText,setTaskEditText]=useState('');
+ const [routeBusy,setRouteBusy]=useState(false);
+ const [routeMessage,setRouteMessage]=useState('');
+ const [routeName,setRouteName]=useState('');
+ const [routeLat,setRouteLat]=useState('');
+ const [routeLon,setRouteLon]=useState('');
+ const [routeType,setRouteType]=useState('planned');
+ const [routePosition,setRoutePosition]=useState('-1');
  useEffect(()=>{setSection('summary');setTaskName('');setTaskEditing(null);setTaskMessage('');},[trip?.id]);
  const rows=applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
@@ -367,6 +374,25 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  };
  const addPreviewTask=e=>{e.preventDefault();if(taskName.trim())void changeTask('add',null,taskName.trim())};
  const validPoints=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180);
+ const routeStops=validPoints.filter(p=>String(p.title||'').startsWith('3b:')&&['purple','orange'].includes(p.color));
+ const routeEditable=financeOwned && tripState(trip)!=='finished';
+ const routeAction=async(operation,index=-1,position=-1)=>{
+  if(!routeEditable||routeBusy)return;
+  setRouteBusy(true);setRouteMessage('');
+  try{
+   const pre=await onRoutePreflight();
+   if(!pre.can_write)throw Error('Маршрутът не е готов за запис. Обнови данните от Google Drive.');
+   await onRouteChange({operation,index,position,expected_sha256:pre.sha256,title:routeName.trim(),lat:Number(routeLat),lon:Number(routeLon),stop_type:routeType});
+   await onRouteSaved();setRouteName('');setRouteLat('');setRouteLon('');setRouteMessage('✅ Записано и проверено в Google Drive.');
+  }catch(e){setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
+ };
+ const googleRouteLink=routeStops.length>=2?(()=>{
+  const p=routeStops.slice(0,5),coord=x=>`${Number(x.lat)},${Number(x.lon)}`;
+  const url=new URL('https://www.google.com/maps/dir/');
+  url.searchParams.set('api','1');url.searchParams.set('origin',coord(p[0]));url.searchParams.set('destination',coord(p[p.length-1]));
+  if(p.length>2)url.searchParams.set('waypoints',p.slice(1,-1).map(coord).join('|'));
+  url.searchParams.set('travelmode','driving');return url.toString();
+ })():null;
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
@@ -415,7 +441,15 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
   {taskMessage&&<p role="status" className="muted">{taskMessage}</p>}
  </div>
  </>}
- {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Маршрут и места <span className="map-point-count">{validPoints.length} точки</span></h3>{validPoints.length?<><div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{p.title}</Popup></Marker>)}</MapContainer></div><div className="map-place-list">{validPoints.map((p,i)=><div key={i} className="map-place-row"><span className="map-place-pin">📍</span><div><strong>{p.title||'Място'}</strong><small>{Number(p.lat).toFixed(4)}°, {Number(p.lon).toFixed(4)}°</small></div></div>)}</div></>:<p className="muted">Няма записани точки за това пътуване.</p>}</div>}
+ {section==='map'&&<div className="travel-card map-showcase"><h3>🌍 Места и маршрут <span className="map-point-count">{validPoints.length} точки</span></h3>
+ {validPoints.length?<div className="travel-map"><MapContainer center={[Number(validPoints[0].lat),Number(validPoints[0].lon)]} zoom={8} style={{height:320,width:'100%'}}><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{validPoints.map((p,i)=><Marker key={i} position={[Number(p.lat),Number(p.lon)]} icon={homePin}><Popup>{String(p.title||'Място').replace(/^3b:\s*/,'')}</Popup></Marker>)}</MapContainer></div>:<p className="muted">Все още няма точки за това пътуване.</p>}
+ <div className="route76-wrap"><h3>🧭 Спирки по маршрута <span className="map-point-count">{routeStops.length}</span></h3>
+ <p className="muted">Подредбата е същата като в стария Streamlit. Лилаво = планирана, оранжево = непланирана.</p>
+ {routeStops.map((p,i)=><div key={`${p.lat}-${p.lon}-${i}`} className="route76-stop"><span className="route76-num">{i+1}</span><div className="route76-info"><b>{String(p.title||'').replace(/^3b:\s*/,'')}</b><small>{p.color==='orange'?'🟠 Непланирана':'🟣 Планирана'} · {Number(p.lat).toFixed(4)}, {Number(p.lon).toFixed(4)}</small></div>{routeEditable&&<div className="route76-actions"><button type="button" disabled={routeBusy||i===0} onClick={()=>routeAction('move',i,-1)} title="Нагоре">↑</button><button type="button" disabled={routeBusy||i===routeStops.length-1} onClick={()=>routeAction('move',i,1)} title="Надолу">↓</button><button type="button" disabled={routeBusy} onClick={()=>{if(window.confirm('Да изтрия спирката?'))void routeAction('delete',i)}} title="Изтрий">×</button></div>}</div>)}
+ {googleRouteLink&&<a href={googleRouteLink} target="_blank" rel="noopener noreferrer" className="route76-nav">🗺️ Отвори първите {Math.min(routeStops.length,5)} точки в Google Maps</a>}
+ {routeStops.length>5&&<p className="muted">За безопасна навигация линкът включва само първите 5 точки. Разделянето на целия маршрут на етапи предстои.</p>}
+ {routeEditable?<form className="route76-form" onSubmit={e=>{e.preventDefault();void routeAction('add',-1,Number(routePosition))}}><h3>➕ Нова спирка</h3><input aria-label="Име на спирката" placeholder="Име на мястото" required maxLength={150} value={routeName} onChange={e=>setRouteName(e.target.value)}/><div className="route76-grid"><input type="number" step="any" min="-90" max="90" required placeholder="Ширина (lat)" aria-label="Географска ширина" value={routeLat} onChange={e=>setRouteLat(e.target.value)}/><input type="number" step="any" min="-180" max="180" required placeholder="Дължина (lon)" aria-label="Географска дължина" value={routeLon} onChange={e=>setRouteLon(e.target.value)}/></div><div className="route76-grid"><select value={routeType} onChange={e=>setRouteType(e.target.value)} aria-label="Тип спирка"><option value="planned">Планирана</option><option value="unplanned">Непланирана</option></select><select value={routePosition} onChange={e=>setRoutePosition(e.target.value)} aria-label="Позиция"><option value="-1">В края</option>{routeStops.map((p,i)=><option key={i} value={i}>Преди {i+1}. {String(p.title||'').replace(/^3b:\s*/,'')}</option>)}</select></div><button type="submit" disabled={routeBusy||!routeName.trim()||!routeLat.trim()||!routeLon.trim()}>💾 Запиши спирката</button><small className="muted">За този първи тест въведи координатите от познато тестово място. Търсене по адрес ще добавим отделно.</small></form>:<p className="muted">🔒 За старите и приключените пътувания маршрутът е само за преглед.</p>}
+ {routeBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}{routeMessage&&<p role="status" className="muted">{routeMessage}</p>}</div></div>}
  {section==='check'&&<div className="travel-card visual-section">
  <h3>🧮 Контрол на изчисленията</h3>
  <p className="muted">Проверка между обобщението на API и детайлните записи, заредени от Google Drive. Това не е още пълно сравнение с всички формули в стария Streamlit.</p>
@@ -1403,7 +1437,7 @@ function App(){
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
- </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>reload(current)} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
+ </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>reload(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>reload(current)} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
  {adminOpen&&<AdminSettingsPreview trips={trips} readOnly={readOnly} apiBase={apiBase} onClose={()=>setAdminOpen(false)} onRefresh={()=>reload()} onPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} testWriteArmed={testWriteArmed}/>}
   {modal==='normal-expenses'&&<TestFinancePreview expensesOnly carTrip={trips.find(t=>t.id===newTestTripId)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(newTestTripId)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(newTestTripId)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(newTestTripId)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload(current===newTestTripId?current:null)}/> }
   {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
