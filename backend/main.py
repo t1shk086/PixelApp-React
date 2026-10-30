@@ -1207,6 +1207,81 @@ def safe_fuel_add(trip_id: str, payload: SafeFuelAdd):
         return {'ok':True,'backup_id':backup['id'],'last_km':payload.current_km}
 
 
+# Patch 72: missed litres, with or without known cost. A single CSV transaction
+# stores litres directly (never in settings.manual_fuel), so there is no unsafe
+# two-file write and the litres contribute exactly once to existing totals.
+class MissedFuelAdd(BaseModel):
+    liters: Decimal
+    amount: Decimal = Decimal('0')
+    expected_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    request_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+
+@app.post('/safe/missed-fuel/{trip_id}', dependencies=[Depends(authorize)])
+def safe_missed_fuel_add(trip_id: str, payload: MissedFuelAdd):
+    if not FUEL_WRITE_ENABLED:
+        raise HTTPException(423, 'Записването на гориво е заключено.')
+    if (not payload.liters.is_finite() or payload.liters <= 0 or
+            payload.liters > Decimal('500') or payload.liters.as_tuple().exponent < -2):
+        raise HTTPException(422, 'Литрите трябва да са от 0.01 до 500, с до два знака.')
+    if (not payload.amount.is_finite() or payload.amount < 0 or
+            payload.amount > Decimal('10000') or payload.amount.as_tuple().exponent < -2):
+        raise HTTPException(422, 'Сумата трябва да е от 0 до 10000 €, с до два знака.')
+    ensure_local_snapshot()
+    with LOCK:
+        service=drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е достъпен.')
+        _, mapping=folder_and_files(service)
+        settings=_assert_react_owned_trip(trip_id,service,mapping)
+        if settings.get('car_trip') != 'Да':
+            raise HTTPException(409, 'Пътуването е без автомобил.')
+        if str(settings.get('trip_finished','')).casefold() == 'да' or Decimal(str(settings.get('end_km') or '0')) > 0:
+            raise HTTPException(423, 'Приключеното пътуване е заключено.')
+        fid,path,remote,local,columns,rows=_finance_remote('expenses',service,mapping)
+        digest=hashlib.sha256(remote).hexdigest()
+        marker='[P72:'+payload.request_id+']'
+        already=[r for r in rows if r.get('trip_id')==trip_id and marker in r.get('description','')]
+        if already:
+            if len(already)==1:
+                return {'ok':True,'already_saved':True,'note':'Записът вече съществува. Не е дублиран.'}
+            raise HTTPException(409, 'Открити са повторени идентификатори. Не е променено нищо.')
+        if digest != payload.expected_sha256 or digest != hashlib.sha256(local).hexdigest():
+            raise HTTPException(409, 'Google Drive е променен. Обнови данните преди нов запис.')
+        litres=payload.liters.quantize(Decimal('0.01'))
+        amount=payload.amount.quantize(Decimal('0.01'))
+        label='[ПРОПУСНАТО ГОРИВО]' if amount>0 else '[ГОРИВО БЕЗ СТОЙНОСТ]'
+        row={k:'' for k in columns}
+        row.update(trip_id=trip_id,date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
+                   amount=str(amount),category='Транспорт',
+                   description=f'{label} Добавени {litres:.2f} литра {marker}',
+                   type='expense',liters=str(litres),current_km='0')
+        rows.append(row)
+        out=io.StringIO(newline='')
+        writer=csv.DictWriter(out,fieldnames=columns,extrasaction='ignore',lineterminator='\n')
+        writer.writeheader();writer.writerows(rows)
+        updated=out.getvalue().encode('utf-8')
+        try:
+            backup=service.files().copy(fileId=fid,body={'name':'P72_MISSED_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['expenses']},fields='id').execute()
+        except Exception:
+            raise HTTPException(503, 'Неуспешно резервно копие. Няма запис.')
+        if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
+            raise HTTPException(409, 'Drive е променен след архива. Няма запис.')
+        try:
+            from googleapiclient.http import MediaIoBaseUpload
+            media=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)
+            service.files().update(fileId=fid,media_body=media).execute()
+            verified=service.files().get_media(fileId=fid).execute()
+            if verified!=updated:
+                raise RuntimeError('Verification mismatch')
+        except Exception:
+            raise HTTPException(503, 'Записът не е потвърден. Провери данните преди повторен опит.')
+        tmp=path.with_suffix('.p72_verified')
+        tmp.write_bytes(verified)
+        os.replace(tmp,path)
+        return {'ok':True,'backup_id':backup['id'],'liters':str(litres),'amount':str(amount)}
+
+
 @app.get('/safe/react-owned-trips', dependencies=[Depends(authorize)])
 def react_owned_trips():
     ensure_local_snapshot()
