@@ -1537,7 +1537,33 @@ function RegularNewTrip({onClose,onPreflight,onCreate,onSaved}){
 }
 
 function App(){
- const [key,setKey]=useState(sessionStorage.getItem('pixel_api_key')||'');
+ const [key,setKey]=useState(sessionStorage.getItem('pixel_auth_session')||sessionStorage.getItem('pixel_api_key')||'');
+ const [authMode,setAuthMode]=useState('checking');
+ const [authConfigError,setAuthConfigError]=useState('');
+ const [authRetry,setAuthRetry]=useState(0);
+ const [authUser,setAuthUser]=useState('');
+ const [authPassword,setAuthPassword]=useState('');
+ const [authError,setAuthError]=useState('');
+ useEffect(()=>{
+  let live=true;
+  setAuthMode('checking');setAuthConfigError('');
+  fetch(`${apiBase}/auth/config`,{cache:'no-store',headers:{'Accept':'application/json'}})
+   .then(async r=>{if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()})
+   .then(x=>{
+    if(!live)return;
+    if(x?.mode!=='accounts'&&x?.mode!=='legacy')throw Error('Непознат режим на вход от сървъра.');
+    if(x.mode==='accounts'){
+     sessionStorage.removeItem('pixel_api_key');
+     setKey(sessionStorage.getItem('pixel_auth_session')||'');
+    }else{
+     sessionStorage.removeItem('pixel_auth_session');
+     setKey(sessionStorage.getItem('pixel_api_key')||'');
+    }
+    setAuthMode(x.mode);
+   })
+   .catch(err=>{if(live){setAuthConfigError(`Не успях да проверя режима на вход от сървъра (${String(err.message||err)}).`);setAuthMode('error');setKey('');}});
+  return()=>{live=false};
+ },[authRetry]);
  const newTestTripId='ТЕСТ_НОВО_–_PixelApp';
  const [reactOwnedTrips,setReactOwnedTrips]=useState([]);
  const [adminOpen,setAdminOpen]=useState(false);
@@ -1559,7 +1585,7 @@ function App(){
  const [modal,setModal]=useState('');const [name,setName]=useState('');const [start,setStart]=useState('');const [end,setEnd]=useState('');const [car,setCar]=useState(false);
  const [amount,setAmount]=useState('');const [category,setCategory]=useState(categories[0]);const [desc,setDesc]=useState('');const [task,setTask]=useState('');
  const [budget,setBudget]=useState('');const [tab,setTab]=useState('overview');const [dashboard,setDashboard]=useState(null);const [showFinished,setShowFinished]=useState(false);const [homePlaces,setHomePlaces]=useState([]);
- async function req(path,method='GET',body){const r=await fetch(`${apiBase}${path}`,{method,headers:{'X-API-Key':key,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json()}
+ async function req(path,method='GET',body){const r=await fetch(`${apiBase}${path}`,{method,headers:{...(authMode==='accounts'?{'Authorization':`Bearer ${key}`}:{'X-API-Key':key}),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json()}
  async function reload(selected=current){
   if(!key)return;
   setLoading(true);setError('');
@@ -1580,7 +1606,7 @@ function App(){
    // Persist only a fully read snapshot. Do not overwrite the previous cache on partial failure.
    if(freshDashboard!==null&&freshPlaces!==null)void writeFastCache(key,{trips:freshTrips,dashboard:freshDashboard,homePlaces:freshPlaces});
    if(selected){const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}
-  }catch(e){setError(`Неуспешно обновяване: ${String(e.message||e)}. ${dataFreshness==='cached'?'Показани са последно запазените данни.':''}`)}
+  }catch(e){if(authMode==='accounts'&&String(e.message||e).startsWith('401:')){sessionStorage.removeItem('pixel_auth_session');setKey('');return;}setError(`Неуспешно обновяване: ${String(e.message||e)}. ${dataFreshness==='cached'?'Показани са последно запазените данни.':''}`)}
   finally{setLoading(false)}
  }
  useEffect(()=>{
@@ -1601,9 +1627,21 @@ function App(){
  const chosen=trips.find(x=>x.id===current);
  async function run(job){if(readOnly||dataFreshness!=='fresh'){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
  const comparisonLoader=React.useCallback(id=>req(`/trips/${encodeURIComponent(id)}`),[key]);
- function connect(e){e.preventDefault();const value=entry.trim();if(!value)return;sessionStorage.setItem('pixel_api_key',value);setKey(value);setEntry('')}
- function logout(){sessionStorage.removeItem('pixel_api_key');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
- if(!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager — React preview</p><section className="panel"><h3>Личен достъп</h3><p>Въведи ключа от <code>PIXELAPP_API_KEY</code> на твоя Python сървър. Google токените никога не се въвеждат тук.</p><form onSubmit={connect}><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ"/><button>Влез</button></form></section></main>;
+ async function connect(e){
+  e.preventDefault();setAuthError('');
+  if(authMode==='accounts'){
+   try{
+    const response=await fetch(`${apiBase}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:authUser.trim(),password:authPassword})});
+    if(!response.ok)throw Error(response.status===401?'Неправилно потребителско име или парола.':'Неуспешен вход. Провери настройките на сървъра.');
+    const result=await response.json();sessionStorage.setItem('pixel_auth_session',result.token);sessionStorage.removeItem('pixel_api_key');
+    setAuthPassword('');setKey(result.token);
+   }catch(err){setAuthError(String(err.message||err))}
+   return;
+  }
+  const value=entry.trim();if(!value)return;sessionStorage.setItem('pixel_api_key',value);setKey(value);setEntry('');
+ }
+ function logout(){sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
+ if(authMode==='checking'||authMode==='error'||!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager</p><section className="panel"><h3>{authMode==='accounts'?'Вход в профила':authMode==='legacy'?'Личен достъп':'Проверка на връзката'}</h3>{authMode==='error'?<><p role="alert" className="error">{authConfigError}</p><p>Опитай отново. Ако проблемът продължи, провери дали Render е Live и дали адресът на API е правилен.</p><button type="button" onClick={()=>setAuthRetry(n=>n+1)}>Провери отново</button></>:authMode==='checking'?<p>Проверявам какъв вход използва сървърът…</p>:<form onSubmit={connect}>{authMode==='accounts'?<><input autoComplete="username" value={authUser} onChange={e=>setAuthUser(e.target.value)} placeholder="Потребителско име" required/><input type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Парола" required/></>:<><p>Въведи личния API ключ. Google токените не се въвеждат тук.</p><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ" required/></>}<button>Влез</button></form>}{authError&&authMode!=='error'&&<p className="error" role="alert">{authError}</p>}</section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
  {readOnly&&!current&&<aside className="p34-global-read-only">🔒 Обикновените промени са временни · защитените тестови записи са отделни</aside>}
  <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else if(comparisonOpen){setComparisonOpen(false)}else{logout()}}}>{current||comparisonOpen?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&!comparisonOpen&&<button className="ghost p37-settings-button" onClick={()=>setAdminOpen(true)}>⚙️ Настройки</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
