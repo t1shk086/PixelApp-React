@@ -974,7 +974,7 @@ function SettingsMissedFuelSave({onPreflight,onSave,onSaved,disabled=false}){
  </form>;
 }
 
-function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPanel='basic',expenseDrafts={},onUpdateDraft,onFuelPreflight,onMissedFuelSave,onSaved,onFinishPreflight,onFinishSave,reactOwned=false}){
+function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPanel='basic',expenseDrafts={},onUpdateDraft,onFuelPreflight,onMissedFuelSave,onSaved,onFinishPreflight,onFinishSave,onBasicPreflight,onBasicSave,reactOwned=false}){
  const blank=()=>({name:'',startDate:'',endDate:'',car:true,trackFuel:'Да',startKm:'',endKm:'',manualFuel:'',finished:false});
  const [source,setSource]=useState(initialTripId||'__new');
  const [panel,setPanel]=useState(defaultPanel);
@@ -983,6 +983,7 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
  const [confirmed,setConfirmed]=useState(false);
  const [notice,setNotice]=useState('');
  const [finishBusy,setFinishBusy]=useState(false);
+ const [basicBusy,setBasicBusy]=useState(false);
  // Локален тест: [ПРОПУСНАТО ГОРИВО] с цена се отчита чрез manual_fuel;
  // [ГОРИВО БЕЗ СТОЙНОСТ] се отчита чрез реда liters — никога и по двата начина.
  const [newTripManualEntries,setNewTripManualEntries]=useState([]);
@@ -1070,6 +1071,22 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
   setManualLiters('');setManualHasPrice(false);setManualAmount('');setNotice('Добавено само за проба. Google Drive не е променян.');
  }
 
+ async function saveBasic(){
+  if(!reactOwned||source!==initialTripId||form.finished||basicBusy||!dateValid||!form.startDate||!form.endDate)return;
+  setBasicBusy(true);setNotice('');
+  try{
+   const check=await onBasicPreflight();
+   if(!check?.can_write||!check?.sha256)throw Error('Настройките не са готови за запис. Обнови приложението.');
+   // Prevent stale form from overwriting someone else's edits, even when preflight is fresh.
+   if(check.start_date!==dateBG(initial.startDate)||check.end_date!==dateBG(initial.endDate)||check.track_fuel!==initial.trackFuel)
+    throw Error('Настройките са променени на друго устройство. Обнови приложението.');
+   const saved=await onBasicSave({start_date:dateBG(form.startDate),end_date:dateBG(form.endDate),track_fuel:form.trackFuel,expected_sha256:check.sha256});
+   if(!saved?.ok)throw Error('Записът не е потвърден.');
+   setInitial({...form});setNotice('✅ Основните настройки са записани и проверени в Google Drive.');
+   await onSaved?.();
+  }catch(error){setNotice('⚠️ '+String(error.message||error)+' Провери настройките преди повторен опит.');}
+  finally{setBasicBusy(false)}
+ }
  async function finish(){
   if(!finishReady||finishBusy)return;
   if(!reactOwned||source!==initialTripId){setForm(f=>({...f,finished:true}));setConfirmed(true);setNotice('Пробно приключване — НЕ е записано в Google Drive.');return;}
@@ -1090,14 +1107,17 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
  }
  return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Управление на пътувания — тест" onClick={e=>e.stopPropagation()}>
   <div className="dialoghead"><h3>✈️ Управление на пътуването</h3><button type="button" className="ghost" onClick={onClose} aria-label="Затвори">✕</button></div><button className="p26-return" type="button" onClick={onClose}>{initialTripId?"← Назад към пътуването":"← Назад към началото"}</button>
-  <p className="p26-modal-safe">🔒 Основните настройки са пробни. Приключването за създадени в React пътувания записва само след потвърждение.</p>
+  <p className="p26-modal-safe">Редакцията на дати и проследяване на горивото се записва за активни React пътувания. Името, типът и началният километраж остават защитени.</p>
   <div className="p25-tabs" role="tablist" aria-label="Управление на пътуване">
    {[['basic','⚙️ Основни'],['fuel','⛽ Пропуснато гориво'],['finish','🏁 Приключване']].map(([key,label])=><button type="button" key={key} role="tab" aria-selected={panel===key} className={panel===key?'p25-selected':''} onClick={()=>setPanel(key)}>{label}</button>)}
   </div>
   <label>Пътуване<select value={source} onChange={e=>load(e.target.value)}><option value="__new">➕ Ново пътуване</option>{trips.map(t=><option key={t.id} value={t.id}>{t.name||t.id}</option>)}</select></label>
-  {panel==='basic'&&<><div className="p21-grid"><label>Дестинация<input value={form.name} onChange={e=>patch('name',e.target.value)} placeholder="Напр. Livigno Italy"/></label><label>Тип пътуване<select value={form.car?'car':'other'} onChange={e=>patch('car',e.target.value==='car')}><option value="car">🚗 С автомобил</option><option value="other">✈️ Без автомобил</option></select></label><label>От дата<input type="date" value={form.startDate} onChange={e=>patch('startDate',e.target.value)}/></label><label>До дата<input type="date" value={form.endDate} onChange={e=>patch('endDate',e.target.value)}/></label></div>
+  {panel==='basic'&&<><div className="p21-grid"><label>Дестинация<input value={form.name} readOnly title="Преименуването ще бъде отделна защитена операция"/></label><label>Тип пътуване<select value={form.car?'car':'other'} disabled><option value="car">🚗 С автомобил</option><option value="other">✈️ Без автомобил</option></select></label><label>От дата<input type="date" value={form.startDate} onChange={e=>patch('startDate',e.target.value)} disabled={!reactOwned||source!==initialTripId||form.finished}/></label><label>До дата<input type="date" value={form.endDate} onChange={e=>patch('endDate',e.target.value)} disabled={!reactOwned||source!==initialTripId||form.finished}/></label></div>
   {!dateValid&&<p className="p21-warning">Крайната дата трябва да е след началната.</p>}
-  {form.car&&<section className="p21-section"><h4>🚗 Настройки на автомобила</h4><div className="p21-grid"><label>Начален километраж<input type="number" min="0" step="1" value={form.startKm} onChange={e=>patch('startKm',e.target.value)} placeholder="100000"/></label><label>Проследяване на горивото<select value={form.trackFuel} onChange={e=>patch('trackFuel',e.target.value)}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label></div></section>}
+  {form.car&&<section className="p21-section"><h4>🚗 Настройки на автомобила</h4><div className="p21-grid"><label>Начален километраж<input type="number" value={form.startKm} readOnly title="Началният километраж е защитен"/></label><label>Проследяване на горивото<select value={form.trackFuel} onChange={e=>patch('trackFuel',e.target.value)} disabled={!reactOwned||source!==initialTripId||form.finished}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label></div></section>}
+  {reactOwned&&source===initialTripId&&!form.finished&&<div className="p21-actions"><button type="button" disabled={basicBusy||!dateValid||!form.startDate||!form.endDate||(form.startDate===initial.startDate&&form.endDate===initial.endDate&&form.trackFuel===initial.trackFuel)} onClick={saveBasic}>{basicBusy?'Записвам…':'💾 Запази настройките в Google Drive'}</button></div>}
+  {!reactOwned&&<p className="muted">Старите пътувания са само за преглед.</p>}
+  {notice&&<p role="status" className="muted">{notice}</p>}
   </>}
   {panel==='fuel'&&form.car&&<section className="p21-section p22-manual"><div className="p31-manual-head"><span className="p31-manual-icon">⛽</span><div><h4>Пропуснато гориво</h4><small>Само забравени литри или зареждания</small></div></div>
    {reactOwned&&source===initialTripId?<SettingsMissedFuelSave key={source} onPreflight={onFuelPreflight} onSave={onMissedFuelSave} onSaved={onSaved} disabled={form.finished||detailBusy}/>:<form onSubmit={addManual} className="p22-form">
@@ -1613,7 +1633,7 @@ function App(){
  {modal==='edit-test-trip'&&<TestTripEditPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-trip-edit-preflight')} onEdit={payload=>req('/safety/test-trip-edit','POST',payload)} onSaved={()=>reload()}/> }
  {modal==='regular-new-trip'&&<RegularNewTrip onClose={()=>setModal('')} onPreflight={()=>req('/safe/new-trip-preflight')} onCreate={payload=>req('/safe/new-trip','POST',payload)} onSaved={async()=>{await reload();}}/>}
  {modal==='new-trip-safety'&&<NewTripSafetyPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/new-trip-preflight')} onCreate={payload=>req('/safety/new-trip-create','POST',payload)} onSaved={()=>reload()}/>}
- {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} reactOwned={reactOwnedTrips.includes(current)} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onFinishPreflight={()=>req(`/safe/finish-preflight/${encodeURIComponent(current)}`)} onFinishSave={payload=>req(`/safe/finish/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)} onClose={()=>setModal('')}/>}
+ {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} reactOwned={reactOwnedTrips.includes(current)} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onFinishPreflight={()=>req(`/safe/finish-preflight/${encodeURIComponent(current)}`)} onFinishSave={payload=>req(`/safe/finish/${encodeURIComponent(current)}`,'POST',payload)} onBasicPreflight={()=>req(`/safe/basic-preflight/${encodeURIComponent(current)}`)} onBasicSave={payload=>req(`/safe/basic/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
  {modal==='quick-demo'&&<QuickExpensePreview trips={trips} initialTripId={current||undefined} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onSafetyPreflight={()=>req('/safety/preflight')} onTestWrite={payload=>req('/safety/test-expense','POST',payload)} onTestChange={payload=>req('/safety/test-expense-change','POST',payload)} onSaved={id=>reload(id)} onClose={()=>setModal('')}/>}
  {modal&&modal!=='quick-demo'&&modal!=='fuel-demo'&&modal!=='trip-demo'&&modal!=='trip-fuel'&&modal!=='new-trip-safety'&&modal!=='regular-new-trip'&&modal!=='edit-test-trip'&&modal!=='test-finance'&&modal!=='normal-expenses'&&modal!=='owned-expenses'&&modal!=='owned-budget'&&<div className="overlay" onClick={()=>setModal('')}><div className="dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>{modal==='trip'?'Ново пътуване':'Нов разход'}</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div>{modal==='trip'?<form onSubmit={e=>{e.preventDefault();run(()=>req('/trips','POST',{name,start_date:start?start.split('-').reverse().join('.'): '',end_date:end?end.split('-').reverse().join('.'): '',car_trip:car}))}}><label>Дестинация<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Крайна дата<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label className="toggle"><input type="checkbox" checked={car} onChange={e=>setCar(e.target.checked)}/> Пътуване с автомобил</label><button>Създай</button></form>:<form onSubmit={e=>{e.preventDefault();run(()=>req(`/trips/${encodeURIComponent(current)}/expenses`,'POST',{amount:Number(amount),category,description:desc,is_deposit:category==='Депозит/Резервация'}));setAmount('');setDesc('')}}><label>Сума (€)<input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} required/></label><label>Категория<select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select></label><label>Описание<input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Без описание"/></label><button>Добави разход</button></form>}</div></div>}
