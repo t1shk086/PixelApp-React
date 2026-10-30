@@ -60,14 +60,109 @@ def require_writes():
 
 app = FastAPI(title='PixelApp API', version='0.1.0')
 origins = [x.strip() for x in os.getenv('ALLOWED_ORIGINS','http://localhost:5173').split(',') if x.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=['GET','POST','PUT','DELETE'], allow_headers=['X-API-Key','Content-Type'])
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=['GET','POST','PUT','DELETE'], allow_headers=['X-API-Key','Content-Type','Authorization'])
 
 
-def authorize(x_api_key: str | None = Header(default=None)):
-    import hmac
-    key = os.getenv('PIXELAPP_API_KEY','')
+# P87: Optional two-account authentication. Shared-key login remains supported only
+# until PIXELAPP_AUTH_MODE=accounts is explicitly configured on Render.
+import base64
+import hmac
+import secrets
+import time
+from fastapi import Request
+
+_AUTH_TTL = 24 * 60 * 60
+
+def _auth_accounts():
+    try:
+        data = json.loads(os.getenv('PIXELAPP_AUTH_USERS', '{}'))
+        if not isinstance(data, dict):
+            return {}
+        return {name: record for name, record in data.items() if isinstance(name, str) and isinstance(record, dict)}
+    except (ValueError, TypeError):
+        return {}
+
+def _accounts_mode():
+    return os.getenv('PIXELAPP_AUTH_MODE', '').strip().lower() == 'accounts'
+
+def _auth_secret():
+    secret = os.getenv('PIXELAPP_AUTH_SECRET', '')
+    if len(secret) < 32:
+        raise HTTPException(503, 'Сървърното удостоверяване не е конфигурирано.')
+    return secret.encode('utf-8')
+
+def _b64(data: bytes):
+    return base64.urlsafe_b64encode(data).decode('ascii').rstrip('=')
+
+def _unb64(data: str):
+    return base64.urlsafe_b64decode(data + '=' * (-len(data) % 4))
+
+def _create_session(user: str):
+    timestamp = int(time.time())
+    body = _b64(json.dumps({'sub': user, 'exp': timestamp + _AUTH_TTL, 'iat': timestamp}, separators=(',', ':'), ensure_ascii=False).encode('utf-8'))
+    signature = _b64(hmac.new(_auth_secret(), body.encode('ascii'), hashlib.sha256).digest())
+    return body + '.' + signature
+
+def _session_user(bearer: str):
+    try:
+        body, signature = bearer.split('.', 1)
+        actual = _b64(hmac.new(_auth_secret(), body.encode('ascii'), hashlib.sha256).digest())
+        if not hmac.compare_digest(signature, actual):
+            raise ValueError('signature')
+        data = json.loads(_unb64(body))
+        user = data.get('sub')
+        if not isinstance(user, str) or user not in _auth_accounts():
+            raise ValueError('user')
+        now = int(time.time())
+        if not isinstance(data.get('exp'), int) or not isinstance(data.get('iat'), int) or data['exp'] <= now or data['iat'] > now + 60:
+            raise ValueError('expired')
+        return user
+    except (ValueError, TypeError, KeyError, UnicodeError, base64.binascii.Error):
+        raise HTTPException(401, 'Сесията е невалидна или е изтекла. Влез отново.')
+
+class AccountLogin(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+@app.get('/auth/config')
+def auth_config():
+    return {'mode': 'accounts' if _accounts_mode() else 'legacy'}
+
+@app.post('/auth/login')
+def auth_login(login: AccountLogin):
+    if not _accounts_mode():
+        raise HTTPException(404, 'Входът с профили не е активиран.')
+    accounts = _auth_accounts()
+    if len(accounts) != 2:
+        raise HTTPException(503, 'Очакват се точно два конфигурирани акаунта.')
+    record = accounts.get(login.username) or {}
+    try:
+        salt = bytes.fromhex(record.get('salt', ''))
+        expected = bytes.fromhex(record.get('hash', ''))
+        if len(salt) < 16 or len(expected) != 32:
+            raise ValueError('bad credential format')
+    except (ValueError, TypeError):
+        salt = b'\0' * 16
+        expected = b'\0' * 32
+    actual = hashlib.pbkdf2_hmac('sha256', login.password.encode('utf-8'), salt, 600000)
+    if not hmac.compare_digest(actual, expected) or login.username not in accounts:
+        raise HTTPException(401, 'Неправилно потребителско име или парола.')
+    return {'token': _create_session(login.username), 'username': login.username, 'expires_in': _AUTH_TTL}
+
+@app.get('/auth/me')
+def auth_me(request: Request):
+    return {'username': authorize(request=request)}
+
+def authorize(request: Request, x_api_key: str | None = Header(default=None)):
+    if _accounts_mode():
+        header = request.headers.get('authorization', '')
+        if not header.startswith('Bearer '):
+            raise HTTPException(401, 'Необходим е вход с потребителски профил.')
+        return _session_user(header[7:])
+    key = os.getenv('PIXELAPP_API_KEY', '')
     if not key or not x_api_key or not hmac.compare_digest(x_api_key, key):
         raise HTTPException(401, 'Private API key required. Set PIXELAPP_API_KEY in backend/.env.')
+    return 'legacy'
 
 
 def drive_service():
