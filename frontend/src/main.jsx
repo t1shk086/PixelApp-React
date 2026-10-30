@@ -321,6 +321,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  const [taskName,setTaskName]=useState('');
  const [taskEditing,setTaskEditing]=useState(null);
  const [taskEditText,setTaskEditText]=useState('');
+ const [taskEditRevision,setTaskEditRevision]=useState('');
  const [routeBusy,setRouteBusy]=useState(false);
  const [routeMessage,setRouteMessage]=useState('');
  const [routeName,setRouteName]=useState('');
@@ -440,7 +441,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
   setPlaceQuery(fullName);setPlaceResults([]);setPlaceSearchError('');
  };
 
- useEffect(()=>{setSection('summary');setTaskName('');setTaskEditing(null);setTaskMessage('');},[trip?.id]);
+ useEffect(()=>{setSection('summary');setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskMessage('');},[trip?.id]);
  const rows=applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
@@ -484,11 +485,30 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
   if(!taskEditable||taskBusy)return;
   setTaskBusy(true);setTaskMessage('');
   try{
-   const pre=await onTaskPreflight();
+   // An edit must use the revision captured when the editor was opened.
+   // Fetching a fresh revision at save time silently overwrites another user's edit.
+   const pre=operation==='edit'&&taskEditRevision
+     ? {can_write:true,sha256:taskEditRevision}
+     : await onTaskPreflight();
    if(!pre.can_write)throw Error('Записът не е разрешен или Google Drive е променен. Обнови страницата.');
    await onTaskChange({operation,item_id:t?.item_id||'',title,expected_sha256:pre.sha256});
    await onTasksSaved();
-   setTaskName('');setTaskEditing(null);setTaskMessage('✅ Записано и проверено в Google Drive.');
+   setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskMessage('✅ Записано и проверено в Google Drive.');
+  }catch(err){setTaskMessage('⚠️ '+String(err.message||err));}
+  finally{setTaskBusy(false);}
+ };
+ const beginTaskEdit=async t=>{
+  if(!taskEditable||taskBusy)return;
+  setTaskBusy(true);setTaskMessage('');
+  try{
+   const pre=await onTaskPreflight();
+   if(!pre.can_write)throw Error('Задачите са променени. Обнови списъка преди редакция.');
+   // Don't open the editor against a different version of the task itself.
+   const remote=(pre.tasks||[]).find(x=>String(x.item_id)===String(t.item_id));
+   if(!remote||String(remote.title||'')!==String(t.title||'')||String(remote.done||'').toLowerCase()!==String(t.done||'').toLowerCase())
+    throw Error('Тази задача е променена на друго устройство. Обнови списъка.');
+   setTaskEditRevision(pre.sha256);
+   setTaskEditing(t._previewKey);setTaskEditText(t.title||'');
   }catch(err){setTaskMessage('⚠️ '+String(err.message||err));}
   finally{setTaskBusy(false);}
  };
@@ -577,7 +597,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
   <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова задача" value={taskName} maxLength={200} disabled={!taskEditable||taskBusy} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" disabled={!taskEditable||taskBusy||!taskName.trim()}>➕ Добави</button></form>
   {previewTasks.length?previewTasks.map(t=>{const complete=taskIsDone(t);const isEditing=taskEditing===t._previewKey;return <div key={t._previewKey} className={'task-visual-item task-preview-item'+(complete?' task-visual-done':'')}>
    <button type="button" className="task-preview-check" disabled={!taskEditable||taskBusy} aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>changeTask('toggle',t)}>{complete?'✓':'○'}</button>
-   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())void changeTask('edit',t,taskEditText.trim())}}><input autoFocus value={taskEditText} maxLength={200} disabled={taskBusy} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit" disabled={taskBusy||!taskEditText.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>setTaskEditing(null)}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}</span>{taskEditable&&<><button type="button" className="task-preview-action" disabled={taskBusy} onClick={()=>{setTaskEditing(t._previewKey);setTaskEditText(t.title||'')}} aria-label={'Редактирай '+(t.title||'задача')}>✎</button><button type="button" className="task-preview-action" disabled={taskBusy} aria-label="Изтрий задача" onClick={()=>{if(window.confirm('Изтриване на задача: '+t.title+'?'))void changeTask('delete',t)}}>✕</button></>}</>}
+   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())void changeTask('edit',t,taskEditText.trim())}}><input autoFocus value={taskEditText} maxLength={200} disabled={taskBusy} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit" disabled={taskBusy||!taskEditText.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>{setTaskEditing(null);setTaskEditRevision('')}}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}</span>{taskEditable&&<><button type="button" className="task-preview-action" disabled={taskBusy} onClick={()=>void beginTaskEdit(t)} aria-label={'Редактирай '+(t.title||'задача')}>✎</button><button type="button" className="task-preview-action" disabled={taskBusy} aria-label="Изтрий задача" onClick={()=>{if(window.confirm('Изтриване на задача: '+t.title+'?'))void changeTask('delete',t)}}>✕</button></>}</>}
   </div>}):<p className="muted">Няма задачи за това пътуване.</p>}
   {taskBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}
   {taskMessage&&<p role="status" className="muted">{taskMessage}</p>}
