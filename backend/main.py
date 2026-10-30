@@ -82,6 +82,83 @@ def _auth_accounts():
     except (ValueError, TypeError):
         return {}
 
+# P88: Password overrides live in separate, per-user Google Drive files.
+# Nothing here modifies the travel CSVs or Render Environment.
+def _password_file_name(user: str):
+    return 'pixelapp_auth_' + hashlib.sha256(user.encode('utf-8')).hexdigest()[:24] + '.json'
+
+def _password_override(user: str):
+    service = drive_service()
+    if service is None:
+        raise HTTPException(503, 'Google Drive не е достъпен за проверка на профила.')
+    try:
+        folder, files = folder_and_files(service)
+        file_id = files.get(_password_file_name(user))
+        if not file_id:
+            return None
+        content = service.files().get_media(fileId=file_id).execute()
+        record = json.loads(content)
+        if not isinstance(record, dict) or set(('salt','hash')) - record.keys():
+            raise ValueError('invalid account record')
+        return record
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, 'Не може да се провери актуалната парола в Drive.') from exc
+
+def _effective_account(user: str):
+    base = _auth_accounts().get(user)
+    if base is None: return None
+    return _password_override(user) or base
+
+def _check_password(password: str, record):
+    try:
+        salt = bytes.fromhex(record.get('salt',''))
+        expected = bytes.fromhex(record.get('hash',''))
+        if len(salt)<16 or len(expected)!=32: return False
+    except (TypeError, ValueError, AttributeError):
+        return False
+    actual=hashlib.pbkdf2_hmac('sha256',password.encode('utf-8'),salt,600000)
+    return hmac.compare_digest(actual,expected)
+
+class ChangePassword(BaseModel):
+    current_password: str = Field(min_length=1,max_length=256)
+    new_password: str = Field(min_length=4,max_length=12)
+
+@app.post('/auth/change-password')
+def auth_change_password(payload: ChangePassword, request: Request):
+    if not _accounts_mode(): raise HTTPException(404, 'Профилният вход не е активен.')
+    user=authorize(request=request)
+    if payload.new_password==payload.current_password:
+        raise HTTPException(400, 'Новата парола трябва да е различна.')
+    # Prevent simultaneous changes on this instance.
+    with LOCK:
+        current=_effective_account(user)
+        if not current or not _check_password(payload.current_password,current):
+            raise HTTPException(401, 'Текущата парола е неправилна.')
+        salt=secrets.token_bytes(16)
+        hashed=hashlib.pbkdf2_hmac('sha256',payload.new_password.encode('utf-8'),salt,600000)
+        content=json.dumps({'salt':salt.hex(),'hash':hashed.hex()},separators=(',',':')).encode('utf-8')
+        try:
+            from googleapiclient.http import MediaInMemoryUpload
+            service=drive_service()
+            folder, files=folder_and_files(service)
+            name=_password_file_name(user)
+            existing=files.get(name)
+            if existing:
+                old=service.files().get_media(fileId=existing).execute()
+                backup_name=name+'.backup.'+str(int(time.time()))
+                service.files().create(body={'name':backup_name,'parents':[folder]},media_body=MediaInMemoryUpload(old,mimetype='application/json',resumable=False),fields='id').execute()
+                service.files().update(fileId=existing,media_body=MediaInMemoryUpload(content,mimetype='application/json',resumable=False)).execute()
+            else:
+                service.files().create(body={'name':name,'parents':[folder]},media_body=MediaInMemoryUpload(content,mimetype='application/json',resumable=False),fields='id').execute()
+            effective=_password_override(user)
+            if not _check_password(payload.new_password,effective):
+                raise ValueError('password verification failed')
+        except Exception as exc:
+            raise HTTPException(503, 'Промяната не е потвърдена. Провери входа, преди да опиташ отново.') from exc
+    return {'ok':True,'message':'Паролата е променена и проверена в Google Drive.'}
+
 def _accounts_mode():
     return os.getenv('PIXELAPP_AUTH_MODE', '').strip().lower() == 'accounts'
 
@@ -135,17 +212,9 @@ def auth_login(login: AccountLogin):
     accounts = _auth_accounts()
     if len(accounts) != 2:
         raise HTTPException(503, 'Очакват се точно два конфигурирани акаунта.')
-    record = accounts.get(login.username) or {}
-    try:
-        salt = bytes.fromhex(record.get('salt', ''))
-        expected = bytes.fromhex(record.get('hash', ''))
-        if len(salt) < 16 or len(expected) != 32:
-            raise ValueError('bad credential format')
-    except (ValueError, TypeError):
-        salt = b'\0' * 16
-        expected = b'\0' * 32
-    actual = hashlib.pbkdf2_hmac('sha256', login.password.encode('utf-8'), salt, 600000)
-    if not hmac.compare_digest(actual, expected) or login.username not in accounts:
+    # Verify Drive override on login. Fail closed if Drive is unavailable.
+    record = _effective_account(login.username) if login.username in accounts else None
+    if not record or not _check_password(login.password, record):
         raise HTTPException(401, 'Неправилно потребителско име или парола.')
     return {'token': _create_session(login.username), 'username': login.username, 'expires_in': _AUTH_TTL}
 
