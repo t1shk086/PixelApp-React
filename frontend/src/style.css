@@ -643,3 +643,28 @@ body{background:radial-gradient(ellipse at 50% -15%,#1a212d 0,#0b111b 48%,#080d1
 .route82-panel{min-width:0}.route82-route .travel-map{overflow:hidden;border-radius:16px;margin-bottom:12px}.route82-route .leaflet-container{border-radius:16px}.route82-route-meta{display:flex;align-items:center;justify-content:space-between;border:1px solid #36506a;background:#1b304b;padding:12px 15px;border-radius:13px;margin:10px 0 14px;color:#cadcf0}.route82-route-meta b{color:#61e6ca;font-size:19px}
 .route82-route .route76-wrap{background:transparent;border:0;padding:0}.route82-route .route76-wrap>h3{font-size:15px;margin:8px 0 10px;color:#c5d8ee}.route82-route .route78-stop{background:#1a2c44;border:1px solid #294660;border-radius:14px;margin-bottom:8px}.route82-route .route78-stop-head{width:100%;text-align:left}.route82-route .route78-total{background:#132b38;border-radius:12px}.route82-favorite-panel .route79-saved{margin:0!important;padding:0!important;border:0!important;background:transparent!important}.route82-favorite-panel .route81-card{background:#1a2c44!important}.route82-add-panel .route76-form{margin:0!important;padding:15px!important;background:#15273e!important;border:1px solid #304b62;border-radius:17px}
 @media(max-width:440px){.route82-tabs button{flex-direction:column;gap:2px;font-size:11px;padding:9px 3px}.route82-tabs button span{font-size:21px}.route82-header{margin-bottom:13px}.route82-route .travel-map .leaflet-container{height:235px!important}.route82-route-meta{padding:10px 12px}}
+
+/* P83 — quiet, compact favorites (presentation only). */
+.route82-tabs button{min-height:43px!important;flex-direction:row!important;padding:10px 5px!important;font-size:13px!important;line-height:1.2!important;box-shadow:none!important}
+.route82-tabs{gap:6px;margin-bottom:14px}
+.p83-heading{margin:3px 0 12px;flex-wrap:nowrap}
+.p83-heading h3{font-size:16px!important;text-transform:none!important;letter-spacing:0!important;margin:0!important}
+.p83-count{font-size:12px;color:#a6bbce;white-space:nowrap}
+.p83-list{gap:9px}
+.route82-favorite-panel .p83-card{position:relative;min-width:0;background:#192b40;border:1px solid #30475f;border-radius:13px;padding:12px 13px}
+.p83-main{display:flex;align-items:center;gap:8px;min-width:0}
+.p83-place{flex:1;min-width:0;display:flex;align-items:center;gap:10px;background:transparent!important;border:0!important;padding:0!important;text-align:left!important;min-height:39px;color:#eff6ff!important;box-shadow:none!important}
+.p83-pin{flex:0 0 36px;width:36px;height:36px;background:#45324d;border-radius:10px;color:#ff91ad;display:grid;place-items:center;font-size:19px}
+.p83-name{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:700;font-size:14px;line-height:1.35}
+.p83-menu{flex:0 0 auto;position:relative;z-index:2}
+.p83-menu summary{list-style:none;display:grid;place-items:center;cursor:pointer;width:35px;height:35px;border-radius:9px;color:#b6cadd;background:#253c52;border:1px solid #365269;font-size:23px;line-height:1}
+.p83-menu summary::-webkit-details-marker{display:none}
+.p83-dropdown{position:absolute;right:0;top:40px;min-width:155px;z-index:10;background:#24384d;border:1px solid #476078;border-radius:10px;padding:5px;box-shadow:0 10px 24px #0008}
+.p83-dropdown button{display:block!important;width:100%!important;max-width:none!important;min-height:37px!important;text-align:left!important;padding:7px 10px!important;font-size:13px!important;background:transparent!important;border:0!important;color:#e6f1ff!important}
+.p83-dropdown button.p83-danger{color:#ffafbd!important}
+.p83-bottom{border-top:1px solid #30445b;margin-top:10px;padding-top:9px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.p83-desc{font-size:12px;color:#96abc0}
+.p83-quick{display:flex;gap:7px}
+.p83-quick button{width:37px!important;max-width:37px!important;height:37px!important;min-height:37px!important;padding:0!important;display:grid!important;place-items:center;background:#284258!important;color:#a6e9fc!important;border:1px solid #3d6179!important;border-radius:9px;font-size:19px!important}
+.route82-favorite-panel .p83-add{display:block;width:100%;margin-top:11px;padding:12px!important;min-height:43px;background:transparent!important;border:1px dashed #486780!important;border-radius:11px!important;color:#b7d8ea!important;font-size:13px!important;font-weight:650}
+@media(max-width:440px){.route82-tabs button{font-size:12px!important;padding:10px 3px!important}.route82-favorite-panel .p83-card{padding:11px!important}}
