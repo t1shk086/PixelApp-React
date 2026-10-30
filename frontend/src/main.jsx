@@ -347,8 +347,30 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
    const results=await response.json();
    if(requestId!==placeSearchSeq.current)return;
    if(!Array.isArray(results))throw new Error('Невалиден отговор от търсенето.');
-   setPlaceResults(results.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).slice(0,5));
-   if(!results.length)setPlaceSearchError('Няма намерени места. Опитай с град и държава.');
+   let places=results.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).slice(0,5);
+   // Photon indexes multilingual OpenStreetMap names and can find places that
+   // Nominatim misses with a localized spelling. Only search on button click.
+   if(!places.length){
+    try{
+     const fallback=new URL('https://photon.komoot.io/api/');
+     fallback.searchParams.set('q',query);
+     fallback.searchParams.set('limit','5');
+     const photonResponse=await fetch(fallback.toString(),{headers:{Accept:'application/json'}});
+     if(photonResponse.ok){
+      const photonData=await photonResponse.json();
+      const features=Array.isArray(photonData?.features)?photonData.features:[];
+      places=features.map((f,i)=>{
+       const p=f.properties||{},coords=f.geometry?.coordinates||[];
+       const parts=[p.name,p.street,p.city,p.state,p.country].filter(Boolean);
+       return {place_id:`photon-${p.osm_id||i}`,name:p.name||p.city||query,
+        display_name:[...new Set(parts)].join(', ')||query,lon:coords[0],lat:coords[1]};
+      }).filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).slice(0,5);
+     }
+    }catch(_fallbackError){/* Manual coordinates remain available. */}
+   }
+   if(requestId!==placeSearchSeq.current)return;
+   setPlaceResults(places);
+   if(!places.length)setPlaceSearchError('Няма намерени места. Опитай с международното име (например Colosseo, Roma) или въведи координати.');
   }catch(error){if(requestId===placeSearchSeq.current)setPlaceSearchError('Търсенето не успя. Можеш да въведеш координатите ръчно. '+String(error.message||error));}
   finally{if(requestId===placeSearchSeq.current)setPlaceSearching(false);}
  };
