@@ -660,12 +660,119 @@ def experimental_test_expense_change(payload: ExperimentalExpenseChange):
         return {'ok':True,'operation':payload.operation,'backup_id':backup_id,'new_sha256':hashlib.sha256(confirmed).hexdigest()}
 
 
+# P91.5: Recoverable trip archive. No shared CSV or photos are deleted.
+_ARCHIVE_FILE = 'PixelApp_ArchivedTrips.json'
+_ARCHIVE_CACHE = {'until': 0.0, 'ids': set()}
+
+
+def _archived_trips(service=None, mapping=None):
+    import time
+    if time.monotonic() < _ARCHIVE_CACHE['until']:
+        return _ARCHIVE_CACHE['ids']
+    if service is None:
+        service = drive_service()
+        if not service:
+            raise HTTPException(503, 'Google Drive не е достъпен за проверка на архивираните пътувания.')
+    if mapping is None:
+        _, mapping = folder_and_files(service)
+    fid = mapping.get(_ARCHIVE_FILE)
+    if not fid:
+        ids = set()
+    else:
+        try:
+            data = json.loads(service.files().get_media(fileId=fid).execute().decode('utf-8'))
+            if not isinstance(data, dict) or not isinstance(data.get('archived'), dict):
+                raise ValueError('invalid manifest')
+            ids = set(data['archived'].keys())
+        except Exception:
+            raise HTTPException(503, 'Архивният регистър не може да се прочете; показването е спряно за безопасност.')
+    _ARCHIVE_CACHE.update(ids=ids, until=time.monotonic()+4)
+    return ids
+
+
+class TripArchiveRequest(BaseModel):
+    trip_id: str = Field(min_length=1, max_length=200)
+    confirmation: str = Field(min_length=1, max_length=200)
+    expected_settings_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+@app.get('/safe/trip-archive-preflight/{trip_id}', dependencies=[Depends(authorize)])
+def trip_archive_preflight(trip_id: str):
+    ensure_local_snapshot()
+    with LOCK:
+        service = drive_service()
+        if not service: raise HTTPException(503, 'Google Drive е недостъпен.')
+        _, mapping = folder_and_files(service)
+        fid = mapping.get(FILENAMES['settings'])
+        if not fid: raise HTTPException(409, 'Липсват настройките на пътуванията.')
+        remote = service.files().get_media(fileId=fid).execute()
+        digest = hashlib.sha256(remote).hexdigest()
+        if hashlib.sha256((DATA_DIR/FILENAMES['settings']).read_bytes()).hexdigest() != digest:
+            raise HTTPException(409, 'Локалните данни и Drive се различават. Обнови първо.')
+        rows = list(csv.DictReader(io.StringIO(remote.decode('utf-8-sig'))))
+        if sum(row.get('trip_id') == trip_id for row in rows) != 1:
+            raise HTTPException(409, 'Пътуването не е открито еднозначно.')
+        return {'trip_id': trip_id, 'settings_sha256': digest,
+                'archived': trip_id in _archived_trips(service, mapping), 'recoverable': True}
+
+
+@app.post('/safe/trip-archive', dependencies=[Depends(authorize)])
+def trip_archive(payload: TripArchiveRequest):
+    import time
+    if payload.confirmation != payload.trip_id:
+        raise HTTPException(422, 'Потвърждението не съвпада с името на пътуването.')
+    ensure_local_snapshot()
+    with guarded_csv_write():
+        service = drive_service()
+        if not service: raise HTTPException(503, 'Google Drive е недостъпен.')
+        folder, mapping = folder_and_files(service)
+        sfid = mapping.get(FILENAMES['settings'])
+        if not sfid: raise HTTPException(409, 'Липсва CSV с пътуванията.')
+        raw = service.files().get_media(fileId=sfid).execute()
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest != payload.expected_settings_sha256 or hashlib.sha256((DATA_DIR/FILENAMES['settings']).read_bytes()).hexdigest() != digest:
+            raise HTTPException(409, 'Списъкът с пътувания е променен. Обнови и опитай пак.')
+        rows = list(csv.DictReader(io.StringIO(raw.decode('utf-8-sig'))))
+        if sum(row.get('trip_id') == payload.trip_id for row in rows) != 1:
+            raise HTTPException(409, 'Пътуването не съществува еднозначно.')
+        mfid = mapping.get(_ARCHIVE_FILE)
+        prior = service.files().get_media(fileId=mfid).execute() if mfid else None
+        try:
+            doc = json.loads(prior.decode('utf-8')) if prior else {'archived': {}}
+            if not isinstance(doc,dict) or not isinstance(doc.get('archived'),dict): raise ValueError()
+        except Exception:
+            raise HTTPException(409, 'Невалиден регистър на архивите. Няма промяна.')
+        if payload.trip_id in doc['archived']:
+            raise HTTPException(409, 'Пътуването вече е архивирано.')
+        doc['archived'][payload.trip_id] = {'archived_at': datetime.utcnow().isoformat()+'Z', 'restore_available': True}
+        updated = json.dumps(doc,ensure_ascii=False,indent=2).encode('utf-8')
+        from googleapiclient.http import MediaIoBaseUpload
+        try:
+            if mfid:
+                backup = service.files().copy(fileId=mfid,body={'name':'ARCHIVE_MANIFEST_BACKUP_'+uuid.uuid4().hex},fields='id').execute()
+                if service.files().get_media(fileId=mfid).execute() != prior:
+                    raise HTTPException(409,'Друг профил промени архивния списък. Обнови.')
+                service.files().update(fileId=mfid,media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='application/json',resumable=False)).execute()
+            else:
+                created=service.files().create(body={'name':_ARCHIVE_FILE,'parents':[folder],'mimeType':'application/json'},media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='application/json',resumable=False),fields='id').execute()
+                mfid=created['id']
+            if service.files().get_media(fileId=mfid).execute() != updated:
+                raise RuntimeError('Verification mismatch')
+        except HTTPException: raise
+        except Exception:
+            raise HTTPException(503,'Архивът не е потвърден. Обнови преди повторен опит.')
+        _ARCHIVE_CACHE.update(ids=set(doc['archived']),until=time.monotonic()+4)
+        return {'ok': True, 'trip_id': payload.trip_id, 'archived': True,
+                'message': 'Пътуването е скрито от списъка. Данните и снимките са запазени.'}
+
+
 @app.get('/trips',dependencies=[Depends(authorize)])
 def list_trips():
     ensure_local_snapshot()
     with LOCK:
         settings=load_rows('settings'); expenses=load_rows('expenses'); budgets=load_rows('budgets')
-        ids=list(dict.fromkeys([x.get('trip_id','') for group in (settings,budgets,expenses) for x in group if x.get('trip_id')]))
+        archived = _archived_trips()
+        ids=list(dict.fromkeys([x.get('trip_id','') for group in (settings,budgets,expenses) for x in group if x.get('trip_id') and x.get('trip_id') not in archived]))
         result=[]
         for tid in ids:
             setting=next((s for s in settings if s.get('trip_id')==tid),{})
@@ -690,11 +797,12 @@ def home_places():
     import math
     with LOCK:
         settings=load_rows('settings')
-        valid_ids={str(x.get('trip_id','')).strip() for x in settings if str(x.get('trip_id','')).strip()}
+        archived=_archived_trips()
+        valid_ids={str(x.get('trip_id','')).strip() for x in settings if str(x.get('trip_id','')).strip() and str(x.get('trip_id','')).strip() not in archived}
         places=[]
         for point in load_rows('points'):
             tid=str(point.get('trip_id') or '').strip()
-            if not tid or (tid != FAVORITES_TRIP_ID and valid_ids and tid not in valid_ids):
+            if not tid or tid in archived or (tid != FAVORITES_TRIP_ID and valid_ids and tid not in valid_ids):
                 continue
             try:
                 lat=float(point.get('lat'))
@@ -745,6 +853,7 @@ def dashboard():
         last=None;last_date=None
         names={t['id']:t['name'] for t in trips}
         for row in entries:
+            if row.get('trip_id') not in names: continue
             raw=str(row.get('date') or '').strip()
             try: stamp=datetime.strptime(raw,'%d.%m.%Y %H:%M:%S')
             except ValueError:
