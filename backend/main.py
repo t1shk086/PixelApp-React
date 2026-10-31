@@ -2152,6 +2152,35 @@ def _gallery_folder(service, trip_id, create=False):
     if not gallery: return None
     return child(gallery, hashlib.sha256(trip_id.encode('utf-8')).hexdigest()[:40])
 
+# P91.1: Streamlit stored photos in a separate top-level Photos/trip_<id> folder.
+# Also support the older flat Photos/<id>__gallery__*.jpg layout; never migrate/delete on read.
+def _legacy_gallery_locations(service, trip_id):
+    if not trip_id or len(trip_id) > 240:
+        raise HTTPException(422, 'Невалидно пътуване.')
+    safe = re.sub(r"[^\w.-]+", "_", str(trip_id).strip(), flags=re.UNICODE)
+    q = "name = 'Photos' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    roots = service.files().list(q=q, fields='nextPageToken,files(id)', pageSize=1000).execute().get('files', [])
+    folders = []
+    for root in roots:
+        child_name = 'trip_' + safe
+        child_q = "'%s' in parents and name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false" % (root['id'], child_name.replace("'", "\\'"))
+        children = service.files().list(q=child_q, fields='files(id)', pageSize=100).execute().get('files', [])
+        folders.extend(x['id'] for x in children)
+    return folders, [x['id'] for x in roots], safe + '__gallery__'
+
+
+def _legacy_gallery_items(service, trip_id):
+    folders, roots, prefix = _legacy_gallery_locations(service, trip_id)
+    found = []
+    for folder in folders:
+        found.extend(x for x in _gallery_items(service, folder)
+                     if x.get('name','').startswith(prefix))
+    # Some early Streamlit versions kept photos directly in the Photos folder.
+    for root in roots:
+        found.extend(x for x in _gallery_items(service, root)
+                     if x.get('name','').startswith(prefix))
+    return found
+
 def _gallery_items(service, folder):
     if not folder: return []
     items, token = [], None
@@ -2170,7 +2199,9 @@ def gallery_list(trip_id: str):
         service = drive_service()
         if service is None: raise HTTPException(503, 'Google Drive не е достъпен.')
         folder = _gallery_folder(service, trip_id)
-        return {'photos': _gallery_items(service, folder)}
+        photos = _gallery_items(service, folder) + _legacy_gallery_items(service, trip_id)
+        unique = {photo['id']: photo for photo in photos}
+        return {'photos': sorted(unique.values(), key=lambda x: x.get('createdTime',''), reverse=True)}
     except HTTPException: raise
     except Exception as exc: raise HTTPException(503, 'Не мога да прочета галерията.') from exc
 
@@ -2203,9 +2234,13 @@ async def gallery_upload(trip_id: str, request: Request, filename: str = 'Сни
 def _gallery_check_photo(service, trip_id, photo_id):
     if not re.fullmatch(r'[a-zA-Z0-9_-]{8,160}', photo_id):raise HTTPException(404,'Няма такава снимка.')
     folder = _gallery_folder(service, trip_id)
-    if not folder:raise HTTPException(404,'Няма такава галерия.')
-    file=service.files().get(fileId=photo_id,fields='id,mimeType,parents,trashed').execute()
-    if file.get('trashed') or folder not in file.get('parents',[]) or file.get('mimeType') not in _GALLERY_MIMES:
+    file=service.files().get(fileId=photo_id,fields='id,name,mimeType,parents,trashed').execute()
+    legacy_folders, legacy_roots, prefix = _legacy_gallery_locations(service, trip_id)
+    parents = file.get('parents', [])
+    in_new = bool(folder and folder in parents)
+    in_legacy = (any(parent in parents for parent in legacy_folders + legacy_roots)
+                 and file.get('name','').startswith(prefix))
+    if file.get('trashed') or not (in_new or in_legacy) or file.get('mimeType') not in _GALLERY_MIMES:
         raise HTTPException(404,'Снимката не принадлежи на това пътуване.')
     return file
 
