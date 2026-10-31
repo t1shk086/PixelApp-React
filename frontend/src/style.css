@@ -764,3 +764,16 @@ html[data-pixelapp-skin="graphite"] .travel-progress>div{background:linear-gradi
 @media(max-width:480px){.p9041-finance-dialog{padding:15px;width:calc(100vw - 28px);max-height:90dvh}.p9041-quick-dialog{padding:16px}.p9041-finance-dialog .quick-demo-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.p9041-finance-dialog .quick-demo-grid>div{padding:9px 6px}.p9041-finance-dialog .quick-demo-grid strong{font-size:13px}.p9041-finance-dialog .quick-demo-grid small{font-size:10px}.p9041-expense-info>strong{font-size:12px}}
 
 .p9041-budget-edit{text-align:right}.p9041-budget-edit button{width:auto;min-width:0;padding:5px 8px;background:transparent;border-color:transparent;color:#a8cad9;font-size:12px;box-shadow:none}
+
+/* P90.4.2: single budget editing action in the dashboard header */
+.p9042-budget-head-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
+.p9042-budget-head-actions>span{font-size:12px;color:var(--muted,#a5b7c6)}
+.p9042-edit-link{min-height:32px!important;padding:5px 8px!important;font-size:12px!important;font-weight:600!important;color:var(--text,#e4eff7)!important;background:transparent!important;border:1px solid rgba(166,187,204,.36)!important;border-radius:9px!important;box-shadow:none!important;white-space:nowrap}
+.p9042-edit-link:hover{background:rgba(169,188,203,.11)!important}
+/* Finance dialogs: tighter but accessible mobile form */
+.p9041-finance-dialog .quick-demo-form{gap:8px}
+.p9041-finance-dialog .quick-demo-form label{gap:5px;margin:0}
+.p9041-finance-dialog .quick-demo-form input,.p9041-finance-dialog .quick-demo-form select{min-height:42px;padding:9px 12px}
+.p9041-finance-dialog .quick-demo-form h4{margin:10px 0 4px}
+.p9041-finance-dialog .dialoghead{margin-bottom:8px}
+@media(max-width:480px){.p36-budget-head{align-items:flex-start;gap:7px}.p9042-budget-head-actions{max-width:58%}.p9041-finance-dialog{max-height:calc(100dvh - 42px);overflow-y:auto}.p9041-finance-dialog .quick-demo-grid{margin-bottom:9px!important}}
