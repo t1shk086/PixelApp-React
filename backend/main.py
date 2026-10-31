@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Header
+from fastapi import Depends, FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -2130,3 +2130,104 @@ def safe_basic_save(trip_id:str,payload:SafeBasicSettings):
             raise HTTPException(503,'Неуспешна проверка след запис. Провери преди повторен опит.')
         tmp=path.with_suffix('.p85_verified');tmp.write_bytes(verified);os.replace(tmp,path)
         return {'ok':True,'backup_id':backup['id']}
+
+
+# P91: Travel photo gallery. Files live separately from all legacy CSVs.
+# List is read-only; upload creates only a photo and folders, deletion moves a photo to trash.
+_GALLERY_ROOT = 'PixelApp_Gallery'
+_GALLERY_LIMIT = 8 * 1024 * 1024
+_GALLERY_MIMES = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
+
+def _gallery_folder(service, trip_id, create=False):
+    if not trip_id or len(trip_id) > 240: raise HTTPException(422, 'Невалидно пътуване.')
+    root, _ = folder_and_files(service)
+    def child(parent, name):
+        q = "'%s' in parents and name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false" % (parent, name)
+        found = service.files().list(q=q, fields='files(id)', pageSize=20).execute().get('files', [])
+        if found: return found[0]['id']
+        if not create: return None
+        return service.files().create(body={'name': name, 'mimeType':'application/vnd.google-apps.folder',
+            'parents':[parent]}, fields='id').execute()['id']
+    gallery = child(root, _GALLERY_ROOT)
+    if not gallery: return None
+    return child(gallery, hashlib.sha256(trip_id.encode('utf-8')).hexdigest()[:40])
+
+def _gallery_items(service, folder):
+    if not folder: return []
+    items, token = [], None
+    while True:
+        result = service.files().list(q="'%s' in parents and trashed = false" % folder,
+            fields='nextPageToken,files(id,name,mimeType,size,createdTime)', pageSize=1000,
+            pageToken=token).execute()
+        items += [x for x in result.get('files',[]) if x.get('mimeType') in _GALLERY_MIMES]
+        token = result.get('nextPageToken')
+        if not token: break
+    return sorted(items,key=lambda x:x.get('createdTime',''),reverse=True)
+
+@app.get('/gallery/{trip_id}', dependencies=[Depends(authorize)])
+def gallery_list(trip_id: str):
+    try:
+        service = drive_service()
+        if service is None: raise HTTPException(503, 'Google Drive не е достъпен.')
+        folder = _gallery_folder(service, trip_id)
+        return {'photos': _gallery_items(service, folder)}
+    except HTTPException: raise
+    except Exception as exc: raise HTTPException(503, 'Не мога да прочета галерията.') from exc
+
+@app.post('/gallery/{trip_id}', dependencies=[Depends(authorize)])
+async def gallery_upload(trip_id: str, request: Request, filename: str = 'Снимка'):
+    mime = request.headers.get('content-type','').split(';')[0].lower().strip()
+    if mime not in _GALLERY_MIMES: raise HTTPException(415, 'Поддържат се JPEG, PNG и WebP.')
+    if request.headers.get('content-length') and int(request.headers['content-length']) > _GALLERY_LIMIT:
+        raise HTTPException(413, 'Максималният размер е 8 MB.')
+    raw = await request.body()
+    if not raw or len(raw)>_GALLERY_LIMIT: raise HTTPException(413,'Снимката е празна или над 8 MB.')
+    if not ((mime=='image/jpeg' and raw.startswith(b'\xff\xd8\xff')) or
+            (mime=='image/png' and raw.startswith(b'\x89PNG\r\n\x1a\n')) or
+            (mime=='image/webp' and raw[:4]==b'RIFF' and raw[8:12]==b'WEBP')):
+        raise HTTPException(415,'Файлът не е валидна снимка.')
+    try:
+        service=drive_service()
+        if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+        folder=_gallery_folder(service,trip_id,create=True)
+        if len(_gallery_items(service,folder))>=300:raise HTTPException(409,'Достигнат е лимитът от 300 снимки.')
+        from googleapiclient.http import MediaIoBaseUpload
+        safe_name = Path(filename).stem.strip()[:90] or 'Снимка'
+        safe_name = re.sub(r'[\x00-\x1f/\\]', '_', safe_name)
+        uploaded=service.files().create(body={'name':safe_name+'_'+uuid.uuid4().hex[:8]+_GALLERY_MIMES[mime],
+          'parents':[folder]},media_body=MediaIoBaseUpload(io.BytesIO(raw),mimetype=mime,resumable=False),fields='id,name,mimeType').execute()
+        return {'ok':True,'photo':uploaded}
+    except HTTPException:raise
+    except Exception as exc:raise HTTPException(503,'Неуспешен запис на снимката в Google Drive.') from exc
+
+def _gallery_check_photo(service, trip_id, photo_id):
+    if not re.fullmatch(r'[a-zA-Z0-9_-]{8,160}', photo_id):raise HTTPException(404,'Няма такава снимка.')
+    folder = _gallery_folder(service, trip_id)
+    if not folder:raise HTTPException(404,'Няма такава галерия.')
+    file=service.files().get(fileId=photo_id,fields='id,mimeType,parents,trashed').execute()
+    if file.get('trashed') or folder not in file.get('parents',[]) or file.get('mimeType') not in _GALLERY_MIMES:
+        raise HTTPException(404,'Снимката не принадлежи на това пътуване.')
+    return file
+
+@app.get('/gallery/{trip_id}/{photo_id}',dependencies=[Depends(authorize)])
+def gallery_photo(trip_id:str,photo_id:str):
+    try:
+        service=drive_service()
+        if service is None:raise HTTPException(503,'Google Drive не е достъпен.')
+        info=_gallery_check_photo(service,trip_id,photo_id)
+        raw=service.files().get_media(fileId=photo_id).execute()
+        return Response(content=raw,media_type=info['mimeType'],headers={'Cache-Control':'private, max-age=120'})
+    except HTTPException:raise
+    except Exception as exc:raise HTTPException(503,'Неуспешно зареждане на снимката.') from exc
+
+@app.delete('/gallery/{trip_id}/{photo_id}',dependencies=[Depends(authorize)])
+def gallery_delete(trip_id:str,photo_id:str):
+    try:
+        service=drive_service()
+        if service is None:raise HTTPException(503,'Google Drive не е достъпен.')
+        _gallery_check_photo(service,trip_id,photo_id)
+        # Recoverable: move to Drive trash, never permanently delete.
+        service.files().update(fileId=photo_id,body={'trashed':True},fields='id,trashed').execute()
+        return {'ok':True}
+    except HTTPException:raise
+    except Exception as exc:raise HTTPException(503,'Неуспешно изтриване на снимката.') from exc
