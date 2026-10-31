@@ -329,6 +329,8 @@ function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,bu
 function TripGallery({tripId,authHeaders}){
  const [photos,setPhotos]=useState([]),[urls,setUrls]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[selected,setSelected]=useState(null),[visibleCount,setVisibleCount]=useState(18);
  const urlsRef=useRef({});
+ const selectedIndex=selected?photos.findIndex(p=>p.id===selected.id):-1;
+ const showAt=(index)=>{if(index<0||index>=photos.length)return;setSelected(photos[index]);if(index>=visibleCount)setVisibleCount(n=>Math.max(n,index+1));};
  const base=`${apiBase}/gallery/${encodeURIComponent(tripId)}`;
  const load=async()=>{
   setError('');setBusy(true);
@@ -392,11 +394,14 @@ function TripGallery({tripId,authHeaders}){
     {urls[photo.id]?<img src={urls[photo.id]} loading="lazy" alt={photo.name}/>:<span>📷</span>}
    </button>)}</div>
    {photos.length>visibleCount&&<button type="button" className="gallery-p91-more" onClick={()=>setVisibleCount(n=>n+18)}>Покажи още снимки ({photos.length-visibleCount})</button>}
-   {selected&&<div className="gallery-p91-viewer" role="dialog" aria-modal="true" aria-label="Преглед на снимка" onClick={()=>setSelected(null)}>
+   {selected&&<div className="gallery-p91-viewer" role="dialog" aria-modal="true" aria-label="Преглед на снимка" onClick={()=>setSelected(null)} onKeyDown={e=>{if(e.key==='Escape')setSelected(null);if(e.key==='ArrowLeft')showAt(selectedIndex-1);if(e.key==='ArrowRight')showAt(selectedIndex+1);}}>
     <div className="gallery-p91-viewer-inner" onClick={e=>e.stopPropagation()}>
-     <button type="button" className="gallery-p91-close" onClick={()=>setSelected(null)}>✕ Затвори</button>
-     {urls[selected.id]?<img src={urls[selected.id]} alt={selected.name}/>:<p>Зареждам снимката…</p>}
-     <div className="gallery-p91-viewer-bottom"><span>{selected.name}</span><button type="button" disabled={busy} onClick={()=>removePhoto(selected)}>🗑️ Изтрий</button></div>
+     <header className="gallery-p91-viewer-top"><div className="gallery-p91-viewer-titles"><strong>📸 Галерия</strong><span>Снимка {selectedIndex+1} от {photos.length}</span></div><button type="button" className="gallery-p91-close" onClick={()=>setSelected(null)} aria-label="Затвори прегледа">✕</button></header>
+     <div className="gallery-p91-viewer-photo" onTouchStart={e=>{e.currentTarget.dataset.touchX=String(e.touches[0]?.clientX??0)}} onTouchEnd={e=>{const distance=(e.changedTouches[0]?.clientX??0)-Number(e.currentTarget.dataset.touchX||0);if(Math.abs(distance)>65)showAt(selectedIndex+(distance<0?1:-1));}}>
+      {urls[selected.id]?<img src={urls[selected.id]} alt={`Снимка ${selectedIndex+1}`}/>:<p>Зареждам снимката…</p>}
+     </div>
+     <nav className="gallery-p91-viewer-nav" aria-label="Смяна на снимка"><button type="button" disabled={selectedIndex<=0} onClick={()=>showAt(selectedIndex-1)} aria-label="Предишна снимка">‹</button><span>{selectedIndex+1} / {photos.length}</span><button type="button" disabled={selectedIndex>=photos.length-1} onClick={()=>showAt(selectedIndex+1)} aria-label="Следваща снимка">›</button></nav>
+     <div className="gallery-p91-viewer-bottom"><span>Снимки от пътуването</span><button type="button" className="gallery-p91-delete" disabled={busy} onClick={()=>removePhoto(selected)}>🗑 Изтрий снимката</button></div>
     </div>
    </div>}
   </section>;
