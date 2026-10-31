@@ -732,3 +732,12 @@ html[data-pixelapp-skin="graphite"] select{background:#20262d;border-color:#5360
 html[data-pixelapp-skin="graphite"] .brand span{background:linear-gradient(110deg,#fff,#bdc9d4);background-clip:text;color:transparent}
 html[data-pixelapp-skin="graphite"] .home-trip .track>div,
 html[data-pixelapp-skin="graphite"] .travel-progress>div{background:linear-gradient(90deg,#778b9a,#d1d8de)}
+
+/* P90.4 — small link and compact budget mode switch */
+.p904-budget-link{border:0!important;background:transparent!important;box-shadow:none!important;color:var(--muted,#93a8bb)!important;font-size:12px!important;font-weight:500;padding:5px 3px!important;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px;white-space:nowrap}
+.p904-budget-link:hover,.p904-budget-link:focus-visible{text-decoration-color:currentColor;color:var(--text,#e3edf5)!important}
+.p904-budget-edit{display:flex;justify-content:flex-end;margin:0 0 12px}
+.p904-budget-edit button{font-size:12px;padding:7px 11px}
+.p904-budget-mode{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:10px 0 14px}
+.p904-budget-mode button{border:1px solid rgba(140,157,173,.36);background:rgba(125,140,154,.09);color:inherit;border-radius:12px;padding:10px;font-weight:600}
+.p904-budget-mode button.selected{background:rgba(132,156,177,.25);border-color:rgba(179,197,215,.7);box-shadow:inset 0 0 0 1px rgba(179,197,215,.2)}
