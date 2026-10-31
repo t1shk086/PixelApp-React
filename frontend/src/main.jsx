@@ -296,7 +296,7 @@ function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,bu
  const cats=Object.entries(byCat).filter(([,amount])=>amount>0).sort((a,b)=>b[1]-a[1]).slice(0,6);
  const catTotal=Object.values(byCat).reduce((a,b)=>a+Number(b||0),0);
  return <section className="travel-card p36-budget" aria-label="Финансово табло">
-  <div className="p36-budget-head"><h3>📊 Финансово табло</h3><div className="p9042-budget-head-actions"><span>{globalBudget>0?'Общ бюджет':'Бюджети по категории'}</span>{onEdit&&<button type="button" className="p9042-edit-link" onClick={onEdit} aria-label="Редактирай бюджета">✎ Редактирай</button>}</div></div>
+  <div className="p36-budget-head p9043-budget-head"><h3>📊 Финансово табло</h3>{onEdit&&<button type="button" className="p9042-edit-link" onClick={onEdit} aria-label="Редактирай бюджета">✎ Редактирай</button>}</div><div className="p9043-budget-mode">{globalBudget>0?'Общ бюджет':'Бюджети по категории'}</div>
   {!hasBudget&&<p className="p36-budget-note">Няма зададен бюджет. Разходите по дни и категории остават достъпни, но дневният план изисква бюджет.</p>}
   <div className="p36-kpis">
    <div><small>ОБЩ БЮДЖЕТ</small><strong className="p36-green">{hasBudget?money(budgetTotal):'—'}</strong><span>{globalBudget>0?'Общ бюджет':'По категории'}</span></div>
@@ -572,7 +572,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  <div className="travel-card visual-section"><h3>💳 Разходи по категории</h3>{Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,val],i)=>{const ratio=allCosts>0?Math.max(0,Math.min(100,val/allCosts*100)):0;return <div className="visual-category" key={name}><div className="visual-category-head"><span><i className={'visual-category-dot visual-palette-'+i%5}/>{name}</span><strong>{money(val)}</strong></div><div className="visual-category-bar"><span className={'visual-palette-bg-'+i%5} style={{width:ratio+'%'}}/></div><small>{ratio.toFixed(1)}% от общите разходи</small></div>}):<p className="muted">Няма записани разходи.</p>}</div>
  <div className="travel-card visual-section"><h3>🚗 Гориво и път</h3><div className="visual-overview-stats visual-road-stats"><div className="overview-tile"><span>🛣️</span><small>Изминато</small><strong>{km.toLocaleString('bg-BG')} <em>км</em></strong></div><div className="overview-tile"><span>⛽</span><small>Среден разход</small><strong>{avg?avg.toFixed(1):'—'} <em>л/100 км</em></strong></div></div></div>
  </>}
- {section==='expenses'&&<><div className="p24-section-actions"><button type="button" onClick={()=>onOpenPreview('quick-demo')}>➕ Добави или редактирай разход</button><button type="button" className="p904-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div><ExpenseHistory rows={rows}/></>}
+ {section==='expenses'&&<><div className="p9043-expense-actions"><button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button><button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div><ExpenseHistory rows={rows}/></>}
  {section==='fuel'&&<>
 
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>

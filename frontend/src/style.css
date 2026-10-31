@@ -777,3 +777,14 @@ html[data-pixelapp-skin="graphite"] .travel-progress>div{background:linear-gradi
 .p9041-finance-dialog .quick-demo-form h4{margin:10px 0 4px}
 .p9041-finance-dialog .dialoghead{margin-bottom:8px}
 @media(max-width:480px){.p36-budget-head{align-items:flex-start;gap:7px}.p9042-budget-head-actions{max-width:58%}.p9041-finance-dialog{max-height:calc(100dvh - 42px);overflow-y:auto}.p9041-finance-dialog .quick-demo-grid{margin-bottom:9px!important}}
+
+/* P90.4.3: compact expenses navigation and aligned budget edit */
+.p9043-budget-head{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:space-between!important;gap:8px!important}
+.p9043-budget-head h3{min-width:0;font-size:clamp(15px,4vw,21px)!important;line-height:1.25}
+.p9043-budget-head .p9042-edit-link{flex:0 0 auto;margin-left:auto!important;font-size:12px!important;padding:6px 8px!important}
+.p9043-budget-mode{font-size:12px;color:var(--muted,#a5b7c6);margin:-5px 0 14px}
+.p9043-expense-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 15px;padding:0;border:0;background:none}
+.p9043-add-expense{min-height:42px;padding:9px 15px;border:1px solid #477083;border-radius:12px;background:#214658;color:#edf9fd;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap}
+.p9043-budget-link{background:none;border:0;box-shadow:none;color:var(--muted,#a5b7c6);font-size:12px;font-weight:500;cursor:pointer;padding:8px 4px;white-space:nowrap}
+.p9043-budget-link:hover,.p9043-budget-link:focus-visible{text-decoration:underline;color:var(--text,#e8f0f6)}
+@media(max-width:370px){.p9043-add-expense{font-size:12px;padding:8px 10px}.p9043-budget-head h3{font-size:14px!important}.p9043-budget-head .p9042-edit-link{font-size:11px!important;padding:5px!important}}
