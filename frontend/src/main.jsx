@@ -386,11 +386,11 @@ function TripGallery({tripId,authHeaders}){
  }
  return <section className="travel-card gallery-p91">
    <div className="gallery-p91-head"><div><h3>📸 Галерия</h3><p className="muted">Снимки само от това пътуване · общи за двата профила</p></div><label className={'gallery-p91-add'+(busy?' disabled':'')}>
-      ＋ Добави снимки<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={addPhotos}/></label></div>
+      ＋ Добави<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={addPhotos}/></label></div>
    {error&&<p role="alert" className="error">⚠️ {error}</p>}
    {busy&&<p role="status" className="muted">Обработвам снимките…</p>}
    {!busy&&!photos.length&&<div className="gallery-p91-empty">🖼️ Тук ще се появят снимките от пътуването.</div>}
-   <div className="gallery-p91-grid">{photos.slice(0,visibleCount).map(photo=><button type="button" className="gallery-p91-tile" key={photo.id} onClick={()=>setSelected(photo)} aria-label={`Отвори ${photo.name}`}>
+   <div className="gallery-p91-grid">{photos.slice(0,visibleCount).map((photo,i)=><button type="button" className="gallery-p91-tile" key={photo.id} onClick={()=>setSelected(photo)} aria-label={`Отвори снимка ${i+1}`}><span className="gallery-p91-tile-mark" aria-hidden="true">↗</span>
     {urls[photo.id]?<img src={urls[photo.id]} loading="lazy" alt={photo.name}/>:<span>📷</span>}
    </button>)}</div>
    {photos.length>visibleCount&&<button type="button" className="gallery-p91-more" onClick={()=>setVisibleCount(n=>n+18)}>Покажи още снимки ({photos.length-visibleCount})</button>}
