@@ -788,3 +788,107 @@ html[data-pixelapp-skin="graphite"] .travel-progress>div{background:linear-gradi
 .p9043-budget-link{background:none;border:0;box-shadow:none;color:var(--muted,#a5b7c6);font-size:12px;font-weight:500;cursor:pointer;padding:8px 4px;white-space:nowrap}
 .p9043-budget-link:hover,.p9043-budget-link:focus-visible{text-decoration:underline;color:var(--text,#e8f0f6)}
 @media(max-width:370px){.p9043-add-expense{font-size:12px;padding:8px 10px}.p9043-budget-head h3{font-size:14px!important}.p9043-budget-head .p9042-edit-link{font-size:11px!important;padding:5px!important}}
+
+
+/* P90.5 — complete, per-account visual skins. Only CSS / presentation. */
+/* Tokens keep the full app, including the map module's panels, in one palette. */
+html[data-pixelapp-skin="graphite"]{
+ --skin-bg:#14191f;--skin-bg2:#202932;--skin-surface:#242e37;--skin-surface2:#182129;
+ --skin-tile:#131c24;--skin-border:#506171;--skin-field:#18222b;--skin-text:#f0f5f7;
+ --skin-muted:#b0bfca;--skin-accent:#a6e0d5;--skin-accent2:#85bfc6;--skin-glow:#92dfce27;
+ --skin-progress:linear-gradient(90deg,#60b6b5,#c1ebd7);
+ color:var(--skin-text);color-scheme:dark;
+}
+html[data-pixelapp-skin="slate"]{
+ --skin-bg:#dce6ed;--skin-bg2:#f1f5f7;--skin-surface:#f7fafc;--skin-surface2:#e7eef4;
+ --skin-tile:#fff;--skin-border:#adbfcb;--skin-field:#fff;--skin-text:#273947;
+ --skin-muted:#576d7d;--skin-accent:#1c8092;--skin-accent2:#537c9a;--skin-glow:#52a4b41f;
+ --skin-progress:linear-gradient(90deg,#228fac,#57c3c6);
+ color:var(--skin-text);color-scheme:light;
+}
+html[data-pixelapp-skin="ocean"]{
+ --skin-bg:#081526;--skin-bg2:#0c2e49;--skin-surface:#143b55;--skin-surface2:#092840;
+ --skin-tile:#0a2137;--skin-border:#346583;--skin-field:#0d2a40;--skin-text:#f0f8ff;
+ --skin-muted:#aec8dc;--skin-accent:#62ddfc;--skin-accent2:#7cafff;--skin-glow:#35c6f42d;
+ --skin-progress:linear-gradient(90deg,#328afc,#53e0e9);
+ color:var(--skin-text);color-scheme:dark;
+}
+/* Graphite overrides in P90.3 remain as fallback; these rules take final precedence. */
+html[data-pixelapp-skin="graphite"] body,
+html[data-pixelapp-skin="slate"] body,
+html[data-pixelapp-skin="ocean"] body{
+ background:radial-gradient(ellipse at 95% -9%,var(--skin-glow),transparent 47%),
+ linear-gradient(155deg,var(--skin-bg2),var(--skin-bg) 60%);color:var(--skin-text);
+}
+html[data-pixelapp-skin="graphite"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest),
+html[data-pixelapp-skin="slate"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest),
+html[data-pixelapp-skin="ocean"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest){
+ background:linear-gradient(152deg,var(--skin-surface),var(--skin-surface2))!important;
+ border-color:var(--skin-border)!important;
+ color:var(--skin-text);box-shadow:0 12px 28px #0002,inset 0 1px #ffffff16;
+}
+html[data-pixelapp-skin="graphite"] :is(.home-trip,.home-actions button),
+html[data-pixelapp-skin="slate"] :is(.home-trip,.home-actions button),
+html[data-pixelapp-skin="ocean"] :is(.home-trip,.home-actions button){
+ background:linear-gradient(145deg,var(--skin-surface),var(--skin-surface2))!important;
+ border-color:var(--skin-border)!important;color:var(--skin-text);
+}
+/* Common theme-aware cards, including route / favorites / map-panels. Leaflet raster tiles are deliberately unchanged. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .p82-shell,.p82-panel,.p82-route,.p82-favorite-panel,.p82-add-panel,
+ .p81-card,.route76-wrap,.route76-stop,.route78-stop,.map-showcase,.map-place-row,
+ .p36-budget,.budget-visual-row,.budget-showcase,.p29-expense-item,.p29-expense-history,
+ .p9041-expense-card,.home-stats>div,.travel-facts>div,.fuel-metrics>div,
+ .quick-demo-grid>div,.p34-hero-heading,.p83-place){
+ background:linear-gradient(145deg,var(--skin-surface),var(--skin-surface2))!important;
+ border-color:var(--skin-border)!important;color:var(--skin-text);
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ button:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out),
+ .travel-menu button,.p82-tabs button,.p25-tabs button,.p9043-add-expense){
+ background:linear-gradient(155deg,var(--skin-surface),var(--skin-surface2))!important;
+ color:var(--skin-text)!important;border-color:var(--skin-border)!important;
+ box-shadow:inset 0 1px #ffffff12,0 3px 9px #0002;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .travel-menu button.selected,.tabs button.active,.p82-tabs button.active,
+ .p82-tabs button.selected,.p25-tabs button.active,.p904-budget-mode button.selected){
+ color:var(--skin-text)!important;
+ background:linear-gradient(145deg,var(--skin-surface),var(--skin-glow))!important;
+ border-color:var(--skin-accent)!important;
+ box-shadow:inset 0 -3px var(--skin-accent),0 4px 15px var(--skin-glow)!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(input,select,textarea){
+ background:var(--skin-field)!important;border-color:var(--skin-border)!important;color:var(--skin-text)!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(input,select,textarea):focus-visible{
+ outline:2px solid var(--skin-accent);outline-offset:1px;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .home-stats strong,.travel-facts strong,.p38-latest-main>b,.fuel-metrics b,
+ .budget-visual-head b,.home-extra strong){color:var(--skin-accent)!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .track>div,.travel-progress>div,.budget-visual-track span,.fuel-track>div){
+ background:var(--skin-progress)!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .brand span{
+ background:linear-gradient(110deg,var(--skin-text),var(--skin-accent));background-clip:text;color:transparent;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(.muted,.sub,.travel-dates,.p9043-budget-mode,.p9043-budget-link,.p9042-budget-head-actions>span){color:var(--skin-muted)!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p9043-budget-link{
+ background:transparent!important;border:0!important;box-shadow:none!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p9042-edit-link{
+ background:transparent!important;box-shadow:none!important;
+}
+/* Light Slate is intentionally legible: adjust inherited hardcoded dark-theme text too. */
+html[data-pixelapp-skin="slate"] :is(.panel,.dialog,.travel-card,.travel-hero,.summary,.trip,.p82-panel,.home-extra,.home-places) :is(h2,h3,h4,p,label,small,strong){color:var(--skin-text)}
+html[data-pixelapp-skin="slate"] :is(.ghost,.outline,.travel-line,.line){color:var(--skin-text)!important}
+html[data-pixelapp-skin="slate"] :is(.home-places-head,.home-heading,.home-trip .tripstatus,.home-trip .remaining,.travel-overline){color:var(--skin-muted)!important}
+html[data-pixelapp-skin="slate"] .leaflet-container{color:#21384b;color-scheme:light}
+/* Preserve readability of map controls and standard Leaflet popups irrespective of theme. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-container :is(.leaflet-control-zoom a,.leaflet-popup-content,.leaflet-popup-content-wrapper){color:#203344!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-control-zoom a{background:#fff!important;border-color:#bac9d4!important;box-shadow:none!important}
+@media(prefers-reduced-motion:no-preference){
+ html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(.travel-card,.home-trip,.p82-panel,button){transition:background .18s ease,border-color .18s ease,box-shadow .18s ease}
+}
