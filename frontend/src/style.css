@@ -1463,3 +1463,30 @@ html[data-pixelapp-skin="obsidian"] .gallery-p91{--gal-outline:#718293}
 html[data-pixelapp-skin="ocean"] .gallery-p91{--gal-outline:#3a729b}
 @media(min-width:800px){.gallery-p91-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(prefers-reduced-motion:reduce){.gallery-p91-tile,.gallery-p91-tile img,.gallery-p91-add{transition:none}}
+
+/* P91.4 — spacious destination cards, based on the approved Streamlit proportions. */
+.home-trip{
+ margin-block:19px!important;
+ border-radius:22px!important;
+ border-width:1px 1px 1px 4px!important;
+ border-style:solid!important;
+ padding:19px 20px 25px!important;
+ min-height:120px;
+ background-image:radial-gradient(ellipse at 94% 0%,rgba(78,202,218,.12),transparent 56%),linear-gradient(151deg,var(--skin-surface,#202f3c),var(--skin-surface2,#111b25))!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 12px 24px rgba(0,0,0,.20),0 4px 9px rgba(0,0,0,.10)!important;
+ transition:transform .16s ease,box-shadow .16s ease;
+}
+.home-trip:active{transform:scale(.992)}
+.home-trip .triptitle{font-size:17px;line-height:1.35;letter-spacing:.05px}
+.home-trip .tripstatus{line-height:1.55}
+.home-trip .numbers{margin-top:18px}
+.home-trip .track{height:5px}
+html[data-pixelapp-skin="slate"] .home-trip{
+ background-image:radial-gradient(ellipse at 90% 0%,rgba(46,150,166,.10),transparent 60%),linear-gradient(150deg,#fcfeff,#e7eff5)!important;
+ box-shadow:inset 0 1px 0 #fff,0 12px 23px rgba(41,70,89,.16),0 3px 7px rgba(41,70,89,.08)!important;
+}
+html[data-pixelapp-skin="slate"] .home-trip .numbers strong,
+html[data-pixelapp-skin="slate"] .home-trip .remaining strong{color:#253d4b!important}
+.p914-name-preview{font-size:13px;margin:0;color:var(--skin-muted,#a9bdc9)}
+.p914-name-preview strong{color:var(--skin-accent,#6eddf3)}
+@media(max-width:480px){.home-trip{margin-block:18px!important;padding:17px 16px 23px!important}}

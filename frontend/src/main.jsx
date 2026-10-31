@@ -1606,10 +1606,28 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
 }
 
 
-function RegularNewTrip({onClose,onPreflight,onCreate,onSaved}){
+// Display labels stay human-readable; React and Streamlit IDs remain untouched.
+function nextDestinationLabel(input,tripList){
+ const base=String(input||'').trim().replace(/\s+/g,' ');
+ if(!base)return '';
+ const canonical=s=>String(s||'').normalize('NFKC').toLocaleLowerCase('bg-BG').replace(/[_\s]+/g,' ').trim();
+ const root=canonical(base);
+ let max=0;
+ for(const trip of tripList||[]){
+  const label=canonical(trip.name||trip.id||'');
+  if(label===root){max=Math.max(max,1);continue;}
+  if(!label.startsWith(root+' '))continue;
+  const suffix=label.slice(root.length+1);
+  if(/^\d+$/.test(suffix))max=Math.max(max,Number(suffix));
+ }
+ return max?`${base} ${max+1}`:base;
+}
+
+function RegularNewTrip({onClose,onPreflight,onCreate,onSaved,trips=[]}){
  const [name,setName]=useState(''),[start,setStart]=useState(''),[end,setEnd]=useState('');
  const [car,setCar]=useState(true),[km,setKm]=useState(''),[busy,setBusy]=useState(false);
  const [message,setMessage]=useState('');
+ const suggestedName=nextDestinationLabel(name,trips);
  const toBG=s=>s?`${s.slice(8,10)}.${s.slice(5,7)}.${s.slice(0,4)}`:'';
  const valid=name.trim().length>=2&&!!start&&!!end&&end>=start&&(!car||(km.trim()!==''&&Number.isInteger(Number(km))&&Number(km)>=0));
  async function submit(e){e.preventDefault();if(!valid||busy)return;
@@ -1617,7 +1635,7 @@ function RegularNewTrip({onClose,onPreflight,onCreate,onSaved}){
   try{
    const check=await onPreflight();
    if(!check.enabled||!check.drive_matches_local||!check.settings_sha256)throw Error('Данните не са синхронизирани или създаването е спряно. Няма запис.');
-   const result=await onCreate({name:name.trim(),start_date:toBG(start),end_date:toBG(end),car_trip:car,start_km:car?Number(km):0,expected_sha256:check.settings_sha256});
+   const result=await onCreate({name:suggestedName,start_date:toBG(start),end_date:toBG(end),car_trip:car,start_km:car?Number(km):0,expected_sha256:check.settings_sha256});
    setMessage('✅ Създадено: '+result.trip_id+'. Архив в Google Drive: '+result.backup_id);
    await onSaved(result.trip_id);
   }catch(err){setMessage('⚠️ '+String(err.message||err)+' Ако връзката е прекъснала, първо провери списъка с пътувания, вместо да натискаш повторно.');}
@@ -1628,6 +1646,7 @@ function RegularNewTrip({onClose,onPreflight,onCreate,onSaved}){
   <p className="muted">Създаване с автоматична сверка и архив в Google Drive. Старите пътувания не се променят. Не използвай едновременно Streamlit.</p>
   <form className="quick-demo-form" onSubmit={submit}>
    <label>Име на пътуването<input value={name} onChange={e=>setName(e.target.value)} maxLength={80} placeholder="Например: Италия 2027" required/></label>
+   {suggestedName!==name.trim()&&<p className="p914-name-preview">Следващо свободно име: <strong>{suggestedName}</strong></p>}
    <label>Начална дата<input type="date" value={start} onChange={e=>setStart(e.target.value)} required/></label>
    <label>Крайна дата<input type="date" value={end} min={start||undefined} onChange={e=>setEnd(e.target.value)} required/></label>
    <label>Пътуване<select value={car?'yes':'no'} onChange={e=>setCar(e.target.value==='yes')}><option value="yes">С автомобил</option><option value="no">Без автомобил</option></select></label>
@@ -1878,7 +1897,7 @@ function App(){
   {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
   {modal==='test-finance'&&<TestFinancePreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload()}/> }
  {modal==='edit-test-trip'&&<TestTripEditPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-trip-edit-preflight')} onEdit={payload=>req('/safety/test-trip-edit','POST',payload)} onSaved={()=>reload()}/> }
- {modal==='regular-new-trip'&&<RegularNewTrip onClose={()=>setModal('')} onPreflight={()=>req('/safe/new-trip-preflight')} onCreate={payload=>req('/safe/new-trip','POST',payload)} onSaved={async()=>{await reload();}}/>}
+ {modal==='regular-new-trip'&&<RegularNewTrip trips={trips} onClose={()=>setModal('')} onPreflight={()=>req('/safe/new-trip-preflight')} onCreate={payload=>req('/safe/new-trip','POST',payload)} onSaved={async()=>{await reload();}}/>}
  {modal==='new-trip-safety'&&<NewTripSafetyPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/new-trip-preflight')} onCreate={payload=>req('/safety/new-trip-create','POST',payload)} onSaved={()=>reload()}/>}
  {(modal==='trip-demo'||modal==='trip-fuel')&&<TripManagementPreview trips={trips} initialTripId={current||undefined} defaultPanel={modal==='trip-fuel'?'fuel':'basic'} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} expenseDrafts={expenseDrafts} onUpdateDraft={updateExpenseDraft} reactOwned={reactOwnedTrips.includes(current)} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onFinishPreflight={()=>req(`/safe/finish-preflight/${encodeURIComponent(current)}`)} onFinishSave={payload=>req(`/safe/finish/${encodeURIComponent(current)}`,'POST',payload)} onBasicPreflight={()=>req(`/safe/basic-preflight/${encodeURIComponent(current)}`)} onBasicSave={payload=>req(`/safe/basic/${encodeURIComponent(current)}`,'POST',payload)} onCategoryPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onCategorySave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)} onClose={()=>setModal('')}/>}
  {modal==='fuel-demo'&&<FuelEntryPreview trips={trips} initialTripId={current||undefined} loadTrip={id=>req(`/trips/${encodeURIComponent(id)}`)} onClose={()=>setModal('')}/>}
