@@ -1310,3 +1310,44 @@ html[data-pixelapp-skin] .p29-expense-item {align-items:flex-start;gap:10px}
 html[data-pixelapp-skin] .p29-expense-info strong {overflow-wrap:anywhere;line-height:1.35}
 html[data-pixelapp-skin] .p29-expense-item>b {flex-shrink:0}
 html[data-pixelapp-skin] .p29-expense-extra {color:var(--contrast-secondary,var(--skin-muted,#b6c9d6))!important}
+
+/* P90.5.9 — fuel history contrast only. The manual fuel tile intentionally
+   keeps its dark background in every theme, including Slate Light. */
+html[data-pixelapp-skin] .fuel-history-card .p35-history-counters span {
+  color:#e5f5ff!important;
+  background:linear-gradient(145deg,#203c4e,#132b3b)!important;
+  border-color:#53798b!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p35-history-counters span b {
+  color:#8ce7ff!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-card {
+  color:#eaf6ff!important;
+  background:linear-gradient(145deg,#193446,#102433)!important;
+  border-color:#4b8096!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-head,
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-head > span:first-child {
+  color:#ffce8c!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-tag {
+  color:#e8f4ff!important;
+  background:#244457!important;
+  border-color:#638b9f!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-amount {
+  color:#7ce8ff!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-amount small {
+  color:#cdeefa!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-footer {
+  color:#c7dbe8!important;
+  border-top-color:#466779!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-footer span {
+  color:#c7dbe8!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p33-manual-footer strong {
+  color:#ffddab!important;
+}
