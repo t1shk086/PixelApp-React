@@ -1131,3 +1131,86 @@ html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]):not([data-pixelapp
 html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .visual-gauges .gauge-circle :is(b,strong,em){color:#f2f8fc!important}
 /* Side-by-side input widgets are readable in their actual surface. */
 html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(.task-preview-item,.p36-budget-item) :is(input,select,textarea){background:var(--skin-field)!important;color:var(--skin-text)!important}
+
+
+/* P90.5.6 — vehicle dashboard concept: one palette-driven relief system.
+   Does not touch data/logic or the functional content of the existing panels. */
+html[data-pixelapp-skin] {
+  --vehicle-elevation: 0 12px 25px #0004, 0 3px 7px #0002, inset 0 1px 0 #ffffff22;
+  --vehicle-ink: var(--skin-text, #edf5fc);
+  --vehicle-secondary: var(--skin-muted, #afc4d2);
+  --vehicle-edge: var(--skin-border, #3b596b);
+  --vehicle-top: var(--skin-surface, #1d3342);
+  --vehicle-bottom: var(--skin-surface2, #111d28);
+  --vehicle-inner: var(--skin-tile, #101e2b);
+}
+html[data-pixelapp-skin="standard"] {
+  --vehicle-top:#21394b;--vehicle-bottom:#111d2a;
+  --vehicle-inner:#102333;--vehicle-edge:#44687e;
+  --vehicle-ink:#f5f9fe;--vehicle-secondary:#b8cad9;
+}
+html[data-pixelapp-skin="slate"] {
+  --vehicle-top:#ffffff;--vehicle-bottom:#e4ecf3;
+  --vehicle-inner:#eef4f9;--vehicle-edge:#a6bbcb;
+  --vehicle-ink:#23394b;--vehicle-secondary:#506879;
+  --vehicle-elevation:0 13px 24px #2d46552c,0 4px 7px #2d46551a,inset 0 2px 0 #ffffff;
+}
+/* The travel-card surrounds the actual vehicle elements. Preserve non-car modules. */
+html[data-pixelapp-skin] .travel-card:has(> .fuel-odometer),
+html[data-pixelapp-skin] .travel-card:has(> .visual-gauges),
+html[data-pixelapp-skin] .travel-card:has(> .p35-fuel-summary),
+html[data-pixelapp-skin] .travel-card:has(> .fuel-history-card) {
+  background:linear-gradient(150deg,var(--vehicle-top),var(--vehicle-bottom))!important;
+  border:1px solid var(--vehicle-edge)!important;
+  box-shadow:var(--vehicle-elevation)!important;
+}
+/* Trip mileage: replace the unattractive solid rectangles with raised tiles. */
+html[data-pixelapp-skin] .fuel-odometer {gap:clamp(5px,1.6vw,12px)}
+html[data-pixelapp-skin] .fuel-odometer > div {
+  min-width:0;padding:13px 5px 12px;border:1px solid var(--vehicle-edge)!important;
+  border-radius:15px;
+  background:linear-gradient(150deg,var(--vehicle-top),var(--vehicle-inner))!important;
+  color:var(--vehicle-ink)!important;
+  box-shadow:0 7px 14px #0002,inset 0 1px 0 #ffffff23;
+}
+html[data-pixelapp-skin] .fuel-odometer small {color:var(--vehicle-secondary)!important}
+html[data-pixelapp-skin] .fuel-odometer b {color:var(--vehicle-ink)!important}
+html[data-pixelapp-skin] .fuel-odometer .fuel-accent {color:var(--skin-accent,#61d9fb)!important}
+/* Instruments: sunken dial in a raised case, keeping the real indicator ring. */
+html[data-pixelapp-skin] .visual-gauges > div {
+  background:linear-gradient(155deg,var(--vehicle-top),var(--vehicle-bottom))!important;
+  border:1px solid var(--vehicle-edge)!important;
+  border-radius:19px;
+  box-shadow:var(--vehicle-elevation)!important;
+  color:var(--vehicle-ink)!important;
+}
+html[data-pixelapp-skin] .visual-gauges .gauge-label {color:var(--vehicle-ink)!important}
+html[data-pixelapp-skin] .visual-gauges > div > small:last-child {color:var(--vehicle-secondary)!important}
+html[data-pixelapp-skin] .visual-gauges .gauge-circle {
+  background:radial-gradient(circle at 43% 31%,#263645 0%,#111c29 62%,#09111c 100%)!important;
+  box-shadow:0 10px 20px #0006,inset 0 5px 17px #0007,0 0 0 5px #0b15201b!important;
+}
+html[data-pixelapp-skin] .visual-gauges .gauge-circle b {color:#f7fbff!important}
+html[data-pixelapp-skin] .visual-gauges .gauge-circle em {color:#c4d6e7!important}
+/* Fuel summary: distinct elevated cards, with readable labels/values on every skin. */
+html[data-pixelapp-skin] .p35-fuel-summary > div {
+  border:1px solid var(--vehicle-edge)!important;
+  border-radius:17px;
+  background:linear-gradient(145deg,var(--vehicle-top),var(--vehicle-inner))!important;
+  box-shadow:var(--vehicle-elevation)!important;
+}
+html[data-pixelapp-skin] .p35-fuel-summary :is(small,span) {color:var(--vehicle-secondary)!important}
+html[data-pixelapp-skin] .p35-fuel-summary strong {color:var(--skin-accent,#66dcff)!important}
+/* History remains part of the same design without changing its pager/controls. */
+html[data-pixelapp-skin] .fuel-history-card {
+  border-color:var(--vehicle-edge)!important;
+  background:linear-gradient(155deg,var(--vehicle-top),var(--vehicle-bottom))!important;
+  box-shadow:var(--vehicle-elevation)!important;
+  color:var(--vehicle-ink)!important;
+}
+html[data-pixelapp-skin] .fuel-history-card :is(h3,b,strong) {color:var(--vehicle-ink)!important}
+html[data-pixelapp-skin] .fuel-history-card :is(small,.muted) {color:var(--vehicle-secondary)!important}
+@media(max-width:480px){
+  html[data-pixelapp-skin] .fuel-odometer>div{padding:10px 3px;border-radius:12px}
+  html[data-pixelapp-skin] .visual-gauges>div{border-radius:15px}
+}
