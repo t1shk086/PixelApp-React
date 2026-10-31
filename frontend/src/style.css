@@ -1351,3 +1351,63 @@ html[data-pixelapp-skin] .fuel-history-card .p33-manual-footer span {
 html[data-pixelapp-skin] .fuel-history-card .p33-manual-footer strong {
   color:#ffddab!important;
 }
+
+/* P90.5.10 — Target the actual dark expanded refill card (not its light parent).
+   Explicit text colors override the broad .fuel-history-card :is(...)
+   selectors from earlier theme passes. No fuel logic or values change. */
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-item,
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-analysis {
+  color:#eaf5fd!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-item {
+  background:linear-gradient(145deg,#172b3b,#10202d)!important;
+  border-color:#457286!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-summary {
+  color:#f5fbff!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-left strong,
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-right strong {
+  color:#f5fbff!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-left small {
+  color:#bfd2df!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-kind { color:#f8ca80!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-kind.is-full { color:#78ebba!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-right b { color:#75e3f9!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-history-analysis {
+  border-top-color:#456274!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div {
+  background:#1b3040!important;
+  border-color:#547084!important;
+  color:#eaf5fd!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div small {
+  color:#bdcfdb!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div b,
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div b em {
+  color:#f5fbff!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div b.fuel-blue,
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div b.fuel-blue em { color:#7ce9ff!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div b.fuel-gold { color:#ffd58e!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div b.fuel-green { color:#80ebbb!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-grid>div b.fuel-red { color:#ff8997!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-stage,
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-hint { color:#c6d9e5!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-compare {
+  background:#102331!important;border-color:#456274!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-compare.neutral { color:#d0e0eb!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-compare.cheaper { color:#80ebbb!important; }
+html[data-pixelapp-skin] .fuel-history-card .fuel-analysis-compare.dearer { color:#ffd18b!important; }
+/* Counters include a normal text node before the number, so style both parts. */
+html[data-pixelapp-skin] .fuel-history-card .p35-history-counters>span {
+  color:#f1faff!important;
+}
+html[data-pixelapp-skin] .fuel-history-card .p35-history-counters>span>b {
+  color:#89eaff!important;
+}
