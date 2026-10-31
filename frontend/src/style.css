@@ -813,23 +813,35 @@ html[data-pixelapp-skin="ocean"]{
  --skin-progress:linear-gradient(90deg,#328afc,#53e0e9);
  color:var(--skin-text);color-scheme:dark;
 }
+/* P90.5.2 — Obsidian: near-black, deliberately high contrast (not pure black). */
+html[data-pixelapp-skin="obsidian"]{
+ --skin-bg:#080b0f;--skin-bg2:#101820;--skin-surface:#171e26;--skin-surface2:#10161d;
+ --skin-tile:#0b1117;--skin-border:#566777;--skin-field:#0b131b;--skin-text:#f7fafc;
+ --skin-muted:#c0cdd8;--skin-accent:#8ae5fa;--skin-accent2:#c2ecfb;--skin-glow:#63dafa1c;
+ --skin-progress:linear-gradient(90deg,#30bbdf,#a9eafa);--skin-soft:#dde9f2;--skin-quiet:#b7cbd8;
+ --skin-hover:#253642;--skin-outline:#85bfd3;
+ color:var(--skin-text);color-scheme:dark;
+}
 /* Graphite overrides in P90.3 remain as fallback; these rules take final precedence. */
 html[data-pixelapp-skin="graphite"] body,
 html[data-pixelapp-skin="slate"] body,
-html[data-pixelapp-skin="ocean"] body{
+html[data-pixelapp-skin="ocean"] body,
+html[data-pixelapp-skin="obsidian"] body{
  background:radial-gradient(ellipse at 95% -9%,var(--skin-glow),transparent 47%),
  linear-gradient(155deg,var(--skin-bg2),var(--skin-bg) 60%);color:var(--skin-text);
 }
 html[data-pixelapp-skin="graphite"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest),
 html[data-pixelapp-skin="slate"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest),
-html[data-pixelapp-skin="ocean"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest){
+html[data-pixelapp-skin="ocean"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest),
+html[data-pixelapp-skin="obsidian"] :is(.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest){
  background:linear-gradient(152deg,var(--skin-surface),var(--skin-surface2))!important;
  border-color:var(--skin-border)!important;
  color:var(--skin-text);box-shadow:0 12px 28px #0002,inset 0 1px #ffffff16;
 }
 html[data-pixelapp-skin="graphite"] :is(.home-trip,.home-actions button),
 html[data-pixelapp-skin="slate"] :is(.home-trip,.home-actions button),
-html[data-pixelapp-skin="ocean"] :is(.home-trip,.home-actions button){
+html[data-pixelapp-skin="ocean"] :is(.home-trip,.home-actions button),
+html[data-pixelapp-skin="obsidian"] :is(.home-trip,.home-actions button){
  background:linear-gradient(145deg,var(--skin-surface),var(--skin-surface2))!important;
  border-color:var(--skin-border)!important;color:var(--skin-text);
 }
@@ -980,3 +992,16 @@ html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-container
 html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-container :is(.leaflet-popup-content-wrapper,.leaflet-popup-tip){background:#fff!important;color:#263747!important}
 html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-container :is(.leaflet-control-zoom a,.leaflet-control-attribution){color:#263747!important;background:#fff!important}
 @media(max-width:480px){html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p9043-expense-actions{background:transparent!important}}
+
+/* P90.5.2 — high-contrast Obsidian component finishes. */
+html[data-pixelapp-skin="obsidian"] :is(.home-stats>div,.travel-facts>div,.fuel-metrics>div,.budget-visual-row,.p9041-expense-card,.p29-expense-item,.p81-card){
+ background:linear-gradient(145deg,#1b2630,#111922)!important;
+ border-color:#617588!important;
+}
+html[data-pixelapp-skin="obsidian"] :is(.muted,.sub,.travel-dates,.p9043-budget-mode,.p9043-budget-link){color:#c0cdd8!important}
+html[data-pixelapp-skin="obsidian"] :is(input,select,textarea)::placeholder{color:#acbecb;opacity:1}
+html[data-pixelapp-skin="obsidian"] :is(.p9043-add-expense,.p9042-edit-link,.p9043-budget-link):focus-visible{outline:2px solid #9cecff;outline-offset:3px}
+html[data-pixelapp-skin="obsidian"] .brand span{background:linear-gradient(110deg,#fff,#8ae5fa);background-clip:text;color:transparent}
+/* Slate Light refinements: keep text readable in legacy nested budget/expense widgets. */
+html[data-pixelapp-skin="slate"] :is(.budget-visual,.budget-showcase,.p36-budget,.p29-expense-item,.p9041-expense-card,.fuel-metrics>div) :is(h2,h3,h4,p,small,label){color:var(--skin-text)}
+html[data-pixelapp-skin="slate"] :is(.budget-visual,.budget-showcase,.p36-budget,.p29-expense-item,.p9041-expense-card,.fuel-metrics>div) :is(.muted,.sub){color:var(--skin-muted)!important}
