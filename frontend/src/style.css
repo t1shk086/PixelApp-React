@@ -1351,3 +1351,77 @@ html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-amou
 html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-amount small,
 html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-footer span {color:#cce0ef!important;}
 html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-footer strong {color:#f4faff!important;}
+
+/* P91: Trip-specific Drive gallery. Shared contrast tokens keep every skin legible. */
+.gallery-p91{min-width:0}
+.gallery-p91-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.gallery-p91-head h3{margin:0;font-size:1.15rem}
+.gallery-p91-head p{margin:4px 0 0;font-size:.82rem}
+.gallery-p91-add{position:relative;display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:12px;padding:8px 14px;background:var(--accent,#2497b9);color:#fff!important;font-weight:700;cursor:pointer}
+.gallery-p91-add.disabled{opacity:.5;pointer-events:none}
+.gallery-p91-add input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.gallery-p91-empty{padding:36px 12px;text-align:center;color:var(--muted,#a7b7c7)}
+.gallery-p91-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:16px}
+.gallery-p91-tile{aspect-ratio:1;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--line,#617789);border-radius:12px;background:var(--panel,#162536);padding:0;color:inherit;cursor:pointer}
+.gallery-p91-tile img{width:100%;height:100%;object-fit:cover}
+.gallery-p91-tile>span{font-size:2rem}
+.gallery-p91-viewer{position:fixed;inset:0;z-index:10000;background:#03060aeF;display:flex;align-items:center;justify-content:center;padding:12px}
+.gallery-p91-viewer-inner{max-width:min(100%,920px);width:100%;max-height:96vh;display:flex;flex-direction:column;align-items:stretch;gap:10px;color:#f5f9ff}
+.gallery-p91-viewer-inner img{display:block;max-width:100%;max-height:72vh;object-fit:contain;margin:auto}
+.gallery-p91-viewer-bottom{display:flex;align-items:center;justify-content:space-between;gap:12px;overflow-wrap:anywhere}
+.gallery-p91-viewer-bottom button,.gallery-p91-close{align-self:flex-end;min-height:40px;border:1px solid #6d849a;border-radius:10px;background:#172331;color:#fff;padding:8px 12px}
+html[data-pixelapp-skin="slate"] .gallery-p91-tile{background:#e2eaf1;border-color:#a9bdca}
+html[data-pixelapp-skin="slate"] .gallery-p91-empty{color:#455c6e}
+
+/* P91: Slate Light fuel panels truly use their own light palette.
+   Target the exact component, overriding the preceding P90.5.11 dark-island rules. */
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p35-history-counters > span{
+  background:#e5f1f6!important;color:#274455!important;border-color:#9bb9c7!important;
+}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p35-history-counters > span b{color:#087c9a!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-item{
+  background:linear-gradient(145deg,#fcfeff,#e6eff5)!important;color:#243b4a!important;border-color:#9eb8c8!important;
+  box-shadow:0 9px 20px #304a5a20,inset 0 1px 0 #fff!important;
+}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-summary,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-left strong,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-right strong{
+  color:#203745!important;
+}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-left small,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div small,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-compare,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-hint,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-stage{
+  color:#536c7b!important;
+}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-kind{color:#985516!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-kind.is-full{color:#137e58!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-right b{color:#087c9a!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-history-analysis{color:#233a48!important;border-top-color:#abc1cd!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div{
+  background:linear-gradient(145deg,#fff,#edf4f8)!important;border-color:#acc1cf!important;color:#243b4a!important;
+}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div b,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div b em{color:#233a48!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div b.fuel-blue,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div b.fuel-blue em{color:#057eab!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div b.fuel-gold{color:#995914!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div b.fuel-green{color:#147e58!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-grid > div b.fuel-red{color:#bd3853!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-compare{
+  background:#e6f0f5!important;border-color:#acc1cf!important;color:#345262!important;
+}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-compare.cheaper{color:#137b56!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .fuel-analysis-compare.dearer{color:#a15a10!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-card{
+  background:linear-gradient(145deg,#f9fcff,#e5eff5)!important;border-color:#a6becc!important;color:#233a48!important;
+}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-head > span:first-child{color:#985516!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-tag{color:#436172!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-amount{color:#087f9e!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-amount small,
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-footer span{color:#536c7b!important}
+html[data-pixelapp-skin="slate"] .travel-card.fuel-history-card .p33-manual-footer strong{color:#213b4a!important}
+.gallery-p91-more{display:block;margin:16px auto 0;min-height:44px;border:1px solid var(--line,#668299);border-radius:12px;background:var(--panel,#1b2b3b);color:var(--text,#eaf5ff);padding:8px 16px}
+html[data-pixelapp-skin="slate"] .gallery-p91-more{background:#e5eef5;color:#253c4a;border-color:#a7bbc8}

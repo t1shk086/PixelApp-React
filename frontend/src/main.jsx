@@ -324,7 +324,85 @@ function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,bu
  </section>;
 }
 
-function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange}) {
+
+// P91: Gallery is loaded only when its tab opens. Images are never cached in app state/storage.
+function TripGallery({tripId,authHeaders}){
+ const [photos,setPhotos]=useState([]),[urls,setUrls]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[selected,setSelected]=useState(null),[visibleCount,setVisibleCount]=useState(18);
+ const urlsRef=useRef({});
+ const base=`${apiBase}/gallery/${encodeURIComponent(tripId)}`;
+ const load=async()=>{
+  setError('');setBusy(true);
+  try{
+   const r=await fetch(base,{headers:authHeaders,cache:'no-store'});
+   if(!r.ok)throw Error(`Не може да се зареди галерията (${r.status}).`);
+   const data=await r.json();setPhotos(data.photos||[]);
+  }catch(e){setError(String(e.message||e))}finally{setBusy(false)}
+ };
+ useEffect(()=>{setPhotos([]);setVisibleCount(18);setSelected(null);load();return()=>{Object.values(urlsRef.current).forEach(u=>URL.revokeObjectURL(u));urlsRef.current={}}},[tripId]);
+ useEffect(()=>{let active=true;
+  const stale=Object.keys(urlsRef.current).filter(id=>!photos.some(p=>p.id===id));
+  stale.forEach(id=>{URL.revokeObjectURL(urlsRef.current[id]);delete urlsRef.current[id]});
+  setUrls({...urlsRef.current});
+  (async()=>{
+   // Limit concurrent downloads; images load only on the Gallery tab.
+   for(const photo of photos.slice(0,visibleCount)){
+    if(!active)break;
+    if(urlsRef.current[photo.id])continue;
+    try{
+     const r=await fetch(`${base}/${encodeURIComponent(photo.id)}`,{headers:authHeaders});
+     if(!r.ok)continue;
+     const blob=await r.blob();if(!active)break;
+     urlsRef.current[photo.id]=URL.createObjectURL(blob);
+     setUrls({...urlsRef.current});
+    }catch(_){/* A failed thumbnail should not block the gallery. */}
+   }
+  })();
+  return()=>{active=false};
+ },[photos,tripId,visibleCount]);
+ async function addPhotos(event){
+  const files=Array.from(event.target.files||[]);event.target.value='';
+  if(!files.length)return;
+  setBusy(true);setError('');
+  try{
+   for(const file of files){
+    if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw Error('Избери JPEG, PNG или WebP снимка.');
+    if(file.size>8*1024*1024)throw Error('Снимката е над 8 MB. Избери по-малка.');
+    const r=await fetch(`${base}?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{...authHeaders,'Content-Type':file.type},body:file});
+    if(!r.ok)throw Error(`Снимката не е записана (${r.status}): ${await r.text()}`);
+   }
+   await load();
+  }catch(e){setError(String(e.message||e));setBusy(false)}
+ }
+ async function removePhoto(photo){
+  if(!window.confirm(`Да преместя „${photo.name}“ в кошчето на Google Drive?`))return;
+  setBusy(true);setError('');
+  try{
+   const r=await fetch(`${base}/${encodeURIComponent(photo.id)}`,{method:'DELETE',headers:authHeaders});
+   if(!r.ok)throw Error(`Неуспешно изтриване (${r.status}).`);
+   setSelected(null);await load();
+  }catch(e){setError(String(e.message||e));setBusy(false)}
+ }
+ return <section className="travel-card gallery-p91">
+   <div className="gallery-p91-head"><div><h3>📸 Галерия</h3><p className="muted">Снимки само от това пътуване · общи за двата профила</p></div><label className={'gallery-p91-add'+(busy?' disabled':'')}>
+      ＋ Добави снимки<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={addPhotos}/></label></div>
+   {error&&<p role="alert" className="error">⚠️ {error}</p>}
+   {busy&&<p role="status" className="muted">Обработвам снимките…</p>}
+   {!busy&&!photos.length&&<div className="gallery-p91-empty">🖼️ Тук ще се появят снимките от пътуването.</div>}
+   <div className="gallery-p91-grid">{photos.slice(0,visibleCount).map(photo=><button type="button" className="gallery-p91-tile" key={photo.id} onClick={()=>setSelected(photo)} aria-label={`Отвори ${photo.name}`}>
+    {urls[photo.id]?<img src={urls[photo.id]} loading="lazy" alt={photo.name}/>:<span>📷</span>}
+   </button>)}</div>
+   {photos.length>visibleCount&&<button type="button" className="gallery-p91-more" onClick={()=>setVisibleCount(n=>n+18)}>Покажи още снимки ({photos.length-visibleCount})</button>}
+   {selected&&<div className="gallery-p91-viewer" role="dialog" aria-modal="true" aria-label="Преглед на снимка" onClick={()=>setSelected(null)}>
+    <div className="gallery-p91-viewer-inner" onClick={e=>e.stopPropagation()}>
+     <button type="button" className="gallery-p91-close" onClick={()=>setSelected(null)}>✕ Затвори</button>
+     {urls[selected.id]?<img src={urls[selected.id]} alt={selected.name}/>:<p>Зареждам снимката…</p>}
+     <div className="gallery-p91-viewer-bottom"><span>{selected.name}</span><button type="button" disabled={busy} onClick={()=>removePhoto(selected)}>🗑️ Изтрий</button></div>
+    </div>
+   </div>}
+  </section>;
+}
+
+function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders}) {
  const [section,setSection]=useState('summary');
  const [mapTab,setMapTab]=useState('route');
  const [taskBusy,setTaskBusy]=useState(false);
@@ -571,7 +649,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
    await onRouteSaved();setRouteName('');setRouteLat('');setRouteLon('');setRouteMessage('✅ Записано и проверено в Google Drive.');
   }catch(e){setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
  };
- const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['check','Проверка']];
+ const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['gallery','Галерия'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
  <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon" type="button" onClick={()=>onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването">⚙️</button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
@@ -654,6 +732,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,expenseDraft,financeOwn
  </section></div>}{mapTab==='add'&&<div className="route82-panel route82-add-panel">
  {routeEditable?<form className="route76-form" onSubmit={e=>{e.preventDefault();void routeAction('add',-1,Number(routePosition))}}><h3>➕ Нова спирка</h3><div className="route77-search"><label htmlFor="route77-place">🔎 Намери място по име или адрес</label><div className="route77-search-row"><input id="route77-place" type="search" value={placeQuery} onChange={e=>{setPlaceQuery(e.target.value);setPlaceResults([]);setPlaceSearchError('');}} placeholder="Напр. Колизеум, Рим" minLength={3} maxLength={180}/><button type="button" onClick={searchRoutePlace} disabled={placeSearching||placeQuery.trim().length<3}>{placeSearching?'Търся…':'Търси'}</button></div>{placeSearchError&&<p className="route77-search-message" role="status">{placeSearchError}</p>}{placeResults.length>0&&<div className="route77-results" aria-label="Намерени места">{placeResults.map((p,i)=><button key={`${p.place_id||i}-${p.lat}`} type="button" onClick={()=>chooseRoutePlace(p)}><span>📍 {String(p.display_name||p.name||'Място')}</span><small>{Number(p.lat).toFixed(5)}, {Number(p.lon).toFixed(5)}</small></button>)}</div>}<small>Търсене чрез © OpenStreetMap contributors / Nominatim. Избери резултат, после провери данните и запиши спирката.</small></div><div className="route79-gps"><button type="button" onClick={useCurrentGps} disabled={gpsBusy}>{gpsBusy?'📍 Определям местоположение…':'📍 Използвай текущата ми GPS позиция'}</button><small>GPS се използва само след натискане и разрешение от телефона. Не се записва автоматично.</small>{gpsMessage&&<p role="status">{gpsMessage}</p>}</div><input aria-label="Име на спирката" placeholder="Име на мястото" required maxLength={150} value={routeName} onChange={e=>setRouteName(e.target.value)}/><div className="route76-grid"><input type="number" step="any" min="-90" max="90" required placeholder="Ширина (lat)" aria-label="Географска ширина" value={routeLat} onChange={e=>setRouteLat(e.target.value)}/><input type="number" step="any" min="-180" max="180" required placeholder="Дължина (lon)" aria-label="Географска дължина" value={routeLon} onChange={e=>setRouteLon(e.target.value)}/></div><div className="route76-grid"><select value={routeType} onChange={e=>setRouteType(e.target.value)} aria-label="Тип спирка"><option value="planned">Планирана</option><option value="unplanned">Непланирана</option></select><select value={routePosition} onChange={e=>setRoutePosition(e.target.value)} aria-label="Позиция"><option value="-1">В края</option>{routeStops.map((p,i)=><option key={i} value={i}>Преди {i+1}. {String(p.title||'').replace(/^3b:\s*/,'')}</option>)}</select></div><button type="submit" disabled={routeBusy||!routeName.trim()||!routeLat.trim()||!routeLon.trim()}>💾 Запиши спирката</button><small className="muted">Координатите се попълват при избор от търсенето. Можеш и да ги въведеш ръчно.</small></form>:<p className="muted">🔒 За старите и приключените пътувания маршрутът е само за преглед.</p>}
  {routeBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}{routeMessage&&<p role="status" className="muted">{routeMessage}</p>}</div>}</div>}
+ {section==='gallery'&&<TripGallery tripId={trip.id} authHeaders={galleryAuthHeaders}/>}
  {section==='check'&&<div className="travel-card visual-section">
  <h3>🧮 Контрол на изчисленията</h3>
  <p className="muted">Проверка между обобщението на API и детайлните записи, заредени от Google Drive. Това не е още пълно сравнение с всички формули в стария Streamlit.</p>
@@ -1788,7 +1867,7 @@ function App(){
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  <HomePlaces points={homePlaces}/>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
- </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>reload(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>reload(current)} onFavoritesLoad={()=>req(`/safe/trip-places/${encodeURIComponent(current)}`)} onFavoriteChange={payload=>req(`/safe/trip-places/${encodeURIComponent(current)}`,'POST',payload)} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
+ </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>reload(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>reload(current)} galleryAuthHeaders={authMode==='accounts'?{Authorization:`Bearer ${key}`}:{'X-API-Key':key}} onFavoritesLoad={()=>req(`/safe/trip-places/${encodeURIComponent(current)}`)} onFavoriteChange={payload=>req(`/safe/trip-places/${encodeURIComponent(current)}`,'POST',payload)} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
  
   {modal==='normal-expenses'&&(()=>{const active=trips.find(t=>tripState(t)==='active');if(!active)return <div className="overlay" onClick={()=>setModal('')}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>💳 Бърз разход</h3><button type="button" className="ghost" onClick={()=>setModal('')}>✕</button></div><p className="muted">Няма активно пътуване. Разходите за предстоящи пътувания се добавят от самото пътуване.</p></div></div>;return <TestFinancePreview key={active.id} quickOnly tripName={active.name} carTrip={active.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(active.id)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(active.id)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(active.id)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(active.id)}`,'POST',payload)} onSaved={()=>reload()}/>})()}
   {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>reload(current)}/>}
