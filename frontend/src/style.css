@@ -892,3 +892,91 @@ html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-control-z
 @media(prefers-reduced-motion:no-preference){
  html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(.travel-card,.home-trip,.p82-panel,button){transition:background .18s ease,border-color .18s ease,box-shadow .18s ease}
 }
+
+/* P90.5.1 — theme consistency repair. CSS-only: no storage/map/expense logic. */
+html[data-pixelapp-skin="graphite"] {--skin-soft:#c1d3dd;--skin-quiet:#a6b9c5;--skin-hover:#36444f;--skin-outline:#668393;}
+html[data-pixelapp-skin="slate"] {--skin-soft:#415768;--skin-quiet:#536a7a;--skin-hover:#d8e7ef;--skin-outline:#6697b0;}
+html[data-pixelapp-skin="ocean"] {--skin-soft:#c5e0f3;--skin-quiet:#a4c2d8;--skin-hover:#21526d;--skin-outline:#5a9ac4;}
+/* Old modules had independent navy surfaces. Treat them as theme surfaces while
+   leaving map tiles, map marker icons, warning/success messages and progress fills intact. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .overview-tile,.visual-overview-stats>div,.visual-road-stats>div,
+ .quick-demo-summary,.quick-demo-list,.quick-demo-card,.quick-demo-grid>div,
+ .p37-admin-dialog,.p37-admin-notice,.p37-admin-content,.p37-admin-section,
+ .p36-budget-stat,.p36-budget-categories,.p36-budget-metric,.p36-budget-item,
+ .p29-category-card,.p29-category-group,.p29-expense-group,.p29-expense-entry,
+ .route82-route-meta,.route82-header,.route81-list,.route81-editor,
+ .route80-import,.route78-stop,.route76-stop,.route82-favorite-panel .p83-card,
+ .p83-card,.p83-list,.p81-card,.task-preview-panel,.task-showcase,
+ .fuel-history-card,.fuel-entry,.fuel-odometer>div,.visual-gauges>div,
+ .budget-visual-row,.expense-overview,.expense-filters,
+ .home-places-head span,.home-stats>div,.travel-facts>div,
+ .p9041-fuel-fields,.p9043-expense-actions,
+ .p38-compare,.p38-compare-row,.p38-latest,.home-places,
+ .travel-map,.map-showcase,.p82-panel,.route82-panel){
+ background:var(--skin-surface2)!important;
+ border-color:var(--skin-border)!important;
+ color:var(--skin-text);
+}
+/* Navigation, settings and form chrome — consistent palette across all three skins. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .p37-settings-button,.p37-admin-navigation button,
+ .route82-tabs button,.p9043-add-expense,.show-completed,
+ .p9042-edit-link,.p904-budget-mode button,.p9041-expense-actions button){
+ background:var(--skin-surface2)!important;
+ color:var(--skin-text)!important;
+ border-color:var(--skin-border)!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ button.selected,button.active,.route82-tabs button.active,.travel-menu button.selected,
+ .p904-budget-mode button.selected){
+ background:linear-gradient(145deg,var(--skin-hover),var(--skin-surface))!important;
+ border-color:var(--skin-accent)!important;
+ color:var(--skin-text)!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .travel-card h3,.p36-budget-head h3,.route82-header,
+ .home-heading,.home-extra-title,.quick-demo-summary h4,
+ .p29-expense-heading h3,.dialoghead h3,.p37-admin-dialog h3,
+ .travel-line strong,.home-trip .remaining strong,
+ .home-trip .numbers strong,.summaryrow strong,.quick-demo-grid strong,
+ .overview-tile strong,.p36-budget-stat strong,.p29-expense-entry strong,
+ .p9041-expense-info strong){color:var(--skin-text)!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .travel-dates,.travel-safety,.home-extra-title,.home-trip .tripstatus,
+ .home-trip .remaining,.home-actions small,.home-trip .tripstatus span,
+ .travel-facts small,.fuel-note,.fuel-odometer small,
+ .fuel-metrics small,.expense-filters label,.quick-demo-grid small,
+ .p29-expense-heading small,.p37-admin-notice,
+ .budget-visual-foot,.visual-gauges>div>small:last-child,
+ .p9043-budget-link,.p9041-budget-link button){color:var(--skin-muted)!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .p9043-budget-link,.p9041-budget-link button,.p9041-budget-edit button,
+ .p9042-edit-link,.ghost){box-shadow:none!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .p9043-budget-link,.p9041-budget-link button,.p9041-budget-edit button){
+ background:transparent!important;border-color:transparent!important;color:var(--skin-muted)!important;
+}
+/* Light theme: eliminate white-on-white from legacy patches, while preserving
+   warning colours, Leaflet popup chrome and graphical meter colors. */
+html[data-pixelapp-skin="slate"] :is(.app,.auth,.overlay,.p37-admin-dialog,.dialog,.travel-detail){color:var(--skin-text)}
+html[data-pixelapp-skin="slate"] :is(
+ .app,.auth,.dialog,.p37-admin-dialog,.travel-detail,.panel,.summary,
+ .travel-card,.travel-hero,.home-extra,.home-places,.route82-panel,
+ .quick-demo-summary,.quick-demo-list,.p36-budget,.p29-expense-history,
+ .task-showcase,.fuel-history-card,.p38-latest) :is(h1,h2,h3,h4,h5,label,p,b,strong,em){
+ color:var(--skin-text);
+}
+html[data-pixelapp-skin="slate"] :is(
+ .app,.auth,.dialog,.travel-detail,.panel,.summary,.travel-card,
+ .home-extra,.home-places,.route82-panel) :is(small,.muted,.sub){
+ color:var(--skin-muted);
+}
+html[data-pixelapp-skin="slate"] :is(input,textarea,select)::placeholder{color:#657d8c;opacity:1}
+html[data-pixelapp-skin="slate"] .overlay{background:#152e4077}
+html[data-pixelapp-skin="slate"] :is(.track,.travel-progress,.budget-visual-track){background:#c5d6e0!important}
+/* Keep map canvas, popups and control icons on their own map-safe colours. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-container{background:#dce7ed;color:#253747}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-container :is(.leaflet-popup-content-wrapper,.leaflet-popup-tip){background:#fff!important;color:#263747!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .leaflet-container :is(.leaflet-control-zoom a,.leaflet-control-attribution){color:#263747!important;background:#fff!important}
+@media(max-width:480px){html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p9043-expense-actions{background:transparent!important}}
