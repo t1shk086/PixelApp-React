@@ -1601,3 +1601,35 @@ html[data-pixelapp-skin="liquid"] .p915-archive-btn{background:#74363d!important
  html[data-pixelapp-skin="liquid"] .home-actions small{font-size:9px}
 }
 @media(prefers-reduced-motion:reduce){html[data-pixelapp-skin="liquid"] .home-actions button{transition:none}}
+
+
+/* P91.6.1: Liquid Glass home completion. All rules limited to Liquid skin. */
+/* Archive is a swipe-only action: no visible side action when a trip is closed. */
+.p915-swipe{overflow:hidden;border-radius:24px}
+.p915-swipe .p915-archive-btn{visibility:hidden;opacity:0;pointer-events:none;transition:opacity .14s ease}
+.p915-swipe.is-open .p915-archive-btn{visibility:visible;opacity:1;pointer-events:auto}
+html[data-pixelapp-skin="liquid"] .p915-swipe{border-radius:24px;box-shadow:0 12px 27px #0008}
+html[data-pixelapp-skin="liquid"] .p915-swipe>.home-trip{min-width:100%;box-sizing:border-box;display:block;transform:translateX(0)}
+html[data-pixelapp-skin="liquid"] .p915-swipe.is-open>.home-trip{transform:translateX(-118px)}
+html[data-pixelapp-skin="liquid"] .p915-archive-btn{background:linear-gradient(160deg,#803941,#3a171c)!important;border:1px solid #e69aa77d!important;box-shadow:inset 0 1px #ffffff55!important;border-radius:17px!important}
+html[data-pixelapp-skin="liquid"] .app>nav{gap:8px;margin:7px 0 18px}
+html[data-pixelapp-skin="liquid"] .app>nav button{min-width:0;flex:1;padding:10px 7px;min-height:43px;font-size:clamp(10px,2.7vw,13px);white-space:nowrap;background:linear-gradient(160deg,#ffffff23,#21262a80 44%,#0d1115)!important;border:1px solid #b8c9cf80!important;border-radius:18px!important;color:#ecf7f8!important;box-shadow:inset 0 1px 1px #ffffff50,0 7px 14px #0009!important}
+html[data-pixelapp-skin="liquid"] .app>header{padding-bottom:8px}
+html[data-pixelapp-skin="liquid"] .app>header .brand{font-size:clamp(28px,7vw,36px);text-shadow:0 2px 18px #ffffff2b}
+html[data-pixelapp-skin="liquid"] .app>header .sub{color:#d2dedf}
+html[data-pixelapp-skin="liquid"] .p38-latest,
+html[data-pixelapp-skin="liquid"] .p39-compare-section,
+html[data-pixelapp-skin="liquid"] .p39-compare-section .p38-compare-launch{
+ background:linear-gradient(151deg,#ffffff24 0%,#ffffff09 35%,#0e1419 85%,#c6f4ee17),linear-gradient(140deg,#282e32,#101419)!important;
+ border:1px solid #c6d9dd75!important;border-radius:23px!important;
+ box-shadow:inset 0 1.5px 1px #ffffff80,inset 0 -1px #ffffff12,0 12px 26px #0009!important;color:#eaf6f5!important;
+}
+html[data-pixelapp-skin="liquid"] .p38-latest :is(h3,strong,b,span){color:#f2faf9}
+html[data-pixelapp-skin="liquid"] .p38-latest :is(small,.muted){color:#c3d2d5!important}
+html[data-pixelapp-skin="liquid"] .home-extra .home-stats>div{background:linear-gradient(155deg,#f9ffff2d,#37424b38 55%,#141a1e)!important;box-shadow:inset 0 1px 1px #ffffff79,0 6px 13px #0008!important}
+html[data-pixelapp-skin="liquid"] .home-places{background:linear-gradient(150deg,#ffffff29,#23282c 50%,#0c1317)!important}
+html[data-pixelapp-skin="liquid"] .home-places-map{box-shadow:0 10px 24px #0007,inset 0 1px 2px #fff5;border:1px solid #b6cbc89a!important}
+html[data-pixelapp-skin="liquid"] .home-actions button{background:linear-gradient(165deg,#ffffff30,#2a303467 42%,#0c1014)!important;box-shadow:inset 0 1.5px 1px #ffffffa8,0 8px 20px #000a!important;border-color:#b8d3d18c!important}
+html[data-pixelapp-skin="liquid"] .home-heading{color:#f9ffff!important;text-shadow:0 1px 12px #ffffff20}
+@media(max-width:390px){html[data-pixelapp-skin="liquid"] .app>nav button{gap:4px;padding:9px 5px}}
+@media(prefers-reduced-motion:reduce){.p915-swipe .p915-archive-btn{transition:none}}
