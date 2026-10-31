@@ -1214,3 +1214,43 @@ html[data-pixelapp-skin] .fuel-history-card :is(small,.muted) {color:var(--vehic
   html[data-pixelapp-skin] .fuel-odometer>div{padding:10px 3px;border-radius:12px}
   html[data-pixelapp-skin] .visual-gauges>div{border-radius:15px}
 }
+
+
+/* P90.5.7 — focused mobile polish: centered KPI tiles, consistent headings, theme-aware countdown.
+   Scoped to visual elements; no layout/record logic changes. */
+.budget-showcase-grid>div, .p36-kpis>div, .p35-fuel-summary>div{
+ text-align:center;align-items:center;justify-content:center;
+}
+.budget-showcase-grid>div :is(small,b),.p36-kpis>div :is(small,strong,span),
+.p35-fuel-summary>div :is(small,strong){text-align:center}
+.p35-fuel-summary .p35-summary-heading{justify-content:center;align-items:center;text-align:center}
+/* Consistent hierarchy, without moving or re-centering whole section titles. */
+.p29-expense-heading h3,.route82-header h3,.route76-wrap>h3,
+.map-showcase>h3,.p36-budget-head h3{
+ font-size:clamp(18px,4.3vw,23px)!important;
+ line-height:1.25!important;font-weight:850!important;letter-spacing:-.025em;
+}
+.p29-expense-heading h3{margin:0!important}
+.route82-header h3{margin:2px 0 0!important}
+/* Theme-aware color tokens for existing countdown structure; no changes to countdown mechanics. */
+html[data-pixelapp-skin="graphite"]{--countdown-bg-a:#323e48;--countdown-bg-b:#151e26;--countdown-ring-a:#a7dfd1;--countdown-ring-b:#8299ad;--countdown-ring-c:#c6d9e5;--countdown-track:#40515b;--countdown-ink:#f6fafc;--countdown-sub:#c2d4dc}
+html[data-pixelapp-skin="slate"]{--countdown-bg-a:#f9fcff;--countdown-bg-b:#dce8f0;--countdown-ring-a:#168ba7;--countdown-ring-b:#55bfc0;--countdown-ring-c:#587db2;--countdown-track:#c3d6e1;--countdown-ink:#203847;--countdown-sub:#476174}
+html[data-pixelapp-skin="ocean"]{--countdown-bg-a:#174867;--countdown-bg-b:#081a31;--countdown-ring-a:#69e9f5;--countdown-ring-b:#3aa1f7;--countdown-ring-c:#869dff;--countdown-track:#204762;--countdown-ink:#f1faff;--countdown-sub:#b5d3e8}
+html[data-pixelapp-skin="obsidian"]{--countdown-bg-a:#202b35;--countdown-bg-b:#070b10;--countdown-ring-a:#87e8fa;--countdown-ring-b:#55b6d1;--countdown-ring-c:#a9c9e0;--countdown-track:#293b49;--countdown-ink:#f8fbfd;--countdown-sub:#c0d2de}
+html[data-pixelapp-skin]:is([data-pixelapp-skin="graphite"],[data-pixelapp-skin="slate"],[data-pixelapp-skin="ocean"],[data-pixelapp-skin="obsidian"]) .p40-countdown{
+ background:radial-gradient(ellipse at 95% 0%,var(--skin-glow),transparent 55%),linear-gradient(135deg,var(--countdown-bg-a),var(--countdown-bg-b) 82%)!important;
+ border-color:var(--skin-border)!important;
+ box-shadow:0 13px 26px #0003,inset 0 1px 0 #ffffff38!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown::after{background:linear-gradient(90deg,var(--countdown-ring-a),var(--countdown-ring-b),var(--countdown-ring-c))}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown::before{background:radial-gradient(ellipse at 85% 100%,var(--skin-glow),transparent 55%)}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown-ring{
+ background:radial-gradient(circle,var(--countdown-bg-b) 58%,transparent 60%),conic-gradient(from 225deg,var(--countdown-ring-a),var(--countdown-ring-b),var(--countdown-ring-c),var(--countdown-ring-a))!important;
+}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown-progress{background:var(--countdown-track)!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown-progress span{background:linear-gradient(90deg,var(--countdown-ring-a),var(--countdown-ring-b),var(--countdown-ring-c))!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown :is(h2,.p40-countdown-ring strong){color:var(--countdown-ink)!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown :is(.p40-countdown-date,.p40-countdown-footnote,.p40-countdown-ring span){color:var(--countdown-sub)!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown :is(.p40-countdown-overline,.p40-countdown-overline span,.p40-countdown-date span){color:var(--countdown-ring-a)!important}
+/* Keep countdown legible if a photo cover is eventually enabled. */
+html[data-pixelapp-skin="slate"] .p40-countdown.p40-countdown-photo :is(h2,.p40-countdown-date,.p40-countdown-footnote,.p40-countdown-overline){color:#fff!important;text-shadow:0 1px 8px #000b}
