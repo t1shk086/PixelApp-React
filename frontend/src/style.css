@@ -1497,3 +1497,12 @@ html[data-pixelapp-skin="slate"] .home-trip .remaining strong{color:#253d4b!impo
 .p915-swipe.is-open>.home-trip{transform:translateX(-118px)}
 .p915-archive-btn{position:absolute;right:0;top:12px;bottom:12px;width:112px;border-radius:14px;background:#8e3542;color:#fff;font-size:12px;font-weight:700;z-index:1;white-space:normal}
 @media(prefers-reduced-motion:reduce){.p915-swipe>.home-trip{transition:none}}
+
+/* P91.5.3 — single, accessible archive confirmation */
+.p9153-archive-dialog{width:min(420px,calc(100vw - 32px));max-width:100%;padding:22px;box-sizing:border-box}
+.p9153-archive-dialog .dialoghead h3{font-size:19px;line-height:1.35;margin:0}
+.p9153-archive-dialog p{overflow-wrap:anywhere;line-height:1.5}
+.p9153-archive-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;flex-wrap:wrap}
+.p9153-archive-actions button{min-width:105px;min-height:42px}
+.p9153-confirm-archive{background:#963947;color:white;border:1px solid #c35c67;border-radius:11px;font-weight:700}
+.p9153-confirm-archive:disabled{opacity:.65}
