@@ -1132,6 +1132,8 @@ class TestFinanceChange(BaseModel):
     amount: Decimal | None = None
     category: str | None = None
     description: str | None = None
+    budget_mode: str | None = None
+    category_budgets: dict[str, Decimal] | None = None
     # The original expense is a full 8-field snapshot, never a row index.
     original: dict[str, str] | None = None
 
@@ -1192,15 +1194,19 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
         raise HTTPException(423, 'Пилотното финансово записване е заключено.')
     if payload.confirmation != 'ЗАПИШИ САМО ТЕСТОВИ ФИНАНСИ':
         raise HTTPException(400, 'Липсва тестовото потвърждение.')
-    if payload.operation not in ('budget', 'expense-add', 'expense-edit', 'expense-delete'):
+    if payload.operation not in ('budget', 'category-add', 'expense-add', 'expense-edit', 'expense-delete'):
         raise HTTPException(422, 'Непозната финансова операция.')
-    kind = 'budgets' if payload.operation == 'budget' else 'expenses'
+    kind = 'budgets' if payload.operation in ('budget', 'category-add') else 'expenses'
     amount = None
-    if payload.operation != 'expense-delete':
-        amount = _finance_decimal(payload.amount,zero_ok=kind=='budgets')
+    if payload.operation not in ('expense-delete', 'category-add'):
+        if payload.operation != 'budget' or payload.budget_mode != 'category':
+            amount = _finance_decimal(payload.amount,zero_ok=kind=='budgets')
     if kind == 'expenses' and payload.operation != 'expense-delete':
+        # Custom categories must have been explicitly created for this trip.
         if payload.category not in FINANCE_CATEGORIES:
-            raise HTTPException(422, 'Категорията не е разрешена за теста.')
+            # Validation against remote budget rows is performed inside the locked transaction.
+            if not payload.category or len(payload.category)>50:
+                raise HTTPException(422, 'Невалидна категория.')
         desc = (payload.description or '').strip()
         if not desc or len(desc) > 120 or re.search(r'гориво|газ|бензин|дизел|зареждане', desc, re.I):
             raise HTTPException(422, 'Въведи описание до 120 знака. Горивото е отделен модул.')
@@ -1218,14 +1224,47 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
         if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest() != digest:
             raise HTTPException(409, 'Има промяна в Drive или Render. Направи нова проверка.')
         existing = [r for r in rows if r.get('trip_id') == trip_id]
+        if kind == 'expenses' and payload.operation in ('expense-add', 'expense-edit') and payload.category not in FINANCE_CATEGORIES:
+            _, _, _, _, _, budget_rows = _finance_remote('budgets', service, mapping)
+            if not any(r.get('trip_id') == trip_id and r.get('category') == payload.category for r in budget_rows):
+                raise HTTPException(422, 'Категорията не принадлежи на това пътуване.')
         if payload.operation == 'budget':
-            if any(r.get('category') != '__GLOBAL__' for r in existing):
-                raise HTTPException(409, 'Има бюджет по категории; не го презаписваме автоматично.')
-            rows = [r for r in rows if not (r.get('trip_id')==trip_id and r.get('category')=='__GLOBAL__')]
-            if amount != '0.00':
-                row = {k:'' for k in columns}
-                row.update(trip_id=trip_id, category='__GLOBAL__', budget=amount)
-                rows.append(row)
+            if payload.budget_mode not in ('global', 'category'):
+                raise HTTPException(422, 'Избери общ бюджет или бюджет по категории.')
+            custom_names = {r.get('category') for r in existing if r.get('category') not in ('__GLOBAL__', *FINANCE_CATEGORIES)}
+            # Retain custom categories (zero-valued rows) even when switching to global.
+            rows = [r for r in rows if r.get('trip_id') != trip_id]
+            values = {}
+            if payload.budget_mode == 'global':
+                if amount != '0.00':
+                    values['__GLOBAL__'] = amount
+            else:
+                selected = payload.category_budgets or {}
+                allowed = set(FINANCE_CATEGORIES) | custom_names
+                if set(selected) - allowed:
+                    raise HTTPException(422, 'Непозната категория в бюджета.')
+                if len(selected)>60:
+                    raise HTTPException(422, 'Твърде много категории.')
+                for name, value in selected.items():
+                    values[name] = _finance_decimal(value, zero_ok=True)
+            for name in custom_names:
+                values.setdefault(name, '0.00')
+            for name, value in values.items():
+                if value != '0.00' or name in custom_names:
+                    row = {k: '' for k in columns}
+                    row.update(trip_id=trip_id, category=name, budget=value)
+                    rows.append(row)
+        elif payload.operation == 'category-add':
+            name = (payload.category or '').strip()
+            if not name or len(name)>50 or name.startswith('__') or re.search(r'[\r\n,;]', name):
+                raise HTTPException(422, 'Въведи име до 50 знака, без запетаи и нови редове.')
+            if name in FINANCE_CATEGORIES or any(r.get('category','').casefold()==name.casefold() for r in existing):
+                raise HTTPException(409, 'Тази категория вече съществува.')
+            if sum(1 for r in existing if r.get('category') not in ('__GLOBAL__', *FINANCE_CATEGORIES)) >= 30:
+                raise HTTPException(422, 'Достигнат е лимитът за лични категории.')
+            row = {k:'' for k in columns}
+            row.update(trip_id=trip_id, category=name, budget='0.00')
+            rows.append(row)
         elif payload.operation == 'expense-add':
             if any(r.get('trip_id')==trip_id and r.get('description')=='[P62] '+desc for r in rows):
                 raise HTTPException(409, 'Разход с това описание вече съществува.')
