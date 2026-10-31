@@ -1496,6 +1496,4 @@ html[data-pixelapp-skin="slate"] .home-trip .remaining strong{color:#253d4b!impo
 .p915-swipe>.home-trip{position:relative;z-index:2;width:100%;margin:0;transition:transform .2s ease;touch-action:pan-y}
 .p915-swipe.is-open>.home-trip{transform:translateX(-118px)}
 .p915-archive-btn{position:absolute;right:0;top:12px;bottom:12px;width:112px;border-radius:14px;background:#8e3542;color:#fff;font-size:12px;font-weight:700;z-index:1;white-space:normal}
-.p915-archive-more{position:absolute;z-index:3;top:8px;right:8px;min-width:32px;min-height:32px;padding:3px 8px;border:1px solid var(--border,#526878);border-radius:10px;background:var(--card,#1c2c39);color:var(--text,#fff);font-size:20px;line-height:1}
-.p915-swipe.is-open .p915-archive-more{right:125px}
 @media(prefers-reduced-motion:reduce){.p915-swipe>.home-trip{transition:none}}
