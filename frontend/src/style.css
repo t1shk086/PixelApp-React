@@ -1633,3 +1633,77 @@ html[data-pixelapp-skin="liquid"] .home-actions button{background:linear-gradien
 html[data-pixelapp-skin="liquid"] .home-heading{color:#f9ffff!important;text-shadow:0 1px 12px #ffffff20}
 @media(max-width:390px){html[data-pixelapp-skin="liquid"] .app>nav button{gap:4px;padding:9px 5px}}
 @media(prefers-reduced-motion:reduce){.p915-swipe .p915-archive-btn{transition:none}}
+
+
+/* P91.6.2 — Liquid Glass home composition. Scoped to the Liquid Glass skin. */
+html[data-pixelapp-skin="liquid"] .app:has(.p9162-home-insights) {
+  --glass-edge:rgba(223,244,244,.46);
+  --glass-highlight:rgba(255,255,255,.14);
+  --glass-text:#f3faf9;
+}
+html[data-pixelapp-skin="liquid"] .app:has(.p9162-home-insights) > header {
+  padding:14px 0 15px;
+  background:radial-gradient(ellipse at 50% 120%,rgba(61,218,210,.13),transparent 65%);
+  border-bottom:1px solid rgba(224,241,241,.10);
+  margin-bottom:11px;
+}
+html[data-pixelapp-skin="liquid"] .home-heading {margin-top:24px!important;margin-bottom:12px!important}
+html[data-pixelapp-skin="liquid"] .p915-swipe {
+  margin-bottom:12px!important;
+  border-radius:21px!important;
+  background:rgba(10,14,17,.8);
+  box-shadow:0 9px 22px rgba(0,0,0,.42)!important;
+}
+html[data-pixelapp-skin="liquid"] .p915-swipe>.home-trip {
+  position:relative;
+  min-height:0!important;
+  padding:15px 15px 24px!important;
+  background:linear-gradient(162deg,rgba(249,255,255,.2),rgba(106,140,141,.10) 35%,rgba(14,20,23,.92) 85%),#161c20!important;
+  border:1px solid rgba(214,232,232,.56)!important;
+  border-radius:21px!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.38),inset 0 -1px 1px rgba(255,255,255,.08),0 8px 18px rgba(0,0,0,.35)!important;
+  text-align:left;
+}
+html[data-pixelapp-skin="liquid"] .home-trip .triptitle {
+  display:flex;align-items:center;gap:8px;padding-right:10px;
+  font-size:clamp(15px,4.1vw,18px)!important;
+  line-height:1.2;
+  margin-bottom:5px;
+}
+html[data-pixelapp-skin="liquid"] .p9162-trip-icon {
+  display:grid;place-items:center;flex:0 0 31px;height:31px;
+  background:linear-gradient(145deg,#f4ffff36,#080f12 90%);
+  border:1px solid #e4f6f66b;border-radius:11px;
+  box-shadow:inset 0 1px #ffffff65,0 3px 9px #0007;
+  font-size:16px;
+}
+html[data-pixelapp-skin="liquid"] .p9162-trip-name {flex:1;min-width:0;overflow-wrap:anywhere}
+html[data-pixelapp-skin="liquid"] .p9162-trip-chevron {color:#d4ecea;font-size:26px;font-weight:300;line-height:1}
+html[data-pixelapp-skin="liquid"] .home-trip .tripstatus {padding-left:39px;font-size:11px!important;line-height:1.4!important}
+html[data-pixelapp-skin="liquid"] .home-trip .numbers {margin-top:13px!important;font-size:13px!important;line-height:1.4}
+html[data-pixelapp-skin="liquid"] .home-trip .remaining {font-size:12px!important;line-height:1.4}
+html[data-pixelapp-skin="liquid"] .home-trip .track {left:15px!important;right:15px!important;bottom:9px!important;height:5px!important}
+html[data-pixelapp-skin="liquid"] .p9162-home-insights {
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;
+  align-items:stretch;margin:18px 0;
+}
+html[data-pixelapp-skin="liquid"] .p9162-home-insights>.p38-latest,
+html[data-pixelapp-skin="liquid"] .p9162-home-insights>.home-extra {
+  min-width:0;margin:0!important;padding:13px!important;
+  border-radius:20px!important;
+}
+html[data-pixelapp-skin="liquid"] .p9162-home-insights .home-stats {
+  display:flex;flex-direction:column;gap:6px;
+}
+html[data-pixelapp-skin="liquid"] .p9162-home-insights .home-stats>div {
+  padding:7px 5px!important;min-width:0;
+}
+html[data-pixelapp-skin="liquid"] .p9162-home-insights .home-stats strong {font-size:13px!important}
+html[data-pixelapp-skin="liquid"] .p9162-home-insights .home-stats small {font-size:9px!important}
+html[data-pixelapp-skin="liquid"] .home-places {border-radius:23px!important}
+html[data-pixelapp-skin="liquid"] .p915-swipe:not(.is-open) .p915-archive-btn {visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+html[data-pixelapp-skin="liquid"] .p915-swipe.is-open .p915-archive-btn {visibility:visible!important;opacity:1!important;pointer-events:auto!important}
+@media(max-width:380px) {
+ html[data-pixelapp-skin="liquid"] .p9162-home-insights {grid-template-columns:1fr}
+ html[data-pixelapp-skin="liquid"] .p9162-home-insights .home-stats {flex-direction:row}
+}
