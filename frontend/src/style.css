@@ -1506,3 +1506,98 @@ html[data-pixelapp-skin="slate"] .home-trip .remaining strong{color:#253d4b!impo
 .p9153-archive-actions button{min-width:105px;min-height:42px}
 .p9153-confirm-archive{background:#963947;color:white;border:1px solid #c35c67;border-radius:11px;font-weight:700}
 .p9153-confirm-archive:disabled{opacity:.65}
+
+
+/* P91.6 — Liquid Glass HOME prototype. Scoped to the opt-in skin.
+   Presentation only. All actual trip buttons, Drive operations, countdown logic
+   and swipe-to-archive behavior are inherited unchanged from the app. */
+html[data-pixelapp-skin="liquid"]{
+ --skin-bg:#090b0e;--skin-panel:#202327;--skin-border:#6b757b;
+ --skin-ink:#f6f7f9;--skin-muted:#c3c9cd;--skin-accent:#60e7e4;
+ --skin-glow:#3ff2de32;
+ color-scheme:dark;
+}
+html[data-pixelapp-skin="liquid"] body{
+ background:radial-gradient(ellipse 110% 45% at 55% -18%,#31373a 0%,#0c1012 48%,#07090b 100%) fixed!important;
+ color:#f3f6f6;
+}
+html[data-pixelapp-skin="liquid"] .app{color:#f1f4f5}
+html[data-pixelapp-skin="liquid"] .app>header .brand span{
+ background:linear-gradient(135deg,#fff 14%,#d1dadd 55%,#fff 89%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+ text-shadow:none;
+}
+html[data-pixelapp-skin="liquid"] .p40-countdown,
+html[data-pixelapp-skin="liquid"] .home-actions button,
+html[data-pixelapp-skin="liquid"] .p915-swipe>.home-trip,
+html[data-pixelapp-skin="liquid"] .home-extra,
+html[data-pixelapp-skin="liquid"] .home-places,
+html[data-pixelapp-skin="liquid"] .home-extra .home-stats>div,
+html[data-pixelapp-skin="liquid"] .p38-compare-launch{
+ background:linear-gradient(155deg,#f2fbff20 0%,#9cb5bc0f 24%,#ffffff07 49%,#ffffff19 100%),linear-gradient(148deg,#292c30,#101317 72%,#202428)!important;
+ border:1px solid #cedde078!important;
+ box-shadow:inset 0 1.5px 1px #ffffff8a,inset 0 -2px 8px #ffffff12,0 13px 26px #000a,0 0 0 1px #090b0d!important;
+ color:#f4f7f8!important;
+}
+html[data-pixelapp-skin="liquid"] .p40-countdown{
+ border-radius:28px!important;min-height:200px;
+ padding:24px 21px!important;
+}
+html[data-pixelapp-skin="liquid"] .p40-countdown::after{
+ height:2px!important;background:linear-gradient(90deg,transparent,#c8f3efb8 24%,#6eece8 52%,#d7f8f5bb 75%,transparent)!important;
+}
+html[data-pixelapp-skin="liquid"] .p40-countdown::before{
+ background:radial-gradient(ellipse at 76% 12%,#5bf0e519,transparent 48%),linear-gradient(155deg,#ffffff20,transparent 38%,#ffffff10 87%)!important;
+}
+html[data-pixelapp-skin="liquid"] .p40-countdown-cover{filter:brightness(.49) saturate(.83)!important}
+html[data-pixelapp-skin="liquid"] .p40-countdown h2{color:#fff!important;text-shadow:0 2px 10px #000e}
+html[data-pixelapp-skin="liquid"] .p40-countdown :is(.p40-countdown-overline,.p40-countdown-date,.p40-countdown-footnote){color:#e0e9eb!important}
+html[data-pixelapp-skin="liquid"] .p40-countdown-ring{
+ background:radial-gradient(circle,#101618 58%,transparent 60%),conic-gradient(from 205deg,#71f1eb,#f4e6d0,#7af1e9,#52787a)!important;
+ box-shadow:0 0 0 5px #b4f6ee14,0 0 22px #69ffe546,inset 0 0 13px #fff4!important;
+}
+html[data-pixelapp-skin="liquid"] .p40-countdown-ring :is(strong,span){color:#fff!important}
+html[data-pixelapp-skin="liquid"] .p40-countdown-progress{background:#d1e5e32a!important}
+html[data-pixelapp-skin="liquid"] .p40-countdown-progress span{background:linear-gradient(90deg,#5cece8,#defbf1)!important}
+html[data-pixelapp-skin="liquid"] .home-actions{gap:12px;margin:15px 0 22px}
+html[data-pixelapp-skin="liquid"] .home-actions button{
+ border-radius:999px!important;min-height:68px;padding:13px!important;
+ text-align:left;gap:9px;transition:transform .14s ease,box-shadow .14s ease;
+}
+html[data-pixelapp-skin="liquid"] .home-actions button:active{transform:scale(.985)}
+html[data-pixelapp-skin="liquid"] .home-actions b{color:#fff;font-size:clamp(12px,3.5vw,16px)}
+html[data-pixelapp-skin="liquid"] .home-actions small{color:#d0dce0!important;font-size:10px}
+html[data-pixelapp-skin="liquid"] .home-heading{
+ font-size:clamp(18px,4.3vw,23px);font-weight:800;letter-spacing:-.3px;color:#f7fafb;
+ border-bottom:0;margin:26px 2px 16px;padding:0;
+}
+html[data-pixelapp-skin="liquid"] .home-heading span{color:#cad5d7;font-size:12px;font-weight:550}
+html[data-pixelapp-skin="liquid"] .p915-swipe{margin-bottom:15px}
+html[data-pixelapp-skin="liquid"] .p915-swipe>.home-trip{
+ border-radius:23px!important;border-left:1px solid #cedde078!important;
+ padding:17px 18px 23px!important;min-height:112px;
+}
+html[data-pixelapp-skin="liquid"] .home-trip .triptitle{font-size:clamp(16px,4.5vw,20px)!important;font-weight:800;color:#fff;letter-spacing:-.2px}
+html[data-pixelapp-skin="liquid"] .home-trip .tripstatus{color:#e1e8ea!important;font-size:12px}
+html[data-pixelapp-skin="liquid"] .home-trip .tripstatus span{color:#c5d1d4!important}
+html[data-pixelapp-skin="liquid"] .home-trip :is(.numbers,.remaining){color:#e2ebec!important}
+html[data-pixelapp-skin="liquid"] .home-trip :is(.numbers strong,.remaining strong){color:#f6ffff!important}
+html[data-pixelapp-skin="liquid"] .home-trip .track{left:16px!important;right:16px!important;bottom:10px!important;height:6px!important;border-radius:99px!important;background:#d7f6ef24!important}
+html[data-pixelapp-skin="liquid"] .home-trip .track>div{border-radius:99px!important;background:linear-gradient(90deg,#34c9bf,#81fff0)!important;box-shadow:0 0 9px #4affdd80}
+html[data-pixelapp-skin="liquid"] .home-extra,
+html[data-pixelapp-skin="liquid"] .home-places{border-radius:24px!important;padding:17px!important;margin-top:18px}
+html[data-pixelapp-skin="liquid"] .home-extra-title{color:#eef6f6!important;font-size:12px;letter-spacing:.3px}
+html[data-pixelapp-skin="liquid"] .home-stats>div{padding:14px 5px!important;border-radius:17px!important}
+html[data-pixelapp-skin="liquid"] .home-stats strong{color:#b9fff4!important;font-size:clamp(12px,3vw,18px)}
+html[data-pixelapp-skin="liquid"] .home-stats small{color:#d0dddf!important}
+html[data-pixelapp-skin="liquid"] .home-places-head{color:#eff6f6!important}
+html[data-pixelapp-skin="liquid"] .home-places-head span{color:#adfff0;background:#1b3534;border-color:#769f9b}
+html[data-pixelapp-skin="liquid"] .home-places-map{border:1px solid #b4d5d35c;border-radius:17px}
+html[data-pixelapp-skin="liquid"] .show-completed{border-color:#a2c3c077!important;color:#d4f8f1!important;background:#1b2427!important;border-radius:18px!important}
+html[data-pixelapp-skin="liquid"] .p915-archive-btn{background:#74363d!important;color:#fff!important}
+@media(max-width:390px){
+ html[data-pixelapp-skin="liquid"] .p40-countdown{padding:17px 12px!important;gap:8px}
+ html[data-pixelapp-skin="liquid"] .p40-countdown-ring{width:106px;height:106px;flex-basis:106px}
+ html[data-pixelapp-skin="liquid"] .home-actions button{padding:10px 8px!important}
+ html[data-pixelapp-skin="liquid"] .home-actions small{font-size:9px}
+}
+@media(prefers-reduced-motion:reduce){html[data-pixelapp-skin="liquid"] .home-actions button{transition:none}}
