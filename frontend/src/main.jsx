@@ -1736,7 +1736,7 @@ function App(){
  const [comparisonOpen,setComparisonOpen]=useState(false);
  const [readOnly,setReadOnly]=useState(true);
  const [testWriteArmed,setTestWriteArmed]=useState(false);
- const [entry,setEntry]=useState(''); const [trips,setTrips]=useState([]);const [current,setCurrent]=useState(null);
+ const [archiveReveal,setArchiveReveal]=useState(''); const [archiveBusy,setArchiveBusy]=useState(''); const [trips,setTrips]=useState([]);const [current,setCurrent]=useState(null);
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
  const [dataFreshness,setDataFreshness]=useState('none');const [cachedAt,setCachedAt]=useState(null);
  const [expenseDrafts,setExpenseDrafts]=useState({});
@@ -1864,6 +1864,23 @@ function App(){
   }
   const value=entry.trim();if(!value)return;sessionStorage.setItem('pixel_api_key',value);setKey(value);setEntry('');
  }
+ async function archiveTrip(t){
+  if(archiveBusy)return;
+  if(!window.confirm(`Архивиране на „${t.name}“?\n\nПътуването ще се скрие от списъка и от общите справки. Разходите, бюджетите и снимките остават в Google Drive.`))return;
+  const typed=window.prompt(`За потвърждение въведи точно името на пътуването:\n${t.name}`);
+  if(typed!==t.name){if(typed!==null)window.alert('Името не съвпада. Няма промяна.');return;}
+  setArchiveBusy(t.id);
+  try{
+   const proof=await req(`/safe/trip-archive-preflight/${encodeURIComponent(t.id)}`);
+   if(proof.archived)throw Error('Пътуването вече е архивирано.');
+   await req('/safe/trip-archive','POST',{trip_id:t.id,confirmation:t.id,expected_settings_sha256:proof.settings_sha256});
+   localStorage.removeItem(FAST_CACHE_KEY);
+   setArchiveReveal('');
+   if(current===t.id){setCurrent(null);setDetail(null)}
+   await reload(null);
+  }catch(e){setError('Архивирането е отказано: '+String(e.message||e));window.alert('Архивирането не е потвърдено. Обнови данните и провери. '+String(e.message||e))}
+  finally{setArchiveBusy('')}
+ }
  function logout(){setProfileOpen(false);setProfileUser('');sessionStorage.removeItem('pixel_account_name');sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
  if(authMode==='checking'||authMode==='error'||!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager</p><section className="panel"><h3>{authMode==='accounts'?'Вход в профила':authMode==='legacy'?'Личен достъп':'Проверка на връзката'}</h3>{authMode==='error'?<><p role="alert" className="error">{authConfigError}</p><p>Опитай отново. Ако проблемът продължи, провери дали Render е Live и дали адресът на API е правилен.</p><button type="button" onClick={()=>setAuthRetry(n=>n+1)}>Провери отново</button></>:authMode==='checking'?<p>Проверявам какъв вход използва сървърът…</p>:<form onSubmit={connect}>{authMode==='accounts'?<><input autoComplete="username" value={authUser} onChange={e=>setAuthUser(e.target.value)} placeholder="Потребителско име" required/><input type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Парола" required/></>:<><p>Въведи личния API ключ. Google токените не се въвеждат тук.</p><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ" required/></>}<button>Влез</button></form>}{authError&&authMode!=='error'&&<p className="error" role="alert">{authError}</p>}</section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
@@ -1880,7 +1897,7 @@ function App(){
 
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
  {(() => {const ranked=[...trips].sort((a,b)=>{const rank={active:0,upcoming:1,finished:2},sa=tripState(a),sb=tripState(b);if(rank[sa]!==rank[sb])return rank[sa]-rank[sb];const da=asDate(sa==='finished'?a.settings?.end_date:sa==='upcoming'?a.settings?.start_date:a.settings?.end_date);const db=asDate(sb==='finished'?b.settings?.end_date:sb==='upcoming'?b.settings?.start_date:b.settings?.end_date);return sa==='finished'?(db?.getTime()||0)-(da?.getTime()||0):(da?.getTime()||Infinity)-(db?.getTime()||Infinity)});const ended=ranked.filter(t=>tripState(t)==='finished');const visible=ranked.filter(t=>tripState(t)!=='finished').concat(showFinished?ended:ended.slice(0,1));return <>
- {visible.map(t=>{const state=tripState(t),previewSpent=Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]),pct=t.budget>0?Math.min(100,Math.max(0,previewSpent/t.budget*100)):0;return <button key={t.id} className={'trip home-trip state-'+state} onClick={async()=>{setCurrent(t.id);setTab('overview');setDetail(null);try{setDetail(await req(`/trips/${encodeURIComponent(t.id)}`))}catch(e){setError(e.message)}}}><div className="triptitle">🚙 {t.name}</div><div className="tripstatus">{statusDot[state]} {statusText[state]} <span>{t.settings.start_date||''}{t.settings.end_date&&t.settings.end_date!==t.settings.start_date?' → '+t.settings.end_date:''}</span></div>{state==='finished'?<div className="numbers">💰 Общо изхарчено: <strong>{money(Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]))}</strong>{hasExpenseChanges(expenseDrafts[t.id])&&<small className="p27-draft-label"> · временно</small>}</div>:t.budget>0?<><div className="numbers"><strong>{money(previewSpent)}</strong> / {money(t.budget)} <strong> · {Math.round(pct)}%</strong></div><div className="remaining">💳 Остават <strong>{money(Math.max(0,t.budget-previewSpent))}</strong></div><div className="track"><div style={{width:`${pct}%`}}/></div></>:<div className="numbers">💳 Разходи: <strong>{money(previewSpent)}</strong><small className="muted"> · Без зададен бюджет</small></div>}</button>})}
+ {visible.map(t=>{const state=tripState(t),previewSpent=Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]),pct=t.budget>0?Math.min(100,Math.max(0,previewSpent/t.budget*100)):0;return <div key={t.id} className={'p915-swipe'+(archiveReveal===t.id?' is-open':'')} onTouchStart={e=>{e.currentTarget.dataset.startX=String(e.touches[0]?.clientX??0)}} onTouchEnd={e=>{const delta=(e.changedTouches[0]?.clientX??0)-Number(e.currentTarget.dataset.startX||0);if(delta< -65)setArchiveReveal(t.id);else if(delta>65)setArchiveReveal('')}}><button className={'trip home-trip state-'+state} onClick={async()=>{setCurrent(t.id);setTab('overview');setDetail(null);try{setDetail(await req(`/trips/${encodeURIComponent(t.id)}`))}catch(e){setError(e.message)}}}><div className="triptitle">🚙 {t.name}</div><div className="tripstatus">{statusDot[state]} {statusText[state]} <span>{t.settings.start_date||''}{t.settings.end_date&&t.settings.end_date!==t.settings.start_date?' → '+t.settings.end_date:''}</span></div>{state==='finished'?<div className="numbers">💰 Общо изхарчено: <strong>{money(Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]))}</strong>{hasExpenseChanges(expenseDrafts[t.id])&&<small className="p27-draft-label"> · временно</small>}</div>:t.budget>0?<><div className="numbers"><strong>{money(previewSpent)}</strong> / {money(t.budget)} <strong> · {Math.round(pct)}%</strong></div><div className="remaining">💳 Остават <strong>{money(Math.max(0,t.budget-previewSpent))}</strong></div><div className="track"><div style={{width:`${pct}%`}}/></div></>:<div className="numbers">💳 Разходи: <strong>{money(previewSpent)}</strong><small className="muted"> · Без зададен бюджет</small></div>}</button><button type="button" className="p915-archive-btn" disabled={archiveBusy===t.id} onClick={()=>archiveTrip(t)} title="Архивирай пътуване">{archiveBusy===t.id?'…':'🗃️ Архивирай'}</button><button type="button" className="p915-archive-more" onClick={()=>setArchiveReveal(v=>v===t.id?'':t.id)} aria-label={'Действия за '+t.name}>⋯</button></div>})}
  {ended.length>1&&<button className="show-completed" onClick={()=>setShowFinished(x=>!x)}>{showFinished?'Скрий старите приключения':'Виж всички приключени'} · {ended.length}</button>}
  </>})()}
  {!trips.length&&loading&&<p role="status" className="muted">⏳ Зареждам пътуванията от сървъра. При първо отваряне Render може да се събужда…</p>}
