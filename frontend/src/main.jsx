@@ -100,15 +100,26 @@ function ExpenseHistory({rows}) {
  const categoryIcon=name=>name==='Транспорт'?'🚗':name==='Храна и напитки'?'🍔':name==='Нощувки/Хотел'?'🏨':name==='Депозит/Резервация'?'💳':name==='Куче'?'🐾':'☀️';
  const colors=['#65c9ed','#e6b768','#b49cff','#7fd4ad','#e698b0','#9caebd'];
  const renderItem=(r,i)=>{
-  const text=String(r.description||'Без описание');
-  const fuel=/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(text);
-  const full=/\[(?:ПЪЛНО|ПЪЛЕН)\s+ЗАРЕЖДАНЕ\]/i.test(text);
-  const label=fuel?text.replace(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/gi,'').replace(/\(Етап:.*?\)/i,'').trim()||'Гориво':text;
-  const stage=text.match(/(?:Реален разход:|Разход:)\s*([0-9.,]+)\s*л\s*\/\s*100/i);
+  const raw=String(r.description||'Без описание');
+  const manual=/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i.test(raw);
+  const fuel=/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(raw);
+  const full=/\[(?:ПЪЛНО|ПЪЛЕН)\s+ЗАРЕЖДАНЕ\]/i.test(raw);
+  const stage=raw.match(/(?:Реален разход:|Разход:)\s*([0-9.,]+)\s*л\s*\/\s*100/i);
+  // P90.5.8: presentation only. Keep the original description and its P72 link intact in Drive.
+  const clean=raw.replace(/\[P72:[^\]]*\]/gi,'')
+    .replace(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/gi,'')
+    .replace(/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/gi,'')
+    .replace(/\(Етап:.*?\)/gi,'').trim();
+  const litersFromDescription=manual?raw.match(/Добавени\s*([0-9]+(?:[.,][0-9]+)?)\s*литра/i):null;
+  const liters=Number(r.liters)>0?Number(r.liters):litersFromDescription?Number(litersFromDescription[1].replace(',','.')):0;
+  const title=manual?(/ПРОПУСНАТО\s+ГОРИВО/i.test(raw)?'Пропуснато гориво':'Гориво без стойност'):(clean||'Гориво');
+  const date=String(r.date||'Без дата');
+  const details=[liters>0?`${liters.toLocaleString('bg-BG',{maximumFractionDigits:2})} л`:null,Number(r.current_km)>0?`${Number(r.current_km).toLocaleString('bg-BG')} км`:null,stage?`${stage[1]} л/100 км`:null].filter(Boolean).join(' · ');
   return <div key={`${r._key||r.date||'row'}-${i}`} className="p29-expense-item">
-    <div className="p29-expense-info"><strong>{fuel?'⛽ ':''}{label}</strong><small>{r.date||'Без дата'}{r._original===false?' · Временно':''}</small>
+    <div className="p29-expense-info"><strong>{(fuel||manual)?'⛽ ':''}{title}</strong><small>{date}{r._original===false?' · Временно':''}</small>
       {fuel&&<span className={'p29-fuel-tag '+(full?'full':'partial')}>{full?'Пълно зареждане':'Частично зареждане'}</span>}
-      {(Number(r.liters)>0||stage)&&<small className="p29-expense-extra">{Number(r.liters)>0?`${Number(r.liters).toLocaleString('bg-BG')} л`:''}{Number(r.current_km)>0?` · ${Number(r.current_km).toLocaleString('bg-BG')} км`:''}{stage?` · ${stage[1]} л/100 км`:''}</small>}
+      {manual&&<span className="p29-fuel-tag manual">{Number(r.amount)>0?'Ръчно добавено':'Без стойност'}</span>}
+      {details&&<small className="p29-expense-extra">{details}</small>}
     </div><b>{money(amount(r))}</b>
   </div>;
  };

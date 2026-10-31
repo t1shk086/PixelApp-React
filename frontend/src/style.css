@@ -1254,3 +1254,59 @@ html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown :is
 html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .p40-countdown :is(.p40-countdown-overline,.p40-countdown-overline span,.p40-countdown-date span){color:var(--countdown-ring-a)!important}
 /* Keep countdown legible if a photo cover is eventually enabled. */
 html[data-pixelapp-skin="slate"] .p40-countdown.p40-countdown-photo :is(h2,.p40-countdown-date,.p40-countdown-footnote,.p40-countdown-overline){color:#fff!important;text-shadow:0 1px 8px #000b}
+
+/* P90.5.8 — targeted expense history polish (all skins). */
+html[data-pixelapp-skin] .p29-view-tabs {
+ background:transparent!important;border:1px solid var(--skin-border,#476174);
+ border-radius:14px;padding:4px;gap:5px;box-shadow:none!important;
+}
+html[data-pixelapp-skin] .p29-view-tabs button {
+ background:transparent!important;color:var(--skin-muted,#bacbd7)!important;
+ border-radius:10px;box-shadow:none!important;
+}
+html[data-pixelapp-skin] .p29-view-tabs button.selected {
+ background:var(--skin-card,#263b4b)!important;color:var(--skin-text,#fff)!important;
+ box-shadow:inset 0 0 0 1px var(--skin-border,#476174)!important;
+}
+html[data-pixelapp-skin] .p29-fuel-tag {
+ display:inline-flex;align-self:flex-start;max-width:100%;width:auto;
+ background:#1e4155!important;color:#b9eeff!important;
+ border:1px solid #4d849d;font-weight:750;
+}
+html[data-pixelapp-skin] .p29-fuel-tag.full {background:#183d33!important;color:#aaf1ce!important;border-color:#478e75}
+html[data-pixelapp-skin] .p29-fuel-tag.manual {background:#30334e!important;color:#e4d8ff!important;border-color:#7773ac}
+html[data-pixelapp-skin="slate"] .p29-fuel-tag {background:#e3f3fa!important;color:#155c7b!important;border-color:#8cb9c8}
+html[data-pixelapp-skin="slate"] .p29-fuel-tag.full {background:#dcf3e6!important;color:#11623f!important;border-color:#86bba0}
+html[data-pixelapp-skin="slate"] .p29-fuel-tag.manual {background:#eee8fa!important;color:#63459b!important;border-color:#baaddc}
+html[data-pixelapp-skin] .p29-expense-item {align-items:flex-start;gap:10px}
+html[data-pixelapp-skin] .p29-expense-info strong {overflow-wrap:anywhere;line-height:1.35}
+html[data-pixelapp-skin] .p29-expense-item>b {flex-shrink:0}
+html[data-pixelapp-skin] .p29-expense-extra {color:var(--contrast-secondary,var(--skin-muted,#b6c9d6))!important}
+
+/* P90.5.8 — targeted expense history polish (all skins). */
+html[data-pixelapp-skin] .p29-view-tabs {
+ background:transparent!important;border:1px solid var(--skin-border,#476174);
+ border-radius:14px;padding:4px;gap:5px;box-shadow:none!important;
+}
+html[data-pixelapp-skin] .p29-view-tabs button {
+ background:transparent!important;color:var(--skin-muted,#bacbd7)!important;
+ border-radius:10px;box-shadow:none!important;
+}
+html[data-pixelapp-skin] .p29-view-tabs button.selected {
+ background:var(--skin-card,#263b4b)!important;color:var(--skin-text,#fff)!important;
+ box-shadow:inset 0 0 0 1px var(--skin-border,#476174)!important;
+}
+html[data-pixelapp-skin] .p29-fuel-tag {
+ display:inline-flex;align-self:flex-start;max-width:100%;width:auto;
+ background:#1e4155!important;color:#b9eeff!important;
+ border:1px solid #4d849d;font-weight:750;
+}
+html[data-pixelapp-skin] .p29-fuel-tag.full {background:#183d33!important;color:#aaf1ce!important;border-color:#478e75}
+html[data-pixelapp-skin] .p29-fuel-tag.manual {background:#30334e!important;color:#e4d8ff!important;border-color:#7773ac}
+html[data-pixelapp-skin="slate"] .p29-fuel-tag {background:#e3f3fa!important;color:#155c7b!important;border-color:#8cb9c8}
+html[data-pixelapp-skin="slate"] .p29-fuel-tag.full {background:#dcf3e6!important;color:#11623f!important;border-color:#86bba0}
+html[data-pixelapp-skin="slate"] .p29-fuel-tag.manual {background:#eee8fa!important;color:#63459b!important;border-color:#baaddc}
+html[data-pixelapp-skin] .p29-expense-item {align-items:flex-start;gap:10px}
+html[data-pixelapp-skin] .p29-expense-info strong {overflow-wrap:anywhere;line-height:1.35}
+html[data-pixelapp-skin] .p29-expense-item>b {flex-shrink:0}
+html[data-pixelapp-skin] .p29-expense-extra {color:var(--contrast-secondary,var(--skin-muted,#b6c9d6))!important}
