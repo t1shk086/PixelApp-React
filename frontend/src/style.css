@@ -1006,68 +1006,74 @@ html[data-pixelapp-skin="obsidian"] .brand span{background:linear-gradient(110de
 html[data-pixelapp-skin="slate"] :is(.budget-visual,.budget-showcase,.p36-budget,.p29-expense-item,.p9041-expense-card,.fuel-metrics>div) :is(h2,h3,h4,p,small,label){color:var(--skin-text)}
 html[data-pixelapp-skin="slate"] :is(.budget-visual,.budget-showcase,.p36-budget,.p29-expense-item,.p9041-expense-card,.fuel-metrics>div) :is(.muted,.sub){color:var(--skin-muted)!important}
 
-/* P90.5.3 — Unified theme surfaces. No changes to application data or Leaflet tiles. */
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]){
- --muted:var(--skin-muted);--text:var(--skin-text);
- --skin-elevated:color-mix(in srgb,var(--skin-surface) 88%,white 12%);
- --skin-shadow:0 10px 24px #0003,0 2px 6px #0002;
+
+/* P90.5.4: Slate readability repair, scoped to UI, never map tiles.
+   Previous P90.5.3 global surface re-skin caused dark-on-dark descendants. */
+html[data-pixelapp-skin="slate"]{
+ --skin-text:#263c4b;--skin-muted:#536b7a;
+ --skin-panel-ink:#263c4b;--skin-sub-ink:#526b7a;
+ --skin-card-top:#ffffff;--skin-card-bottom:#e8f0f6;
 }
-html[data-pixelapp-skin="slate"]{--skin-shadow:0 9px 22px #1f40521b,0 2px 6px #1f405212}
-/* Apply the selected palette to base containers, including formerly unthemed widgets. */
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
- .app,.auth,.travel-detail,.p37-admin-content,.p37-admin-section,
- .budget-visual,.budget-showcase,.budget-visual-head,.visual-gauges,
- .p29-category-card,.p29-category-group,.p29-expense-group,
- .expense-overview,.expense-filters,.fuel-history-card,.fuel-entry,
- .fuel-odometer,.task-showcase,.route82-panel,.p82-route,.p82-add-panel,
- .route81-list,.route81-editor,.p38-compare,.p38-compare-row){
- color:var(--skin-text);
+/* Theme surfaces for the actual nested components used in the trip screens. */
+html[data-pixelapp-skin="slate"] :is(
+ .visual-category,.p29-total-panel,.p36-panel,.p36-pace-state,
+ .p36-kpis>div,.p36-budget-stat,.p36-budget-metric,.p36-budget-item,
+ .budget-showcase-total,.budget-showcase-grid>div,.budget-visual-row,
+ .p35-fuel-total,.p35-fuel-paid,.p35-fuel-summary>div,
+ .task-preview-item,.task-showcase,.task-preview-panel,
+ .visual-gauges>div,.p29-expense-item,.p29-category-group,
+ .p29-expense-entry,.p29-expense-group,.expense-overview,.expense-filters,
+ .p29-expense-filters,.p36-budget-categories,
+ .p9041-fuel-fields,.p9041-expense-card){
+ background:linear-gradient(155deg,var(--skin-card-top),var(--skin-card-bottom))!important;
+ border-color:#adc0cd!important;color:var(--skin-panel-ink)!important;
 }
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
- .visual-gauges>div,.visual-overview-stats>div,.visual-road-stats>div,
- .budget-visual,.budget-showcase,.budget-visual-row,.p36-budget-stat,
- .p36-budget-metric,.p36-budget-item,.p29-category-card,.p29-category-group,
- .p29-expense-group,.p29-expense-entry,.expense-overview,.expense-filters,
- .fuel-entry,.fuel-odometer>div,.fuel-history-card,.fuel-metrics>div,
- .quick-demo-summary,.quick-demo-card,.quick-demo-list,.quick-demo-grid>div,
- .task-preview-panel,.route82-panel,.route81-list,.route81-editor,
- .p82-route,.p82-add-panel,.p38-compare,.p38-compare-row,.p38-latest,
- .p9041-fuel-fields,.p9041-expense-card,.p29-expense-item){
- background:linear-gradient(150deg,var(--skin-elevated),var(--skin-surface2))!important;
- border-color:var(--skin-border)!important;
+/* Important: direct legacy selectors assign near-black to amounts/headings. */
+html[data-pixelapp-skin="slate"] :is(
+ .visual-category,.p29-total-panel,.p36-panel,.p36-pace-state,
+ .p36-kpis>div,.budget-showcase-total,.budget-showcase-grid>div,
+ .budget-visual-row,.p35-fuel-summary>div,.p35-fuel-total,.p35-fuel-paid,
+ .task-preview-item,.task-showcase,.task-preview-panel,
+ .visual-gauges>div,.p29-expense-item,.p29-category-group,
+ .p29-expense-entry,.p29-expense-group,.expense-overview,.expense-filters,
+ .p29-expense-filters) :is(h2,h3,h4,h5,b,strong,span,p,small,label,em){
+ color:var(--skin-panel-ink)!important;
+}
+html[data-pixelapp-skin="slate"] :is(
+ .visual-category,.p29-total-panel,.p36-panel,.budget-showcase-total,
+ .budget-visual-row,.p35-fuel-summary>div,.task-preview-item,
+ .task-showcase,.p29-expense-item) :is(.muted,.sub,.p36-panel-note){
+ color:var(--skin-sub-ink)!important;
+}
+html[data-pixelapp-skin="slate"] .visual-gauges .gauge-circle{
+ background:linear-gradient(155deg,#243544,#14212f)!important;
+}
+html[data-pixelapp-skin="slate"] .visual-gauges .gauge-circle b{color:#f7fcff!important}
+html[data-pixelapp-skin="slate"] .visual-gauges .gauge-circle em{color:#c7dce9!important}
+html[data-pixelapp-skin="slate"] .visual-gauges .gauge-label-red{color:#af334a!important}
+html[data-pixelapp-skin="slate"] .visual-gauges .gauge-label-orange{color:#955900!important}
+/* Do not overwrite semantic status colours or the graphic itself. */
+html[data-pixelapp-skin="slate"] :is(.p36-red,.negative,.danger,.p36-over){color:#bf3550!important}
+html[data-pixelapp-skin="slate"] .p36-green{color:#147b5c!important}
+html[data-pixelapp-skin="slate"] .p36-blue{color:#167b9e!important}
+html[data-pixelapp-skin="slate"] .p36-orange{color:#a65a16!important}
+/* Keep the slim gauges visually distinctive, including readable central numerals. */
+html[data-pixelapp-skin="slate"] .visual-gauges .gauge-circle :is(b,em){position:relative;z-index:2}
+/* Light-only raised trial tile: visible depth without animation or resizing. */
+html[data-pixelapp-skin="slate"] :is(.overview-tile,.visual-overview-stats>div,.p36-kpis>div){
+ background:linear-gradient(145deg,#ffffff 0%,#e8f0f6 75%,#dce7ef 100%)!important;
+ border:1px solid #a9bfce!important;
+ box-shadow:0 11px 18px #29495e36,0 3px 5px #29495e20,inset 0 2px 0 #fff!important;
+}
+/* Only selected skins: text must contrast with their actual surface. */
+html[data-pixelapp-skin]:is([data-pixelapp-skin="graphite"],[data-pixelapp-skin="ocean"],[data-pixelapp-skin="obsidian"]) :is(
+ .visual-category,.p29-total-panel,.p36-panel,.p36-kpis>div,
+ .p35-fuel-summary>div,.task-preview-item,.budget-visual-row){
  color:var(--skin-text)!important;
- box-shadow:var(--skin-shadow),inset 0 1px 0 #ffffff10;
 }
-/* Consistent foreground for nested details, rather than legacy white/navy. */
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
- .budget-visual,.budget-showcase,.p36-budget,.quick-demo-summary,.quick-demo-list,
- .p29-expense-group,.p29-expense-item,.fuel-history-card,.visual-gauges,
- .p37-admin-content,.p82-panel,.route82-panel,.task-showcase) :is(h2,h3,h4,h5,label,b,strong,p){
- color:var(--skin-text);
-}
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
- .budget-visual,.budget-showcase,.p36-budget,.quick-demo-summary,.quick-demo-list,
- .p29-expense-group,.fuel-history-card,.visual-gauges,.p37-admin-content,
- .p82-panel,.route82-panel,.task-showcase) :is(small,.muted,.sub){
- color:var(--skin-muted)!important;
-}
-/* Buttons: retain semantic colors (danger, warnings, statuses) and Leaflet controls. */
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
- .p9043-add-expense,.p37-admin-action,.home-actions button){
- background:linear-gradient(155deg,var(--skin-elevated),var(--skin-surface2))!important;
- border-color:var(--skin-border)!important;
+html[data-pixelapp-skin]:is([data-pixelapp-skin="graphite"],[data-pixelapp-skin="ocean"],[data-pixelapp-skin="obsidian"]) :is(
+ .visual-category,.p29-total-panel,.p36-panel,.p36-kpis>div,
+ .p35-fuel-summary>div,.task-preview-item,.budget-visual-row) :is(b,strong,h4,span,small){
  color:var(--skin-text)!important;
 }
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
- .p9043-add-expense,.p37-admin-action,.home-actions button):active{transform:translateY(1px)}
-/* Only one subtle 3-D trial: summary metric tiles. Easy to assess and revert. */
-html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
- .home-stats>div,.travel-facts>div,.p36-budget-stat,.quick-demo-grid>div){
- background:linear-gradient(145deg,var(--skin-elevated) 0%,var(--skin-surface) 58%,var(--skin-surface2) 100%)!important;
- box-shadow:0 8px 17px #0003,inset 0 1px 0 #ffffff22,inset 0 -2px 4px #0002!important;
- border:1px solid var(--skin-border)!important;
-}
-/* Preserve accessible light-skin text on all standalone headings. */
-html[data-pixelapp-skin="slate"] :is(h4,.home-heading,.travel-overline,.p36-budget-head h3){color:var(--skin-text)}
-html[data-pixelapp-skin="slate"] :is(.p9043-budget-link,.p9042-edit-link){color:var(--skin-muted)!important}
-/* Keep semantic budget warnings in their own colors, and real map tiles unchanged. */
+/* Preserve real maps and their light-colored tool controls. */
