@@ -1077,3 +1077,57 @@ html[data-pixelapp-skin]:is([data-pixelapp-skin="graphite"],[data-pixelapp-skin=
  color:var(--skin-text)!important;
 }
 /* Preserve real maps and their light-colored tool controls. */
+
+
+/* P90.5.5 — contrast parity with Standard, scoped by component surface.
+   The key is that panel surface AND its foreground must come from the same skin.
+   No map tiles, charts' colored marks, gauges' ring or status palettes are altered. */
+html[data-pixelapp-skin="graphite"]{--contrast-card:#222e39;--contrast-card-alt:#1b2631;--contrast-ink:#f3f7fa;--contrast-secondary:#bacbd7;--contrast-line:#617685}
+html[data-pixelapp-skin="slate"]{--contrast-card:#f6f9fc;--contrast-card-alt:#e8f0f5;--contrast-ink:#243745;--contrast-secondary:#516878;--contrast-line:#a2b8c7}
+html[data-pixelapp-skin="ocean"]{--contrast-card:#12354e;--contrast-card-alt:#0c2940;--contrast-ink:#f2faff;--contrast-secondary:#bad4e6;--contrast-line:#477c9b}
+html[data-pixelapp-skin="obsidian"]{--contrast-card:#19232d;--contrast-card-alt:#111a23;--contrast-ink:#f5faff;--contrast-secondary:#c2d3df;--contrast-line:#5d7688}
+/* Scope these to actual data tiles that the screenshots show as unreadable. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .visual-category,.p29-total-panel,.p29-expense-item,.p29-expense-entry,
+ .p29-category-card,.p29-category-group,.p29-expense-group,.p29-expense-history,
+ .expense-overview,.budget-visual-row,.budget-showcase-grid>div,
+ .p36-kpis>div,.p36-budget-stat,.p36-budget-metric,.p36-budget-item,
+ .p36-panel,.p36-pace-state,.p36-budget-categories,
+ .p35-fuel-total,.p35-fuel-paid,.p35-fuel-summary>div,
+ .fuel-history-card,.fuel-entry,.task-preview-item,.task-preview-panel,
+ .visual-gauges>div,.quick-demo-summary,.quick-demo-card
+ ){
+ background:linear-gradient(155deg,var(--contrast-card),var(--contrast-card-alt))!important;
+ border-color:var(--contrast-line)!important;
+ color:var(--contrast-ink)!important;
+}
+/* Reapply readable foreground even where old CSS hard-codes dark text with !important. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .visual-category,.p29-total-panel,.p29-expense-item,.p29-expense-entry,
+ .p29-category-card,.p29-category-group,.p29-expense-group,.expense-overview,
+ .budget-visual-row,.budget-showcase-grid>div,
+ .p36-kpis>div,.p36-budget-stat,.p36-budget-metric,.p36-budget-item,
+ .p36-panel,.p36-pace-state,.p36-budget-categories,
+ .p35-fuel-total,.p35-fuel-paid,.p35-fuel-summary>div,
+ .fuel-history-card,.fuel-entry,.task-preview-item,.task-preview-panel,
+ .visual-gauges>div,.quick-demo-summary,.quick-demo-card
+ ) :is(h2,h3,h4,h5,b,strong,label,p,small,span,em){color:var(--contrast-ink)!important}
+/* Secondary captions and hints retain hierarchy without disappearing. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(
+ .visual-category,.p29-total-panel,.p29-expense-item,.p29-expense-entry,
+ .budget-visual-row,.p36-panel,.p36-kpis>div,.p35-fuel-summary>div,
+ .fuel-history-card,.task-preview-item,.visual-gauges>div
+ ) :is(.muted,.sub,.p36-panel-note,.p36-kpis span,.p36-kpis small){color:var(--contrast-secondary)!important}
+/* Do not overwrite primary meaning: semantic values should stay visible. */
+html[data-pixelapp-skin="slate"] :is(.p36-red,.negative,.danger,.p36-over){color:#b92c48!important}
+html[data-pixelapp-skin="slate"] .p36-green{color:#127b55!important}
+html[data-pixelapp-skin="slate"] .p36-blue{color:#087eaa!important}
+html[data-pixelapp-skin="slate"] .p36-orange{color:#9a5709!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]):not([data-pixelapp-skin="slate"]) .p36-red{color:#ff8a9c!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]):not([data-pixelapp-skin="slate"]) .p36-green{color:#7de6af!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]):not([data-pixelapp-skin="slate"]) .p36-blue{color:#7edbff!important}
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]):not([data-pixelapp-skin="slate"]) .p36-orange{color:#ffc081!important}
+/* Gauge face is independently dark in all themes; labels on that face must be light. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .visual-gauges .gauge-circle :is(b,strong,em){color:#f2f8fc!important}
+/* Side-by-side input widgets are readable in their actual surface. */
+html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) :is(.task-preview-item,.p36-budget-item) :is(input,select,textarea){background:var(--skin-field)!important;color:var(--skin-text)!important}
