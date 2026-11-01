@@ -591,15 +591,18 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
     throw Error('Редакцията няма валидна начална версия. Отвори задачата отново.');
    const pre=operation==='edit'
      ? {can_write:true,sha256:taskEditRevision}
-     : await onTaskPreflight();
+     : operation==='toggle'
+       ? {can_write:true,sha256:'0'.repeat(64)}
+       : await onTaskPreflight();
    perfPre=performance.now()-perfStart;
    if(!pre.can_write)throw Error('Записът не е разрешен или Google Drive е променен. Обнови страницата.');
-   await onTaskChange({operation,item_id:t?.item_id||'',title,expected_sha256:pre.sha256,
+   await onTaskChange({operation:operation==='toggle'?'toggle-fast':operation,item_id:t?.item_id||'',title,expected_sha256:pre.sha256,
+    ...(operation==='toggle'?{expected_title:String(t?.title??''),expected_done:String(t?.done??'')}:{}),
     ...(operation==='edit'?{expected_title:taskEditOriginal.title,expected_done:taskEditOriginal.done}:{} )});
    perfWrite=performance.now()-perfStart-perfPre;
    await onTasksSaved();
    perfRefresh=performance.now()-perfStart-perfPre-perfWrite;
-   const summary=`P91.8.8 · проверка ${(perfPre/1000).toFixed(1)}с · запис ${(perfWrite/1000).toFixed(1)}с · обновяване ${(perfRefresh/1000).toFixed(1)}с · общо ${((performance.now()-perfStart)/1000).toFixed(1)}с`;
+   const summary=`P91.8.9 · проверка ${(perfPre/1000).toFixed(1)}с · запис ${(perfWrite/1000).toFixed(1)}с · обновяване ${(perfRefresh/1000).toFixed(1)}с · общо ${((performance.now()-perfStart)/1000).toFixed(1)}с`;
    console.info('PIXELAPP_CLIENT_PERF tasks',summary);
    setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('✅ Записано и проверено в Google Drive. '+summary);
   }catch(err){setTaskMessage('⚠️ '+String(err.message||err));}
