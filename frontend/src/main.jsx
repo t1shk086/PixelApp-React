@@ -422,6 +422,7 @@ function NeonTripTaskLab({tripId,request}){
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
  const [lastMs,setLastMs]=useState(null);
+ const [importResult,setImportResult]=useState('');
  const eligible=/(тест|test)/i.test(String(tripId||''));
  const path='/safe/neon-task-sandbox/'+encodeURIComponent(tripId);
  const read=async()=>{
@@ -454,6 +455,15 @@ function NeonTripTaskLab({tripId,request}){
   {!enabled?<button type="button" onClick={()=>{setEnabled(true);void read()}}>Отвори Neon тест</button>:<>
    <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
     <button type="button" className="ghost" disabled={busy} onClick={()=>void read()}>↻ Обнови Neon</button>
+    <button type="button" className="ghost" disabled={busy} onClick={async()=>{
+      if(!window.confirm('Копирай оригиналните задачи от Drive само в тестовия Neon списък? Съществуващите Neon задачи ще останат.'))return;
+      setBusy(true);setImportResult('');
+      try{const r=await request('/safe/neon-task-sandbox/import/'+encodeURIComponent(tripId),'POST',{});
+        setImportResult('✅ Копирани '+r.imported+' задачи · проверени '+r.checked+' · Drive без промени · '+r.elapsed_ms+' ms');
+        await read();
+      }catch(e){setImportResult('⚠️ '+String(e.message||e));}
+      finally{setBusy(false)}
+    }}>📥 Копирай оригиналните задачи</button>
     {lastMs!==null&&<small className="muted">От натискане до отговор: {lastMs} ms</small>}
    </div>
    <form className="task-preview-form" onSubmit={e=>{e.preventDefault();if(newTitle.trim())void act('add',null,newTitle.trim())}}>
@@ -471,6 +481,7 @@ function NeonTripTaskLab({tripId,request}){
      <button type="button" className="task-preview-action" disabled={busy} onClick={()=>{setEditing(t.item_id);setEditTitle(t.title)}} aria-label="Редактирай тестова задача">✎</button>
      <button type="button" className="task-preview-action" disabled={busy} onClick={()=>{if(window.confirm('Изтрий само тестовата задача от Neon?'))void act('delete',t)}} aria-label="Изтрий тестова задача">✕</button></>}
    </div>)}
+   {importResult&&<p className="muted" role="status">{importResult}</p>}
    {busy&&<p className="muted">Записвам в Neon…</p>}
    {notice&&<p role="status" className="muted">{notice}</p>}
   </>}
