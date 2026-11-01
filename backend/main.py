@@ -2009,7 +2009,7 @@ def safe_tasks_preflight(trip_id: str):
 @app.post('/safe/tasks/{trip_id}', dependencies=[Depends(authorize)])
 def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
     if not TASK_WRITE_ENABLED: raise HTTPException(423,'Записването на задачи е заключено.')
-    if payload.operation not in ('add','edit','toggle','delete'):
+    if payload.operation not in ('add','edit','toggle','toggle-fast','delete'):
         raise HTTPException(422,'Неподдържано действие.')
     title=payload.title.strip()
     if payload.operation in ('add','edit') and (not title or len(title)>200):
@@ -2024,7 +2024,10 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
         _assert_react_owned_trip(trip_id,service,mapping); _perf_marks.append(('ownership',time.perf_counter()))
         fid,path,remote,local,columns,rows=_finance_remote('tasks',service,mapping); _perf_marks.append(('csv_read',time.perf_counter()))
         digest=hashlib.sha256(remote).hexdigest()
-        if digest!=payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
+        # P91.8.9: A one-request toggle uses the current Drive snapshot rather than
+        # a stale preflight hash. It is accepted ONLY when the caller proves the
+        # exact task state it displayed; all other operations still require SHA.
+        if hashlib.sha256(local).hexdigest()!=digest or (payload.operation!='toggle-fast' and digest!=payload.expected_sha256):
             raise HTTPException(409,'Данните са променени от друг телефон. Обнови и опитай отново.')
         if payload.operation=='add':
             item_id=f'{trip_id}_{sofia_now().strftime("%Y%m%d%H%M%S%f")}_{uuid.uuid4().hex[:6]}'
@@ -2035,6 +2038,11 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
             matched=[r for r in rows if r.get('trip_id')==trip_id and r.get('item_id')==payload.item_id]
             if len(matched)!=1: raise HTTPException(404,'Задачата не е намерена еднозначно.')
             row=matched[0]
+            if payload.operation=='toggle-fast':
+                if payload.expected_title is None or payload.expected_done is None:
+                    raise HTTPException(409,'Липсва потвърдено състояние на задачата. Обнови.')
+                if str(row.get('title') or '')!=payload.expected_title or str(row.get('done') or '').lower()!=payload.expected_done.lower():
+                    raise HTTPException(409,'Задачата е променена от друг профил. Обнови.')
             if payload.operation=='edit':
                 # A client must prove which specific task state its editor opened.
                 # This protects against stale editors, even when a UI refresh happens.
@@ -2044,7 +2052,7 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
                         str(row.get('done') or '').lower() != payload.expected_done.lower()):
                     raise HTTPException(409,'Тази задача е редактирана от друг профил. Обнови я и опитай отново.')
                 row['title']=title
-            elif payload.operation=='toggle': row['done']='False' if str(row.get('done','')).lower() in ('true','1','yes','да') else 'True'
+            elif payload.operation in ('toggle','toggle-fast'): row['done']='False' if str(row.get('done','')).lower() in ('true','1','yes','да') else 'True'
             else: rows.remove(row)
             item_id=payload.item_id
         out=io.StringIO(newline='')
