@@ -123,13 +123,12 @@ function ExpenseHistory({rows,onExpenseAction}) {
       {fuel&&<span className={'p29-fuel-tag '+(full?'full':'partial')}>{full?'Пълно зареждане':'Частично зареждане'}</span>}
       {manual&&<span className="p29-fuel-tag manual">{Number(r.amount)>0?'Ръчно добавено':'Без стойност'}</span>}
       {details&&<small className="p29-expense-extra">{details}</small>}
-    </div><div className="p918-amount-actions"><b>{money(amount(r))}</b>{canChange(r)&&<details className="p918-row-menu"><summary aria-label="Действия за разхода" title="Редактиране или изтриване">⋯</summary><div className="p918-row-actions"><button type="button" onClick={e=>{e.currentTarget.closest('details').open=false;onExpenseAction('edit',r)}}>✏️ Редактирай</button><button type="button" className="p918-delete" onClick={e=>{e.currentTarget.closest('details').open=false;onExpenseAction('delete',r)}}>🗑 Изтрий</button></div></details>}</div>
+    </div><div className="p918-amount-actions"><b>{money(amount(r))}</b>{canChange(r)&&<div className="p918-compact-actions"><button type="button" title="Редактирай разход" aria-label="Редактирай разход" onClick={()=>onExpenseAction('edit',r)}>✎</button><button type="button" title="Изтрий разход" aria-label="Изтрий разход" className="p918-delete" onClick={()=>onExpenseAction('delete',r)}>×</button></div>}</div>
   </div>;
  };
  return <div className="travel-card p29-expense-history">
-  <style>{`.p918-amount-actions{display:flex;align-items:flex-end;flex-direction:column;gap:7px;flex-shrink:0}.p918-row-menu{position:static;align-self:flex-end;max-width:100%}.p918-row-menu summary{cursor:pointer;list-style:none;border:1px solid rgba(130,150,170,.35);border-radius:9px;padding:3px 8px;font-size:20px;line-height:1.2}.p918-row-menu summary::-webkit-details-marker{display:none}.p918-row-actions{position:static;min-width:155px;max-width:100%;margin-top:6px;padding:5px;display:grid;gap:3px;background:var(--card,#233143);border:1px solid rgba(155,170,190,.35);border-radius:12px;box-shadow:0 6px 24px #0005}.p918-row-actions button{white-space:nowrap;text-align:left;background:transparent;color:inherit;border:0;border-radius:8px;padding:9px 10px}.p918-row-actions button:focus-visible,.p918-row-actions button:hover{background:rgba(145,160,175,.16)}.p918-row-actions .p918-delete{color:#f09e9e}.p29-expense-item{overflow:visible}`}</style>
-  <div className="p29-expense-heading"><div><small>PIXELAPP · ФИНАНСИ · P91.8.2</small><h3>💳 Моите разходи</h3></div><span>🧾</span></div>
-  {onExpenseAction&&<small className="muted" style={{display:'block',marginBottom:7}}>⋯ Действията са до сумата на обикновените разходи, добавени в React. Категориите са отворени по подразбиране.</small>}
+  <style>{`.p918-amount-actions{display:flex;align-items:flex-end;flex-direction:column;gap:4px;flex-shrink:0;min-width:0}.p918-compact-actions{display:flex;align-items:center;gap:6px;justify-content:flex-end}.p918-compact-actions button{width:34px;height:34px;min-height:34px;min-width:34px;display:grid;place-items:center;padding:0;border-radius:10px;border:1px solid rgba(145,170,190,.32);background:rgba(110,145,175,.09);color:inherit;font-size:19px;line-height:1;box-shadow:none}.p918-compact-actions .p918-delete{color:#e99a9a;font-size:24px}.p918-compact-actions button:focus-visible{outline:2px solid currentColor;outline-offset:2px}.p29-expense-item{overflow:visible}.p9184-focused-dialog{width:min(440px,calc(100vw - 28px));max-height:85dvh;overflow-y:auto}.p9184-focused-dialog .quick-demo-form{padding-top:2px}`}</style>
+  <div className="p29-expense-heading"><div><small>PIXELAPP · ФИНАНСИ · P91.8.4</small><h3>💳 Моите разходи</h3></div><span>🧾</span></div>
   <div className="p29-total-panel"><small>Общо по избраните филтри</small><strong>{money(total)}</strong><span>{visible.length} от {all.length} плащания</span>
    {total>0&&<div className="p29-distribution">{groups.map((g,i)=><span key={g.name} style={{width:Math.max(0,g.items.reduce((n,r)=>n+amount(r),0)/total*100)+'%',background:colors[options.indexOf(g.name)%colors.length]}}/>)}</div>}
   </div>
@@ -1465,6 +1464,7 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
  const [amount,setAmount]=useState(''),[category,setCategory]=useState('Храна и напитки'),[desc,setDesc]=useState('');
  const [original,setOriginal]=useState(null),[showSafety,setShowSafety]=useState(false);
  const [pendingSelection,setPendingSelection]=useState(initialExpense);
+ const selectedFromHistory=!!initialExpense;
  const [fuelLiters,setFuelLiters]=useState(''),[fuelKm,setFuelKm]=useState(''),[fuelFull,setFuelFull]=useState(true);
  const [missedLiters,setMissedLiters]=useState(''),[missedPaid,setMissedPaid]=useState(false),[missedAmount,setMissedAmount]=useState('');
  const fuelSelected=category==='Транспорт'&&/газ|гориво|зареждане|бензин|дизел/i.test(desc.trim());
@@ -1529,6 +1529,7 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
    resetExpense();
    setMsg('✅ Запазено и проверено в Google Drive. Резервно копие: '+(result.backup_id||'създадено'));
    await onSaved();
+   if(selectedFromHistory)onClose();
   }catch(e){setMsg('⚠️ '+String(e.message||e)+' Провери данните, преди да опиташ отново.');}
   finally{setBusy(false)}
  }
@@ -1569,10 +1570,10 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
   </div>
   {msg&&<p role="status" className={msg.startsWith('⚠️')?'error':'muted'}>{msg}</p>}
  </div></div>;
- return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog p9041-finance-dialog" role="dialog" aria-modal="true" aria-label={view==='budget'?'Редакция на бюджета':'Разходи'} onClick={e=>e.stopPropagation()}>
- <div className="dialoghead"><h3>{view==='budget'?'🎯 Редакция на бюджета':'💳 Разходи'}</h3><button type="button" className="ghost" onClick={onClose} aria-label="Затвори">✕</button></div>
+ return <div className="overlay" onClick={onClose}><div className={"dialog p21-dialog p9041-finance-dialog"+(selectedFromHistory?" p9184-focused-dialog":"")} role="dialog" aria-modal="true" aria-label={view==='budget'?'Редакция на бюджета':'Разходи'} onClick={e=>e.stopPropagation()}>
+ <div className="dialoghead"><h3>{selectedFromHistory?(initialAction==='delete'?'🗑 Изтрий разход':'✏️ Редакция на разход'):view==='budget'?'🎯 Редакция на бюджета':'💳 Разходи'}</h3><button type="button" className="ghost" onClick={onClose} aria-label="Затвори">✕</button></div>
  <p className="muted" style={{marginTop:0}}>🚙 {tripName}</p>
- {!proof?<p className="muted">{busy?'⏳ Проверявам данните в Google Drive…':'⚠️ Няма потвърдени данни. Използвай „Обнови данните“.'}</p>:<div className="quick-demo-grid" style={{marginBottom:14}}>
+ {!proof?<p className="muted">{busy?'⏳ Проверявам данните в Google Drive…':'⚠️ Няма потвърдени данни. Използвай „Обнови данните“.'}</p>:!selectedFromHistory&&<div className="quick-demo-grid" style={{marginBottom:14}}>
   <div><small>Бюджет</small><strong>{money(budgetNumber)}</strong></div>
   <div><small>Разходи</small><strong>{money(spent)}</strong></div>
   <div><small>Остават</small><strong>{money(budgetNumber-spent)}</strong></div>
@@ -1586,6 +1587,7 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
   <button type="button" disabled={!proof?.can_write||busy||(budgetMode==='global'&&!moneyValid(budget))} onClick={()=>change('budget')}>{busy?'⏳ Записвам…':'💾 Запази бюджета'}</button>
   <small className="muted">Смяната на режима заменя предишното разпределение само за това пътуване. Преди записа се прави архив.</small>
  </>:<>
+  {selectedFromHistory&&!original?<p className="muted">⏳ Проверявам избрания разход…</p>:<>
   <h4>{original?(initialAction==='delete'?'🗑 Изтрий разход':'✏️ Редактирай разход'):'➕ Нов разход'}</h4>
   {!(original&&initialAction==='delete')&&<>
   <label>Сума (€)<input type="text" inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00" /></label>
@@ -1600,15 +1602,16 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
     <label>Текущ километраж<input type="number" inputMode="numeric" min="1" step="1" value={fuelKm} onChange={e=>setFuelKm(e.target.value)} placeholder="Км на таблото" /></label>
    </>}
   </section>}
-  <small className="muted">Дата: автоматично при записването. {fuelSelected?'Горивото се записва веднъж с литрите и километража.':'За гориво избери „Транспорт“ и напиши газ, гориво, зареждане, бензин или дизел.'}</small>
+  <small className="muted">{selectedFromHistory?'Дата и час на първоначалния запис се запазват.':'Дата: автоматично при записването.'} {fuelSelected?'Горивото се записва веднъж с литрите и километража.':'За гориво избери „Транспорт“ и напиши газ, гориво, зареждане, бензин или дизел.'}</small>
   </>}
   {original&&initialAction==='delete'&&<p>Да изтрием <strong>{String(original.description||'').replace(/^\[P62\] /,'')}</strong> ({money(original.amount)})? Преди изтриването се създава резервно копие.</p>}
   <div className="actions" style={{display:'flex',flexWrap:'wrap',gap:8}}>
    {!(original&&initialAction==='delete')&&<button type="button" disabled={!proof?.can_write||busy||!moneyValid(amount)||fmtAmount(amount)<=0||!desc.trim()||!fuelReady} onClick={()=>change(original?'expense-edit':'expense-add',original)}>{busy?'⏳ Записвам…':original?'💾 Запази редакцията':'➕ Добави разход'}</button>}
    {original&&initialAction==='delete'&&<button type="button" disabled={!proof?.can_write||busy} onClick={()=>change('expense-delete',original)}>🗑 Потвърди изтриването</button>}
-   {original&&<button type="button" className="ghost" disabled={busy} onClick={resetExpense}>Откажи</button>}
+   {original&&<button type="button" className="ghost" disabled={busy} onClick={selectedFromHistory?onClose:resetExpense}>Откажи</button>}
   </div>
-  <h4>🧾 Записани разходи</h4>
+  </>}
+  {!selectedFromHistory&&<><h4>🧾 Записани разходи</h4>
   {!expenses.length&&<p className="muted">Няма записани разходи.</p>}
   {expenses.map((x,i)=><div key={`${x.date}-${x.description}-${i}`} className="travel-card p9041-expense-card">
    <div className="p9041-expense-info"><div><b>{String(x.description||'').replace(/^\[P62\] /,'').replace(/\s*\[P72:[^\]]+\]/g,'')}</b><div className="muted" style={{fontSize:12}}>{x.category} · {x.date}</div></div><strong>{money(x.amount)}</strong></div>
@@ -1616,14 +1619,14 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
     <button type="button" className="ghost" disabled={busy} onClick={()=>beginEdit(x)}>✏️ Редактирай</button>
     <button type="button" className="ghost" disabled={busy||!proof?.can_write} onClick={()=>{if(window.confirm('Да изтрия ли този тестов разход?'))change('expense-delete',x)}}>🗑️</button>
    </div>}
-  </div>)}
+  </div>)}</>}
  </>}
  </div>
- <details style={{marginTop:12}} open={showSafety} onToggle={e=>setShowSafety(e.currentTarget.open)}><summary className="muted">🔐 Защита и синхронизация</summary>
+ {!selectedFromHistory&&<details style={{marginTop:12}} open={showSafety} onToggle={e=>setShowSafety(e.currentTarget.open)}><summary className="muted">🔐 Защита и синхронизация</summary>
   <p className="muted">Записва се само за новосъздадени пътувания в React. Старите пътувания са само за четене. Не прави едновременно промени през Streamlit.</p>
   {proof&&<p className="muted">Google Drive: {proof.files?.budgets?.drive_matches_local&&proof.files?.expenses?.drive_matches_local?'✅ Синхронизиран':'⚠️ Разминаване'} · {proof.can_write?'✅ Пилотът е разрешен':'🔒 Заключено'}</p>}
   <button type="button" className="ghost" disabled={busy} onClick={()=>check(false)}>🔄 Обнови данните</button>
- </details>
+ </details>}
  {msg&&<p role="status" className={msg.startsWith('⚠️')?'error':'muted'}>{msg}</p>}
  </div></div>;
 }
