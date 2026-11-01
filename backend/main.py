@@ -15,6 +15,13 @@ import os
 import threading
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# Human-readable dates in PixelApp CSV files use Bulgarian local time,
+# regardless of the Render server timezone. Leave UTC audit timestamps as UTC.
+SOFIA_TZ = ZoneInfo("Europe/Sofia")
+def sofia_now():
+    return datetime.now(SOFIA_TZ)
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -523,7 +530,7 @@ def experimental_test_expense(payload: ExperimentalExpense):
             raise HTTPException(422, 'Непознат CSV формат. Записът е отказан.')
         rows = list(reader)
         # All non-test rows are copied verbatim at the data level. We do not edit other trips.
-        stamp = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
+        stamp = sofia_now().strftime('%d.%m.%Y %H:%M:%S')
         marker = '[P44 TEST] ' if payload.confirmation == 'ЗАПИШИ САМО В ТЕСТ P44' else '[P42 TEST] '
         if any(x.get('trip_id') == payload.trip_id and x.get('description') == marker + payload.description for x in rows):
             raise HTTPException(409, 'Вече има тестов разход със същото описание. Избери друго.')
@@ -537,7 +544,7 @@ def experimental_test_expense(payload: ExperimentalExpense):
         writer.writeheader();writer.writerows(rows)
         new_bytes = output.getvalue().encode('utf-8')
         # A persistent Drive-side copy is created BEFORE the original is touched.
-        backup_name = f'P44_BACKUP_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{name}'
+        backup_name = f'P44_BACKUP_{sofia_now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{name}'
         try:
             backup = service.files().copy(fileId=file_id, body={'name':backup_name}, fields='id,name').execute()
             backup_id = backup['id']
@@ -638,7 +645,7 @@ def experimental_test_expense_change(payload: ExperimentalExpenseChange):
         writer = csv.DictWriter(output,fieldnames=cols,extrasaction='ignore',lineterminator='\n')
         writer.writeheader(); writer.writerows(rows)
         new_bytes = output.getvalue().encode('utf-8')
-        backup_name = f'P45_BACKUP_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{filename}'
+        backup_name = f'P45_BACKUP_{sofia_now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}_{filename}'
         try:
             backup = service.files().copy(fileId=file_id,body={'name':backup_name},fields='id,name').execute()
             backup_id = backup['id']
@@ -893,7 +900,7 @@ def add_expense(trip_id:str,payload:ExpenseIn):
     with LOCK:
         if not any(x.get('trip_id')==trip_id for x in load_rows('settings')): raise HTTPException(404,'Trip not found')
         rows=load_rows('expenses')
-        rows.append({'trip_id':trip_id,'date':datetime.now().strftime('%d.%m.%Y %H:%M:%S'),'amount':payload.amount,'category':payload.category,
+        rows.append({'trip_id':trip_id,'date':sofia_now().strftime('%d.%m.%Y %H:%M:%S'),'amount':payload.amount,'category':payload.category,
                      'description':payload.description or 'Без описание','type':'deposit' if payload.is_deposit else 'expense','liters':payload.liters,'current_km':payload.current_km})
         save_rows('expenses',rows)
         return {'ok':True}
@@ -914,8 +921,8 @@ def put_budget(trip_id:str,payload:BudgetIn):
 def add_task(trip_id:str,payload:TaskIn):
     require_writes()
     with LOCK:
-        rows=load_rows('tasks');item_id=f'{trip_id}_{datetime.now().strftime("%Y%m%d%H%M%S%f")}'
-        rows.append({'trip_id':trip_id,'item_id':item_id,'title':payload.title.strip(),'done':False,'created':datetime.now().strftime('%d.%m.%Y %H:%M')})
+        rows=load_rows('tasks');item_id=f'{trip_id}_{sofia_now().strftime("%Y%m%d%H%M%S%f")}'
+        rows.append({'trip_id':trip_id,'item_id':item_id,'title':payload.title.strip(),'done':False,'created':sofia_now().strftime('%d.%m.%Y %H:%M')})
         save_rows('tasks',rows)
         return {'item_id':item_id}
 
@@ -1271,15 +1278,27 @@ def _finance_remote(kind, service, mapping):
     return fid, path, remote, local, columns, rows
 
 
+
+# P91.8.7 - opt-in-free, safe duration diagnostics. No personal data, CSV content
+# or credentials are logged; only stage duration numbers and operation type.
+def _pixelapp_perf(operation, started, marks):
+    previous = started
+    parts = []
+    for stage, instant in marks:
+        parts.append(f"{stage}={int((instant-previous)*1000)}ms")
+        previous = instant
+    print(f"PIXELAPP_PERF {operation} total={int((time.perf_counter()-started)*1000)}ms " + ' '.join(parts), flush=True)
+
 @app.get('/safe/trip-finance-preflight/{trip_id}', dependencies=[Depends(authorize)])
 def safe_trip_finance_preflight(trip_id: str):
-    ensure_local_snapshot()
+    _perf_start = time.perf_counter(); _perf_marks = []
+    ensure_local_snapshot(); _perf_marks.append(('local_snapshot',time.perf_counter()))
     with LOCK:
-        service = drive_service()
+        service = drive_service(); _perf_marks.append(('drive_auth',time.perf_counter()))
         if not service:
             raise HTTPException(503, 'Няма връзка с Drive.')
-        _, mapping = folder_and_files(service)
-        _assert_react_owned_trip(trip_id, service, mapping)
+        _, mapping = folder_and_files(service); _perf_marks.append(('drive_listing',time.perf_counter()))
+        _assert_react_owned_trip(trip_id, service, mapping); _perf_marks.append(('ownership',time.perf_counter()))
         snapshots = {}
         results = {}
         for kind in ('budgets', 'expenses'):
@@ -1287,6 +1306,7 @@ def safe_trip_finance_preflight(trip_id: str):
             match = hashlib.sha256(remote).digest() == hashlib.sha256(local).digest()
             results[kind] = {'drive_matches_local': match, 'sha256': hashlib.sha256(remote).hexdigest()}
             snapshots[kind] = [r for r in rows if r.get('trip_id') == trip_id]
+        _perf_marks.append(('csv_reads',time.perf_counter())); _pixelapp_perf('finance_preflight',_perf_start,_perf_marks)
         return {'armed': TEST_FINANCE_ARMED, 'test_trip_found': True, 'trip_id': trip_id,
                 'can_write': TEST_FINANCE_ARMED and all(x['drive_matches_local'] for x in results.values()),
                 'files': results, 'budgets': snapshots['budgets'], 'expenses': snapshots['expenses']}
@@ -1321,14 +1341,16 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
             raise HTTPException(422, 'Въведи описание до 120 знака. Горивото е отделен модул.')
     else:
         desc = ''
-    ensure_local_snapshot()
+    _perf_start = time.perf_counter(); _perf_marks = []
+    ensure_local_snapshot(); _perf_marks.append(('local_snapshot',time.perf_counter()))
     with guarded_csv_write():
-        service = drive_service()
+        _perf_marks.append(('write_lock',time.perf_counter()))
+        service = drive_service(); _perf_marks.append(('drive_auth',time.perf_counter()))
         if not service:
             raise HTTPException(503, 'Google Drive не е достъпен.')
-        _, mapping = folder_and_files(service)
-        _assert_react_owned_trip(trip_id, service, mapping)
-        fid, path, remote, local, columns, rows = _finance_remote(kind, service, mapping)
+        _, mapping = folder_and_files(service); _perf_marks.append(('drive_listing',time.perf_counter()))
+        _assert_react_owned_trip(trip_id, service, mapping); _perf_marks.append(('ownership',time.perf_counter()))
+        fid, path, remote, local, columns, rows = _finance_remote(kind, service, mapping); _perf_marks.append(('csv_read',time.perf_counter()))
         digest = hashlib.sha256(remote).hexdigest()
         if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest() != digest:
             raise HTTPException(409, 'Има промяна в Drive или Render. Направи нова проверка.')
@@ -1376,7 +1398,7 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
             rows.append(row)
         elif payload.operation == 'expense-add':
             row = {k:'' for k in columns}
-            row.update(trip_id=trip_id, date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
+            row.update(trip_id=trip_id, date=sofia_now().strftime('%d.%m.%Y %H:%M:%S'),
                        amount=amount, category=payload.category, description='[P62] '+desc,
                        type='expense',liters='0',current_km='0')
             # Same label is allowed on different purchases. Only an exactly identical row
@@ -1407,13 +1429,16 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
             backup = service.files().copy(fileId=fid,body={'name':'P68_FINANCE_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES[kind]},fields='id').execute()
         except Exception:
             raise HTTPException(503, 'Архивът не е създаден. Няма запис.')
+        _perf_marks.append(('backup_copy',time.perf_counter()))
         if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest() != digest:
             raise HTTPException(409, 'Drive се е променил след архива. Записът е отказан.')
+        _perf_marks.append(('before_upload_check',time.perf_counter()))
         try:
             from googleapiclient.http import MediaIoBaseUpload
             media = MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)
             service.files().update(fileId=fid,media_body=media).execute()
-            verified = service.files().get_media(fileId=fid).execute()
+            _perf_marks.append(('drive_upload',time.perf_counter()))
+            verified = service.files().get_media(fileId=fid).execute(); _perf_marks.append(('drive_verify',time.perf_counter()))
             if hashlib.sha256(verified).digest() != hashlib.sha256(updated).digest():
                 raise RuntimeError('Verification failed')
         except Exception:
@@ -1421,6 +1446,7 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
         tmp = path.with_suffix('.p62_verified')
         tmp.write_bytes(verified)
         os.replace(tmp, path)
+        _perf_marks.append(('local_commit',time.perf_counter())); _pixelapp_perf('finance_write',_perf_start,_perf_marks)
         return {'ok':True, 'operation':payload.operation, 'backup_id':backup['id']}
 
 
@@ -1508,7 +1534,7 @@ def safe_fuel_add(trip_id: str, payload: SafeFuelAdd):
         if payload.current_km <= last_km:
             raise HTTPException(422, f'Километражът трябва да е по-голям от {last_km}.')
         row = {k:'' for k in columns}
-        row.update(trip_id=trip_id, date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
+        row.update(trip_id=trip_id, date=sofia_now().strftime('%d.%m.%Y %H:%M:%S'),
                    amount=amount, category='Транспорт',
                    description='[ПЪЛНО ЗАРЕЖДАНЕ] '+description if payload.full else '[ЧАСТИЧНО ЗАРЕЖДАНЕ] '+description,
                    type='expense', liters=str(payload.liters.quantize(Decimal('0.01'))), current_km=str(payload.current_km))
@@ -1583,7 +1609,7 @@ def safe_missed_fuel_add(trip_id: str, payload: MissedFuelAdd):
         amount=payload.amount.quantize(Decimal('0.01'))
         label='[ПРОПУСНАТО ГОРИВО]' if amount>0 else '[ГОРИВО БЕЗ СТОЙНОСТ]'
         row={k:'' for k in columns}
-        row.update(trip_id=trip_id,date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
+        row.update(trip_id=trip_id,date=sofia_now().strftime('%d.%m.%Y %H:%M:%S'),
                    amount=str(amount),category='Транспорт',
                    description=f'{label} Добавени {litres:.2f} литра {marker}',
                    type='expense',liters=str(litres),current_km='0')
@@ -1966,15 +1992,17 @@ class SafeTaskChange(BaseModel):
 
 @app.get('/safe/tasks-preflight/{trip_id}', dependencies=[Depends(authorize)])
 def safe_tasks_preflight(trip_id: str):
-    ensure_local_snapshot()
+    _perf_start = time.perf_counter(); _perf_marks = []
+    ensure_local_snapshot(); _perf_marks.append(('local_snapshot',time.perf_counter()))
     with LOCK:
-        service=drive_service()
+        service=drive_service(); _perf_marks.append(('drive_auth',time.perf_counter()))
         if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
-        _,mapping=folder_and_files(service)
-        _assert_react_owned_trip(trip_id,service,mapping)
-        _,_,remote,local,_,rows=_finance_remote('tasks',service,mapping)
+        _,mapping=folder_and_files(service); _perf_marks.append(('drive_listing',time.perf_counter()))
+        _assert_react_owned_trip(trip_id,service,mapping); _perf_marks.append(('ownership',time.perf_counter()))
+        _,_,remote,local,_,rows=_finance_remote('tasks',service,mapping); _perf_marks.append(('csv_read',time.perf_counter()))
         digest=hashlib.sha256(remote).hexdigest()
         same=hashlib.sha256(local).hexdigest()==digest
+        _pixelapp_perf('tasks_preflight',_perf_start,_perf_marks)
         return {'can_write':TASK_WRITE_ENABLED and same,'sha256':digest,
                 'drive_matches_local':same,'tasks':[x for x in rows if x.get('trip_id')==trip_id]}
 
@@ -1986,20 +2014,22 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
     title=payload.title.strip()
     if payload.operation in ('add','edit') and (not title or len(title)>200):
         raise HTTPException(422,'Задачата трябва да е между 1 и 200 символа.')
-    ensure_local_snapshot()
+    _perf_start = time.perf_counter(); _perf_marks = []
+    ensure_local_snapshot(); _perf_marks.append(('local_snapshot',time.perf_counter()))
     with guarded_csv_write():
-        service=drive_service()
+        _perf_marks.append(('write_lock',time.perf_counter()))
+        service=drive_service(); _perf_marks.append(('drive_auth',time.perf_counter()))
         if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
-        _,mapping=folder_and_files(service)
-        _assert_react_owned_trip(trip_id,service,mapping)
-        fid,path,remote,local,columns,rows=_finance_remote('tasks',service,mapping)
+        _,mapping=folder_and_files(service); _perf_marks.append(('drive_listing',time.perf_counter()))
+        _assert_react_owned_trip(trip_id,service,mapping); _perf_marks.append(('ownership',time.perf_counter()))
+        fid,path,remote,local,columns,rows=_finance_remote('tasks',service,mapping); _perf_marks.append(('csv_read',time.perf_counter()))
         digest=hashlib.sha256(remote).hexdigest()
         if digest!=payload.expected_sha256 or hashlib.sha256(local).hexdigest()!=digest:
             raise HTTPException(409,'Данните са променени от друг телефон. Обнови и опитай отново.')
         if payload.operation=='add':
-            item_id=f'{trip_id}_{datetime.now().strftime("%Y%m%d%H%M%S%f")}_{uuid.uuid4().hex[:6]}'
+            item_id=f'{trip_id}_{sofia_now().strftime("%Y%m%d%H%M%S%f")}_{uuid.uuid4().hex[:6]}'
             row={col:'' for col in columns}
-            row.update(trip_id=trip_id,item_id=item_id,title=title,done='False',created=datetime.now().strftime('%d.%m.%Y %H:%M'))
+            row.update(trip_id=trip_id,item_id=item_id,title=title,done='False',created=sofia_now().strftime('%d.%m.%Y %H:%M'))
             rows.append(row)
         else:
             matched=[r for r in rows if r.get('trip_id')==trip_id and r.get('item_id')==payload.item_id]
@@ -2024,16 +2054,20 @@ def safe_tasks_change(trip_id: str,payload: SafeTaskChange):
         try:
             backup=service.files().copy(fileId=fid,body={'name':'P75_TASKS_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['tasks']},fields='id').execute()
         except Exception: raise HTTPException(503,'Неуспешно резервно копие. Няма запис.')
+        _perf_marks.append(('backup_copy',time.perf_counter()))
         if hashlib.sha256(service.files().get_media(fileId=fid).execute()).hexdigest()!=digest:
             raise HTTPException(409,'Drive е променен преди записа. Няма запис.')
+        _perf_marks.append(('before_upload_check',time.perf_counter()))
         try:
             from googleapiclient.http import MediaIoBaseUpload
             service.files().update(fileId=fid,media_body=MediaIoBaseUpload(io.BytesIO(updated),mimetype='text/csv',resumable=False)).execute()
-            verified=service.files().get_media(fileId=fid).execute()
+            _perf_marks.append(('drive_upload',time.perf_counter()))
+            verified=service.files().get_media(fileId=fid).execute(); _perf_marks.append(('drive_verify',time.perf_counter()))
             if verified!=updated: raise RuntimeError('Mismatch')
         except Exception:
             raise HTTPException(503,'Записът не е потвърден. Провери данните преди нов опит.')
         tmp=path.with_suffix('.p75_verified');tmp.write_bytes(verified);os.replace(tmp,path)
+        _perf_marks.append(('local_commit',time.perf_counter())); _pixelapp_perf('tasks_write',_perf_start,_perf_marks)
         return {'ok':True,'item_id':item_id,'backup_id':backup['id']}
 
 
