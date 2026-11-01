@@ -414,7 +414,7 @@ function TripGallery({tripId,authHeaders}){
 // P91.9.5: isolated Neon mode inside the real trip tasks screen.
 // It never writes the canonical Google Drive tasks or the staged migration snapshot.
 function NeonTripTaskLab({tripId,request}){
- const [enabled,setEnabled]=useState(false);
+ const [enabled,setEnabled]=useState(true);
  const [items,setItems]=useState([]);
  const [newTitle,setNewTitle]=useState('');
  const [editing,setEditing]=useState('');
@@ -431,7 +431,7 @@ function NeonTripTaskLab({tripId,request}){
   catch(e){setNotice('⚠️ '+String(e.message||e));}
   finally{setBusy(false)}
  };
- useEffect(()=>{setEnabled(false);setItems([]);setNotice('');setEditing('')},[tripId]);
+ useEffect(()=>{setEnabled(true);setItems([]);setNotice('');setEditing('');void read()},[tripId]);
  const act=async(operation,t=null,title='')=>{
   if(busy)return;
   setBusy(true);setNotice('');
@@ -448,12 +448,12 @@ function NeonTripTaskLab({tripId,request}){
  };
  if(!eligible)return null;
  return <div className="travel-card task-preview-panel" style={{marginTop:12}}>
-  <h3>⚡ Neon тест — задачи</h3>
-  <p className="muted">Изолиран тест в това пътуване. Истинските задачи по-горе остават в Google Drive и не се променят.</p>
+  <h3>📋 Списък със задачи · Neon тест</h3>
+  <p className="muted">Само тестовите записи в Neon. Оригиналните задачи в Google Drive остават отделно и непроменени.</p>
+  <p className="muted">Изпълнени: {items.filter(t=>t.done).length} / {items.length}</p>
   {!enabled?<button type="button" onClick={()=>{setEnabled(true);void read()}}>Отвори Neon тест</button>:<>
    <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
     <button type="button" className="ghost" disabled={busy} onClick={()=>void read()}>↻ Обнови Neon</button>
-    <button type="button" className="ghost" onClick={()=>setEnabled(false)}>Затвори теста</button>
     {lastMs!==null&&<small className="muted">От натискане до отговор: {lastMs} ms</small>}
    </div>
    <form className="task-preview-form" onSubmit={e=>{e.preventDefault();if(newTitle.trim())void act('add',null,newTitle.trim())}}>
@@ -480,6 +480,7 @@ function NeonTripTaskLab({tripId,request}){
 function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders,onNeonRequest,neonTripId}) {
  const [section,setSection]=useState('summary');
  const [mapTab,setMapTab]=useState('route');
+ const [neonTaskMode,setNeonTaskMode]=useState(false);
  const [taskBusy,setTaskBusy]=useState(false);
  const [taskMessage,setTaskMessage]=useState('');
  const [taskName,setTaskName]=useState('');
@@ -606,7 +607,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   setPlaceQuery(fullName);setPlaceResults([]);setPlaceSearchError('');
  };
 
- useEffect(()=>{setSection('summary');setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('');},[trip?.id]);
+ useEffect(()=>{setNeonTaskMode(false);setSection('summary');setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('');},[trip?.id]);
  const rows=applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
@@ -767,7 +768,9 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  <div className="travel-card"><h3>🗂️ Бюджети по категории</h3>{budgetEntries.length?budgetEntries.map((b,i)=>{const spent=number(byCat[b.category]),limit=number(b.budget),percent=limit>0?Math.min(100,spent/limit*100):0;return <div className="budget-visual-row" key={b.category}><div className="budget-visual-head"><strong><span className={'visual-category-dot visual-palette-'+i%5}/>{b.category}</strong><b>{money(spent)} <span>/ {money(limit)}</span></b></div><div className="budget-visual-track"><span style={{width:percent+'%',background:spent>limit?'linear-gradient(90deg,#ee866a,#fd4e77)':'linear-gradient(90deg,#45d0ff,#725cff)'}}/></div><div className="budget-visual-foot"><small>{Math.round(limit>0?spent/limit*100:0)}% от бюджета</small><small>{spent>limit?'Над бюджета: '+money(spent-limit):'Остават: '+money(limit-spent)}</small></div></div>}):<p className="muted">Няма зададени отделни бюджети по категории.</p>}</div>
  </>}
  {section==='tasks'&&<>
- <div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>
+  {!neonTaskMode&&<div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>}
+ {(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}><strong>Хранилище за задачи</strong><p className="muted" style={{margin:'6px 0'}}>Neon режимът използва само отделна тестова таблица. Не прехвърля оригиналните задачи.</p><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className={!neonTaskMode?'':'ghost'} onClick={()=>setNeonTaskMode(false)}>☁️ Drive · оригинални</button><button type="button" className={neonTaskMode?'':'ghost'} onClick={()=>setNeonTaskMode(true)}>⚡ Neon · тест</button></div></div>}
+ {neonTaskMode&&onNeonRequest?<NeonTripTaskLab tripId={neonTripId} request={onNeonRequest}/>:<>
  <div className="travel-card task-preview-panel">
   <div className="task-preview-heading"><h3>📋 Списък със задачи</h3></div>
   
@@ -780,7 +783,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   {taskBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}
   {taskMessage&&<p role="status" className="muted">{taskMessage}</p>}
  </div>
- {onNeonRequest&&<NeonTripTaskLab tripId={neonTripId} request={onNeonRequest}/>}
+ </>}
  </>}
  {section==='map'&&<div className="travel-card map-showcase route82-shell"><div className="route82-header"><span className="route82-symbol">▣</span><div><small>PIXELAPP · TRAVEL</small><h3>Места и маршрут</h3></div></div><nav className="route82-tabs" aria-label="Раздели на картата">{[['route','Маршрут'],['favorites','Любими'],['add','Добавяне']].map(([id,label])=><button type="button" key={id} className={mapTab===id?'active':''} aria-current={mapTab===id?'page':undefined} onClick={()=>setMapTab(id)}>{label}</button>)}</nav>
  {mapTab==='route'&&<div className="route82-panel route82-route">
