@@ -1659,6 +1659,7 @@ def legacy_trip_audit(trip_id: str):
             'end_date': trip.get('end_date', ''),
             'car_trip': trip.get('car_trip') == 'Да',
             'settings_synced': local_ok,
+            'settings_sha256': hashlib.sha256(remote).hexdigest(),
             'rows': sections,
             'writable': owned and trip.get('trip_finished') != 'Да',
             'migration_available': False,
@@ -1666,6 +1667,71 @@ def legacy_trip_audit(trip_id: str):
                         if not owned else 'Пътуването е регистрирано в React.'),
         }
 
+
+# P91.7.2: one-trip, opt-in conversion of a legacy trip for React editing.
+# No CSV row is modified during conversion. Existing guarded CRUD paths
+# continue to require valid versions and write verified Drive backups.
+class LegacyAdoptRequest(BaseModel):
+    expected_settings_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmation: str
+
+@app.post('/safe/adopt-legacy-trip/{trip_id}', dependencies=[Depends(authorize)])
+def adopt_legacy_trip(trip_id: str, payload: LegacyAdoptRequest):
+    if payload.confirmation != 'РАЗРЕШИ REACT':
+        raise HTTPException(422, 'Липсва изрично потвърждение.')
+    ensure_local_snapshot()
+    with guarded_csv_write():
+        service = drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е достъпен.')
+        folder_id, mapping = folder_and_files(service)
+        settings_id = mapping.get(FILENAMES['settings'])
+        if not settings_id:
+            raise HTTPException(409, 'Липсват настройките в Google Drive.')
+        raw_settings = service.files().get_media(fileId=settings_id).execute()
+        digest = hashlib.sha256(raw_settings).hexdigest()
+        if digest != payload.expected_settings_sha256 or hashlib.sha256((DATA_DIR/FILENAMES['settings']).read_bytes()).hexdigest() != digest:
+            raise HTTPException(409, 'Настройките са променени. Обнови и провери отново.')
+        reader=csv.DictReader(io.StringIO(raw_settings.decode('utf-8-sig')))
+        if not reader.fieldnames or any(col not in reader.fieldnames for col in COLUMNS['settings']):
+            raise HTTPException(422, 'Непознат формат на настройките.')
+        rows=[r for r in reader if r.get('trip_id')==trip_id]
+        if len(rows)!=1 or rows[0].get('trip_finished')=='Да':
+            raise HTTPException(409, 'Само еднозначно намерено неприключено пътуване може да се мигрира.')
+        if trip_id in _react_owned_ids(service,mapping):
+            return {'ok':True,'trip_id':trip_id,'already_enabled':True}
+        # Snapshot every existing CSV before enabling *any* writes from React.
+        # Refuse stale local snapshots; old Streamlit must not modify them during conversion.
+        snapshots={}
+        for kind,filename in FILENAMES.items():
+            fid=mapping.get(filename)
+            if not fid:
+                if kind in BOOTSTRAP_REQUIRED:
+                    raise HTTPException(409, 'Липсва задължителен файл: '+filename)
+                continue
+            remote=service.files().get_media(fileId=fid).execute()
+            path=DATA_DIR/filename
+            if not path.exists() or path.read_bytes()!=remote:
+                raise HTTPException(409, 'Няма актуална локална версия на '+filename+'. Обнови данните преди миграция.')
+            columns=csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+            if not columns.fieldnames or any(col not in columns.fieldnames for col in COLUMNS[kind]):
+                raise HTTPException(422, 'Непознат формат на '+filename)
+            snapshots[filename]=(fid,remote)
+        backup_ids={}
+        try:
+            for filename,(fid,remote) in snapshots.items():
+                item=service.files().copy(fileId=fid,body={'name':'P9172_LEGACY_MIGRATION_'+uuid.uuid4().hex+'_'+filename},fields='id').execute()
+                backup_ids[filename]=item['id']
+            # Recheck all source files after backups, before changing ownership registry.
+            for filename,(fid,remote) in snapshots.items():
+                if service.files().get_media(fileId=fid).execute()!=remote:
+                    raise HTTPException(409, 'Данните се промениха по време на архивирането. Миграцията е отказана.')
+            _register_react_trip(service,folder_id,mapping,trip_id)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(503,'Неуспешно резервно копие. Миграцията е отказана.') from exc
+        return {'ok':True,'trip_id':trip_id,'already_enabled':False,'backups':len(backup_ids)}
 
 # Patch 67: create NEW trips only. Existing rows are immutable through this route.
 # Does not enable the old generic CRUD routes; Streamlit must be closed during writes.
