@@ -2575,3 +2575,75 @@ def neon_benchmark():
     stages['total_ms'] = round((_time.perf_counter() - start) * 1000)
     return {'ok': True, 'benchmark': 'isolated_temp_table', 'times_ms': stages,
             'drive_touched': False, 'trip_data_touched': False}
+
+
+# P91.9.1 — shared, isolated PostgreSQL test task.
+# Does not read or write the application trips, CSVs or Google Drive.
+class NeonDemoToggle(BaseModel):
+    expected_version: int = Field(ge=0)
+
+
+def _neon_demo_connection():
+    url = os.getenv('DATABASE_URL', '').strip()
+    if not url:
+        raise HTTPException(503, 'Neon is not configured on Render.')
+    try:
+        import psycopg
+        return psycopg.connect(url, connect_timeout=10)
+    except Exception:
+        raise HTTPException(503, 'Could not connect to test database.') from None
+
+
+def _neon_demo_initialize(cur):
+    # One shared row for both authenticated accounts; never contains trip data.
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_neon_demo_task_9191 (
+        id integer PRIMARY KEY CHECK (id = 1),
+        title text NOT NULL,
+        done boolean NOT NULL DEFAULT false,
+        version integer NOT NULL DEFAULT 0
+    )""")
+    cur.execute("""INSERT INTO pixelapp_neon_demo_task_9191 (id,title,done,version)
+        VALUES (1, 'Тестова задача в Neon (без връзка с пътувания)', false, 0)
+        ON CONFLICT (id) DO NOTHING""")
+
+
+@app.get('/safe/neon-shared-task', dependencies=[Depends(authorize)])
+def neon_shared_task_read():
+    import time as _time
+    start = _time.perf_counter()
+    try:
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                _neon_demo_initialize(cur)
+                cur.execute('SELECT title,done,version FROM pixelapp_neon_demo_task_9191 WHERE id=1')
+                title, done, version = cur.fetchone()
+            conn.commit()
+        return {'title':title,'done':done,'version':version,
+                'total_ms':round((_time.perf_counter()-start)*1000)}
+    except HTTPException:raise
+    except Exception:
+        raise HTTPException(503, 'Test task read failed.') from None
+
+
+@app.post('/safe/neon-shared-task/toggle', dependencies=[Depends(authorize)])
+def neon_shared_task_toggle(data: NeonDemoToggle):
+    import time as _time
+    start = _time.perf_counter()
+    try:
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                _neon_demo_initialize(cur)
+                cur.execute("""UPDATE pixelapp_neon_demo_task_9191
+                  SET done = NOT done, version = version + 1
+                  WHERE id = 1 AND version = %s
+                  RETURNING title,done,version""", (data.expected_version,))
+                row = cur.fetchone()
+                if row is None:
+                    conn.rollback()
+                    raise HTTPException(409, 'Задачата е променена от другия профил. Натисни „Прочети задача“.')
+            conn.commit()
+        return {'title':row[0], 'done':row[1], 'version':row[2],
+                'total_ms':round((_time.perf_counter()-start)*1000)}
+    except HTTPException:raise
+    except Exception:
+        raise HTTPException(503, 'Test task update failed.') from None
