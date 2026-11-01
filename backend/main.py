@@ -2833,3 +2833,61 @@ def neon_sandbox_action(payload: NeonSandboxAction):
                 result={'item_id':record[0],'title':record[1],'done':record[2],'version':record[3]}
         conn.commit()
     return {'ok':True,'task':result,'elapsed_ms':round((perf_counter()-start)*1000),'drive_unchanged':True}
+
+
+# P91.9.6 — manual verified backup of isolated Neon TEST task tables only.
+# Backups are append-only in a separate Drive subfolder; legacy CSVs untouched.
+@app.post('/safe/neon-test-backup', dependencies=[Depends(authorize)])
+def neon_test_backup():
+    from time import perf_counter
+    from datetime import datetime, timezone
+    from googleapiclient.http import MediaIoBaseUpload
+    start = perf_counter()
+    service = drive_service()
+    if service is None:
+        raise HTTPException(503, 'Google Drive не е свързан.')
+    try:
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                # One consistent database snapshot for both test tables.
+                cur.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+                _neon_sandbox_table_exists = None
+                cur.execute("SELECT to_regclass('public.pixelapp_neon_tasks_stage_9193')::text, to_regclass('public.pixelapp_neon_task_sandbox_9194')::text")
+                stage_exists, sandbox_exists = cur.fetchone()
+                staged, sandbox = [], []
+                if stage_exists:
+                    cur.execute('SELECT trip_id,item_id,row_json FROM pixelapp_neon_tasks_stage_9193 ORDER BY trip_id,item_id')
+                    staged = [{'trip_id':a,'item_id':b,'data':c} for a,b,c in cur.fetchall()]
+                if sandbox_exists:
+                    cur.execute('SELECT trip_id,item_id,title,done,version FROM pixelapp_neon_task_sandbox_9194 ORDER BY trip_id,item_id')
+                    sandbox = [{'trip_id':a,'item_id':b,'title':c,'done':d,'version':e} for a,b,c,d,e in cur.fetchall()]
+            conn.rollback()
+        document = {'format':'pixelapp-neon-test-backup','schema_version':1,
+                    'created_utc':datetime.now(timezone.utc).isoformat(),
+                    'tables':{'staged_drive_tasks_9193':staged,'sandbox_tasks_9194':sandbox},
+                    'note':'TEST/staging only. Not a full PixelApp backup. No automatic restore.'}
+        data=json.dumps(document,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+        checksum=hashlib.sha256(data).hexdigest()
+        root,_ = folder_and_files(service)
+        name='PixelApp_Neon_Test_Backups'
+        query="'%s' in parents and name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false" % (root,name)
+        existing=service.files().list(q=query,fields='files(id)',pageSize=20).execute().get('files',[])
+        folder=existing[0]['id'] if existing else service.files().create(
+            body={'name':name,'mimeType':'application/vnd.google-apps.folder','parents':[root]},fields='id').execute()['id']
+        timestamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ')
+        filename='neon_test_'+timestamp+'_'+checksum[:10]+'.json'
+        uploaded=service.files().create(body={'name':filename,'parents':[folder],
+             'description':'Verified test-only Neon snapshot; not full PixelApp backup'},
+             media_body=MediaIoBaseUpload(io.BytesIO(data),mimetype='application/json',resumable=False),
+             fields='id,name,size').execute()
+        fid=uploaded['id']
+        verified=service.files().get_media(fileId=fid).execute()
+        if hashlib.sha256(verified).hexdigest()!=checksum or verified!=data:
+            raise HTTPException(503, 'Архивът е качен, но проверката му не съвпада. Не го приемай за успешно копие.')
+        return {'ok':True,'verified':True,'filename':filename,'sha256':checksum,
+                'staged_tasks':len(staged),'sandbox_tasks':len(sandbox),
+                'size_bytes':len(data),'elapsed_ms':round((perf_counter()-start)*1000),
+                'scope':'neon-test-only'}
+    except HTTPException: raise
+    except Exception:
+        raise HTTPException(503, 'Неуспешно резервно копие на тестовите Neon данни.') from None
