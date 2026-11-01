@@ -2835,6 +2835,69 @@ def neon_sandbox_action(payload: NeonSandboxAction):
     return {'ok':True,'task':result,'elapsed_ms':round((perf_counter()-start)*1000),'drive_unchanged':True}
 
 
+# P91.9.8 — one test trip, verified non-destructive Drive -> Neon sandbox copy.
+# The source is fetched live (not the possibly stale stage from P91.9.3).
+@app.post('/safe/neon-task-sandbox/import/{trip_id}', dependencies=[Depends(authorize)])
+def neon_import_one_test_trip(trip_id: str):
+    from time import perf_counter
+    from psycopg.types.json import Jsonb
+    start = perf_counter()
+    _assert_test_trip(trip_id)
+    service = drive_service()
+    if service is None:
+        raise HTTPException(503, 'Google Drive не е достъпен. Няма импортиране.')
+    try:
+        _, mapping = folder_and_files(service)
+        fid = mapping.get(FILENAMES['tasks'])
+        if not fid:
+            raise HTTPException(409, 'Няма файл със задачи в Drive.')
+        raw = service.files().get_media(fileId=fid).execute()
+        reader = csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))
+        if not reader.fieldnames or any(c not in reader.fieldnames for c in COLUMNS['tasks']):
+            raise HTTPException(422, 'Непознат формат на задачите.')
+        all_rows = list(reader)
+        if any(None in row or any(row.get(k) is None for k in reader.fieldnames) for row in all_rows):
+            raise HTTPException(422, 'Невалидни редове в Drive. Няма импортиране.')
+        selected = [r for r in all_rows if r['trip_id'] == trip_id]
+        ids = [r['item_id'] for r in selected]
+        if not all(ids) or len(set(ids)) != len(ids):
+            raise HTTPException(409, 'Дублирани идентификатори в Drive. Няма импортиране.')
+        def source_done(v):
+            s=str(v).strip().lower()
+            if s in ('true','1','yes','да'): return True
+            if s in ('false','0','no','не',''): return False
+            raise HTTPException(422, 'Непозната стойност на отметка. Няма импортиране.')
+        records = [(r['item_id'],r['title'],source_done(r['done'])) for r in selected]
+        if any(not title or len(title)>200 for _,title,_ in records):
+            raise HTTPException(422, 'Невалидно заглавие на задача. Няма импортиране.')
+        # Check that Drive has not changed during preparation.
+        if service.files().get_media(fileId=fid).execute() != raw:
+            raise HTTPException(409, 'Drive е променен по време на четенето. Няма импортиране.')
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                _neon_sandbox_table(cur)
+                # Do not overwrite previous sandbox entries, including previously imported ones.
+                cur.execute('SELECT item_id FROM pixelapp_neon_task_sandbox_9194 WHERE trip_id=%s',(trip_id,))
+                existing={r[0] for r in cur.fetchall()}
+                if any(item_id in existing for item_id,_,_ in records):
+                    raise HTTPException(409, 'Някои оригинални задачи вече са в Neon. Нищо не е променено.')
+                for item_id,title,done in records:
+                    cur.execute('INSERT INTO pixelapp_neon_task_sandbox_9194(trip_id,item_id,title,done,version) VALUES (%s,%s,%s,%s,0)',(trip_id,item_id,title,done))
+                if ids:
+                    cur.execute('SELECT item_id,title,done FROM pixelapp_neon_task_sandbox_9194 WHERE trip_id=%s AND item_id=ANY(%s)',(trip_id,ids))
+                    after=cur.fetchall()
+                else: after=[]
+                if sorted(records) != sorted(after):
+                    raise RuntimeError('Неуспешна проверка на копието; транзакцията се отменя.')
+            conn.commit()
+        return {'ok':True,'trip_id':trip_id,'imported':len(records),'checked':len(after),
+                'drive_unchanged':True,'existing_sandbox_preserved':True,
+                'elapsed_ms':round((perf_counter()-start)*1000)}
+    except HTTPException: raise
+    except Exception:
+        raise HTTPException(503, 'Неуспешно импортиране или проверка. Няма потвърден резултат.') from None
+
+
 # P91.9.6 — manual verified backup of isolated Neon TEST task tables only.
 # Backups are append-only in a separate Drive subfolder; legacy CSVs untouched.
 @app.post('/safe/neon-test-backup', dependencies=[Depends(authorize)])
