@@ -2526,3 +2526,52 @@ def gallery_delete(trip_id:str,photo_id:str):
         return {'ok':True}
     except HTTPException:raise
     except Exception as exc:raise HTTPException(503,'Неуспешно изтриване на снимката.') from exc
+
+
+# P91.9 — isolated PostgreSQL latency benchmark.
+# No Google Drive access, no trip reads/writes, no persistent database tables.
+# The DB URL is read only from the Render environment; never returned to clients.
+@app.post('/safe/neon-benchmark', dependencies=[Depends(authorize)])
+def neon_benchmark():
+    import time as _time
+    url = os.getenv('DATABASE_URL', '').strip()
+    if not url:
+        raise HTTPException(503, 'Neon test is not configured: set DATABASE_URL on Render.')
+    try:
+        import psycopg
+    except ImportError as exc:
+        raise HTTPException(503, 'PostgreSQL driver is not installed.') from exc
+    start = _time.perf_counter()
+    stages = {}
+    try:
+        # connect_timeout caps initial network connection. Neon connection string
+        # should use sslmode=require or stronger, as supplied by Neon.
+        with psycopg.connect(url, connect_timeout=10) as conn:
+            stages['connect_ms'] = round((_time.perf_counter() - start) * 1000)
+            t = _time.perf_counter()
+            with conn.cursor() as cur:
+                # TEMP table belongs to this session and drops at commit.
+                # No application schemas/data are read or changed.
+                cur.execute('CREATE TEMP TABLE pixelapp_latency_check (id integer PRIMARY KEY, done boolean NOT NULL) ON COMMIT DROP')
+                stages['create_temp_ms'] = round((_time.perf_counter() - t) * 1000)
+                t = _time.perf_counter()
+                cur.execute('INSERT INTO pixelapp_latency_check(id, done) VALUES (1, false)')
+                stages['insert_ms'] = round((_time.perf_counter() - t) * 1000)
+                t = _time.perf_counter()
+                cur.execute('UPDATE pixelapp_latency_check SET done = true WHERE id = 1')
+                stages['update_ms'] = round((_time.perf_counter() - t) * 1000)
+                t = _time.perf_counter()
+                cur.execute('SELECT done FROM pixelapp_latency_check WHERE id = 1')
+                if cur.fetchone() != (True,):
+                    raise RuntimeError('Neon benchmark verification failed')
+                stages['verify_ms'] = round((_time.perf_counter() - t) * 1000)
+            t = _time.perf_counter()
+            conn.commit()
+            stages['commit_ms'] = round((_time.perf_counter() - t) * 1000)
+    except Exception as exc:
+        # Do not send connection strings, SQL, database hostnames or credentials
+        # in the error message or logs exposed by this endpoint.
+        raise HTTPException(503, 'Neon speed test failed. Check the Render DATABASE_URL and Neon project status.') from None
+    stages['total_ms'] = round((_time.perf_counter() - start) * 1000)
+    return {'ok': True, 'benchmark': 'isolated_temp_table', 'times_ms': stages,
+            'drive_touched': False, 'trip_data_touched': False}

@@ -4,3 +4,4 @@ pandas>=2.2,<3
 python-dotenv>=1,<2
 google-api-python-client>=2,<3
 google-auth>=2,<3
+psycopg[binary]>=3.2,<4
