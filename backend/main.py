@@ -2682,3 +2682,69 @@ def neon_shared_task_toggle(data: NeonDemoToggle):
     except HTTPException:raise
     except Exception:
         raise HTTPException(503, 'Test task update failed.') from None
+
+
+# P91.9.3 — read-only Drive task snapshot into an isolated Neon staging table.
+# Never alters Drive, operational task endpoints, or any actual trip.
+@app.post('/safe/neon-tasks-snapshot', dependencies=[Depends(authorize)])
+def neon_tasks_snapshot():
+    import time as _time
+    started = _time.perf_counter()
+    service = drive_service()
+    if service is None:
+        raise HTTPException(503, 'Google Drive не е конфигуриран.')
+    try:
+        _, mapping = folder_and_files(service)
+        fid = mapping.get(FILENAMES['tasks'])
+        if not fid:
+            raise HTTPException(409, 'Файлът със задачи не е намерен в Google Drive.')
+        original = service.files().get_media(fileId=fid).execute()
+        reader = csv.DictReader(io.StringIO(original.decode('utf-8-sig')))
+        cols = reader.fieldnames
+        if not cols or any(c not in cols for c in COLUMNS['tasks']):
+            raise HTTPException(422, 'Непознат формат на задачите. Няма копиране.')
+        source_rows = list(reader)
+        if any(None in row or any(row.get(k) is None for k in cols) for row in source_rows):
+            raise HTTPException(422, 'Невалидни CSV редове. Няма копиране.')
+        keys = [(r['trip_id'], r['item_id']) for r in source_rows]
+        if any(not a or not c for a,c in keys) or len(set(keys)) != len(keys):
+            raise HTTPException(409, 'Липсващ или повтарящ се идентификатор на задача. Няма копиране.')
+        def fingerprint(rows):
+            canonical = sorted(json.dumps(r, ensure_ascii=False, sort_keys=True, separators=(',',':')) for r in rows)
+            return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, separators=(',',':')).encode('utf-8')).hexdigest()
+        source_fingerprint = fingerprint(source_rows)
+        # Recheck the source just before writing the staging snapshot.
+        if service.files().get_media(fileId=fid).execute() != original:
+            raise HTTPException(409, 'Drive се промени по време на проверката. Опитай отново.')
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_neon_tasks_stage_9193 (
+                    trip_id text NOT NULL,
+                    item_id text NOT NULL,
+                    row_json jsonb NOT NULL,
+                    PRIMARY KEY (trip_id, item_id)
+                )""")
+                # Replace only the isolated staging table, transactionally.
+                cur.execute('DELETE FROM pixelapp_neon_tasks_stage_9193')
+                from psycopg.types.json import Jsonb
+                cur.executemany("""INSERT INTO pixelapp_neon_tasks_stage_9193
+                    (trip_id, item_id, row_json) VALUES (%s, %s, %s)""",
+                    [(r['trip_id'], r['item_id'], Jsonb(r)) for r in source_rows])
+                cur.execute('SELECT row_json FROM pixelapp_neon_tasks_stage_9193')
+                verified = [r[0] for r in cur.fetchall()]
+                if len(verified) != len(source_rows) or fingerprint(verified) != source_fingerprint:
+                    raise RuntimeError('Neon staging verification mismatch')
+            conn.commit()
+        by_trip={}
+        for r in source_rows:
+            key=r['trip_id']
+            by_trip[key]=by_trip.get(key,0)+1
+        return {'ok':True,'tasks':len(source_rows),'trips':len(by_trip),
+                'matching':True,'source_sha256':hashlib.sha256(original).hexdigest(),
+                'content_sha256':source_fingerprint,
+                'total_ms':round((_time.perf_counter()-started)*1000),
+                'read_only_source':True,'staging_only':True}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, 'Копирането или проверката в Neon не успя. Данните в Drive не са променени.') from None
