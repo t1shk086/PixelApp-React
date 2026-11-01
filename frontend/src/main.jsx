@@ -492,6 +492,21 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const [section,setSection]=useState('summary');
  const [mapTab,setMapTab]=useState('route');
  const [neonTaskMode,setNeonTaskMode]=useState(false);
+ // A per-trip, per-device preference only. Never changes the shared source of truth.
+ useEffect(()=>{
+  const id=String(neonTripId||'');
+  const allowed=!!onNeonRequest&&/(тест|test)/i.test(id);
+  if(!allowed){setNeonTaskMode(false);return;}
+  try{setNeonTaskMode(localStorage.getItem('pixelapp_neon_task_view_p9199:'+id)==='neon')}
+  catch(_){setNeonTaskMode(false)}
+ },[neonTripId,onNeonRequest]);
+ const chooseNeonTaskMode=(wantNeon)=>{
+  const id=String(neonTripId||'');
+  if(!onNeonRequest||!/(тест|test)/i.test(id))return;
+  if(!wantNeon&&neonTaskMode&&!window.confirm('Връщане към оригиналните задачи в Google Drive? Промените и новите задачи в Neon НЕ се пренасят автоматично в Drive. Данните в Neon ще останат запазени.'))return;
+  try{localStorage.setItem('pixelapp_neon_task_view_p9199:'+id,wantNeon?'neon':'drive')}catch(_){/* Private mode: selection remains for this screen. */}
+  setNeonTaskMode(wantNeon);
+ };
  const [taskBusy,setTaskBusy]=useState(false);
  const [taskMessage,setTaskMessage]=useState('');
  const [taskName,setTaskName]=useState('');
@@ -780,7 +795,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  </>}
  {section==='tasks'&&<>
   {!neonTaskMode&&<div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>}
- {(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}><strong>Хранилище за задачи</strong><p className="muted" style={{margin:'6px 0'}}>Neon режимът използва само отделна тестова таблица. Не прехвърля оригиналните задачи.</p><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className={!neonTaskMode?'':'ghost'} onClick={()=>setNeonTaskMode(false)}>☁️ Drive · оригинални</button><button type="button" className={neonTaskMode?'':'ghost'} onClick={()=>setNeonTaskMode(true)}>⚡ Neon · тест</button></div></div>}
+ {(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}><strong>Хранилище за задачи</strong><p className="muted" style={{margin:'6px 0'}}>Тестовите Neon и оригиналните Drive задачи са независими. Изборът се запомня само на това устройство за това пътуване.</p><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className={!neonTaskMode?'':'ghost'} aria-pressed={!neonTaskMode} onClick={()=>chooseNeonTaskMode(false)}>☁️ Drive · оригинални</button><button type="button" className={neonTaskMode?'':'ghost'} aria-pressed={neonTaskMode} onClick={()=>chooseNeonTaskMode(true)}>⚡ Neon · тест</button></div><p className="muted" style={{margin:'6px 0 0',fontSize:12}}>{neonTaskMode?'⚡ Избран е Neon тест: записите не се синхронизират към Drive.':'☁️ Избран е Drive: Neon задачите остават отделно.'}</p></div>}
  {neonTaskMode&&onNeonRequest?<NeonTripTaskLab tripId={neonTripId} request={onNeonRequest}/>:<>
  <div className="travel-card task-preview-panel">
   <div className="task-preview-heading"><h3>📋 Списък със задачи</h3></div>
