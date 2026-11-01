@@ -1375,12 +1375,14 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
             row.update(trip_id=trip_id, category=name, budget='0.00')
             rows.append(row)
         elif payload.operation == 'expense-add':
-            if any(r.get('trip_id')==trip_id and r.get('description')=='[P62] '+desc for r in rows):
-                raise HTTPException(409, 'Разход с това описание вече съществува.')
             row = {k:'' for k in columns}
             row.update(trip_id=trip_id, date=datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
                        amount=amount, category=payload.category, description='[P62] '+desc,
                        type='expense',liters='0',current_km='0')
+            # Same label is allowed on different purchases. Only an exactly identical row
+            # within the same second is ambiguous for later edit/delete operations.
+            if any(all(str(r.get(k,'')) == str(row.get(k,'')) for k in COLUMNS['expenses']) for r in rows):
+                raise HTTPException(409, 'Вече има идентичен запис в същата секунда. Провери списъка, преди да повториш.')
             rows.append(row)
         else:
             original = payload.original or {}
@@ -1396,8 +1398,6 @@ def safe_trip_finance_change(trip_id: str, payload: TestFinanceChange):
             if payload.operation == 'expense-delete':
                 del rows[index]
             else:
-                if any(r.get('trip_id')==trip_id and r.get('description')=='[P62] '+desc and i != index for i,r in enumerate(rows)):
-                    raise HTTPException(409, 'Разход с това описание вече съществува.')
                 rows[index].update(amount=amount, category=payload.category, description='[P62] '+desc)
         out = io.StringIO(newline='')
         writer = csv.DictWriter(out, fieldnames=columns, extrasaction='ignore', lineterminator='\n')
