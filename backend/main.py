@@ -2625,6 +2625,41 @@ def neon_shared_task_read():
         raise HTTPException(503, 'Test task read failed.') from None
 
 
+@app.post('/safe/neon-conflict-selftest', dependencies=[Depends(authorize)])
+def neon_conflict_selftest():
+    """Validate optimistic CAS under one rolled-back transaction, without persisting test toggles."""
+    import time as _time
+    start = _time.perf_counter()
+    try:
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                _neon_demo_initialize(cur)
+            conn.commit()  # only the initial demo row is committed if not already present
+            with conn.cursor() as cur:
+                cur.execute('SELECT version, done FROM pixelapp_neon_demo_task_9191 WHERE id=1 FOR UPDATE')
+                starting_version, starting_done = cur.fetchone()
+                cur.execute("""UPDATE pixelapp_neon_demo_task_9191
+                    SET done=NOT done, version=version+1 WHERE id=1 AND version=%s
+                    RETURNING version""", (starting_version,))
+                first = cur.fetchone()
+                cur.execute("""UPDATE pixelapp_neon_demo_task_9191
+                    SET done=NOT done, version=version+1 WHERE id=1 AND version=%s
+                    RETURNING version""", (starting_version,))
+                second = cur.fetchone()
+            conn.rollback()  # do not persist either toggle
+        return {'passed': bool(first and first[0] == starting_version+1 and second is None),
+                'first_accepted': first is not None,
+                'stale_update_rejected': second is None,
+                'unchanged_version': starting_version,
+                'unchanged_done': starting_done,
+                'total_ms': round((_time.perf_counter()-start)*1000),
+                'note': 'Both simulated updates were rolled back; no persistent task change.'}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, 'Neon concurrency check failed.') from None
+
+
 @app.post('/safe/neon-shared-task/toggle', dependencies=[Depends(authorize)])
 def neon_shared_task_toggle(data: NeonDemoToggle):
     import time as _time
