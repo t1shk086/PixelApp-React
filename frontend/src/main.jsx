@@ -492,20 +492,45 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const [section,setSection]=useState('summary');
  const [mapTab,setMapTab]=useState('route');
  const [neonTaskMode,setNeonTaskMode]=useState(false);
+ const [neonPrimaryTest,setNeonPrimaryTest]=useState(false);
+ const [neonPrimaryBusy,setNeonPrimaryBusy]=useState(false);
+ const [neonPrimaryMessage,setNeonPrimaryMessage]=useState('');
  // A per-trip, per-device preference only. Never changes the shared source of truth.
  useEffect(()=>{
   const id=String(neonTripId||'');
   const allowed=!!onNeonRequest&&/(тест|test)/i.test(id);
-  if(!allowed){setNeonTaskMode(false);return;}
-  try{setNeonTaskMode(localStorage.getItem('pixelapp_neon_task_view_p9199:'+id)==='neon')}
-  catch(_){setNeonTaskMode(false)}
+  if(!allowed){setNeonTaskMode(false);setNeonPrimaryTest(false);return;}
+  try{const active=localStorage.getItem('pixelapp_neon_primary_test_p91911:'+id)==='yes';setNeonPrimaryTest(active);setNeonTaskMode(active||localStorage.getItem('pixelapp_neon_task_view_p9199:'+id)==='neon')}
+  catch(_){setNeonTaskMode(false);setNeonPrimaryTest(false)}
  },[neonTripId,onNeonRequest]);
  const chooseNeonTaskMode=(wantNeon)=>{
   const id=String(neonTripId||'');
   if(!onNeonRequest||!/(тест|test)/i.test(id))return;
-  if(!wantNeon&&neonTaskMode&&!window.confirm('Връщане към оригиналните задачи в Google Drive? Промените и новите задачи в Neon НЕ се пренасят автоматично в Drive. Данните в Neon ще останат запазени.'))return;
+  if(!wantNeon&&neonTaskMode&&!window.confirm('Връщане към оригиналните задачи в Google Drive? Промените и новите задачи в Neon НЕ се пренасят автоматично в Drive. Данните в Neon ще останат запазени.'+(neonPrimaryTest?' Neon остава предпочитан при следващо отваряне на това тестово пътуване.':'')))return;
   try{localStorage.setItem('pixelapp_neon_task_view_p9199:'+id,wantNeon?'neon':'drive')}catch(_){/* Private mode: selection remains for this screen. */}
   setNeonTaskMode(wantNeon);
+ };
+ const activateNeonPrimaryTest=async()=>{
+  const id=String(neonTripId||'');
+  if(!onNeonRequest||!/(тест|test)/i.test(id)||neonPrimaryBusy)return;
+  if(!window.confirm('Да създадем НОВ проверен архив на Neon тестовите задачи в Google Drive и да отваряме Neon по подразбиране за задачите в това тестово пътуване САМО на това устройство? Старите Drive задачи остават отделни.'))return;
+  setNeonPrimaryBusy(true);setNeonPrimaryMessage('Създавам проверен архив преди активиране…');
+  try{
+   const result=await onNeonRequest('/safe/neon-test-backup','POST',{});
+   if(!result?.verified||result?.scope!=='neon-test-only')throw new Error('Архивът не е потвърден. Няма активиране.');
+   try{localStorage.setItem('pixelapp_neon_primary_test_p91911:'+id,'yes');localStorage.setItem('pixelapp_neon_task_view_p9199:'+id,'neon')}
+   catch(_){throw new Error('Не мога да запазя избора на устройството. Архивът е направен, но режимът не е активиран.')}
+   setNeonPrimaryTest(true);setNeonTaskMode(true);
+   setNeonPrimaryMessage('✅ Neon е предпочитан за това ТЕСТОВО пътуване на устройството. Проверен архив: '+result.filename+' · '+result.sandbox_tasks+' тестови задачи.');
+  }catch(e){setNeonPrimaryMessage('⚠️ '+String(e.message||e));}
+  finally{setNeonPrimaryBusy(false)}
+ };
+ const disableNeonPrimaryTest=()=>{
+  const id=String(neonTripId||'');
+  if(!window.confirm('Да изключим Neon по подразбиране за това устройство? Задачите остават в Neon и не се копират към Drive.'))return;
+  try{localStorage.removeItem('pixelapp_neon_primary_test_p91911:'+id);localStorage.setItem('pixelapp_neon_task_view_p9199:'+id,'drive')}
+  catch(_){}
+  setNeonPrimaryTest(false);setNeonTaskMode(false);setNeonPrimaryMessage('Предпочитанието е изключено. Данните не са променени.');
  };
  const [taskBusy,setTaskBusy]=useState(false);
  const [taskMessage,setTaskMessage]=useState('');
@@ -795,7 +820,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  </>}
  {section==='tasks'&&<>
   {!neonTaskMode&&<div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>}
- {(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}><strong>Хранилище за задачи</strong><p className="muted" style={{margin:'6px 0'}}>Тестовите Neon и оригиналните Drive задачи са независими. Изборът се запомня само на това устройство за това пътуване.</p><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className={!neonTaskMode?'':'ghost'} aria-pressed={!neonTaskMode} onClick={()=>chooseNeonTaskMode(false)}>☁️ Drive · оригинални</button><button type="button" className={neonTaskMode?'':'ghost'} aria-pressed={neonTaskMode} onClick={()=>chooseNeonTaskMode(true)}>⚡ Neon · тест</button></div><p className="muted" style={{margin:'6px 0 0',fontSize:12}}>{neonTaskMode?'⚡ Избран е Neon тест: записите не се синхронизират към Drive.':'☁️ Избран е Drive: Neon задачите остават отделно.'}</p></div>}
+ {(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}><strong>Хранилище за задачи</strong><p className="muted" style={{margin:'6px 0'}}>Тестовите Neon и оригиналните Drive задачи са независими. Изборът се запомня само на това устройство за това пътуване.</p><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className={!neonTaskMode?'':'ghost'} aria-pressed={!neonTaskMode} onClick={()=>chooseNeonTaskMode(false)}>☁️ Drive · оригинални</button><button type="button" className={neonTaskMode?'':'ghost'} aria-pressed={neonTaskMode} onClick={()=>chooseNeonTaskMode(true)}>⚡ Neon · тест</button></div><p className="muted" style={{margin:'6px 0 0',fontSize:12}}>{neonTaskMode?'⚡ Избран е Neon тест: записите не се синхронизират към Drive.':'☁️ Избран е Drive: Neon задачите остават отделно.'}</p><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}>{neonPrimaryTest?<button type="button" className="ghost" disabled={neonPrimaryBusy} onClick={disableNeonPrimaryTest}>Изключи Neon по подразбиране</button>:<button type="button" disabled={neonPrimaryBusy} onClick={()=>void activateNeonPrimaryTest()}>{neonPrimaryBusy?'Архивирам…':'🔐 Архивирай и избери Neon по подразбиране'}</button>}</div><p className="muted" style={{fontSize:12,margin:'6px 0 0'}}>P91.9.11 · Само тестово пътуване и това устройство. Не е обща миграция; оригиналните Drive задачи остават отделни. Ръчният архив включва тестовите таблици от всички пътувания.</p>{neonPrimaryMessage&&<p role="status" className="muted">{neonPrimaryMessage}</p>}</div>}
  {neonTaskMode&&onNeonRequest?<NeonTripTaskLab tripId={neonTripId} request={onNeonRequest}/>:<>
  <div className="travel-card task-preview-panel">
   <div className="task-preview-heading"><h3>📋 Списък със задачи</h3></div>
