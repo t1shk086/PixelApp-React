@@ -583,6 +583,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const changeTask=async(operation,t=null,title='')=>{
   if(!taskEditable||taskBusy)return;
   setTaskBusy(true);setTaskMessage('');
+  const perfStart=performance.now();let perfPre=0,perfWrite=0,perfRefresh=0;
   try{
    // An edit must use the revision captured when the editor was opened.
    // Fetching a fresh revision at save time silently overwrites another user's edit.
@@ -591,11 +592,16 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
    const pre=operation==='edit'
      ? {can_write:true,sha256:taskEditRevision}
      : await onTaskPreflight();
+   perfPre=performance.now()-perfStart;
    if(!pre.can_write)throw Error('Записът не е разрешен или Google Drive е променен. Обнови страницата.');
    await onTaskChange({operation,item_id:t?.item_id||'',title,expected_sha256:pre.sha256,
     ...(operation==='edit'?{expected_title:taskEditOriginal.title,expected_done:taskEditOriginal.done}:{} )});
+   perfWrite=performance.now()-perfStart-perfPre;
    await onTasksSaved();
-   setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('✅ Записано и проверено в Google Drive.');
+   perfRefresh=performance.now()-perfStart-perfPre-perfWrite;
+   const summary=`P91.8.8 · проверка ${(perfPre/1000).toFixed(1)}с · запис ${(perfWrite/1000).toFixed(1)}с · обновяване ${(perfRefresh/1000).toFixed(1)}с · общо ${((performance.now()-perfStart)/1000).toFixed(1)}с`;
+   console.info('PIXELAPP_CLIENT_PERF tasks',summary);
+   setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('✅ Записано и проверено в Google Drive. '+summary);
   }catch(err){setTaskMessage('⚠️ '+String(err.message||err));}
   finally{setTaskBusy(false);}
  };
@@ -1493,8 +1499,9 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
  async function change(operation,expense){
   if(!proof?.can_write||busy)return;
   setBusy(true);setMsg('');
+  const perfStart=performance.now();let perfPre=0,perfSave=0,perfVerify=0;
   try{
-   const p=await onPreflight();setProof(p);
+   const p=await onPreflight();perfPre=performance.now()-perfStart;setProof(p);
    if(!p.can_write)throw Error('Данните са променени или записът е заключен.');
    // Fuel is a single, normal expense. Dedicated guarded API writes the same CSV row,
    // with liters / odometer / fill type; never call finance and fuel writes together.
@@ -1523,12 +1530,16 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
     payload.original=Object.fromEntries(['trip_id','date','amount','category','description','type','liters','current_km'].map(k=>[k,String(expense[k]??'')]));
    }
    const result=await onSave(payload);
+   perfSave=performance.now()-perfStart-perfPre;
    // Re-read the backend-verified snapshot instead of assuming success from local state.
-   const verified=await onPreflight();setProof(verified);
+   const verified=await onPreflight();perfVerify=performance.now()-perfStart-perfPre-perfSave;setProof(verified);
    setBudget(verified.budgets?.find(x=>x.category==='__GLOBAL__')?.budget||'0');setCategoryBudgets(Object.fromEntries((verified.budgets||[]).filter(x=>x.category!=='__GLOBAL__').map(x=>[x.category,String(x.budget||'0')])));
    resetExpense();
-   setMsg('✅ Запазено и проверено в Google Drive. Резервно копие: '+(result.backup_id||'създадено'));
    await onSaved();
+   const perfRefresh=performance.now()-perfStart-perfPre-perfSave-perfVerify;
+   const summary=`P91.8.8 · проверка ${(perfPre/1000).toFixed(1)}с · запис ${(perfSave/1000).toFixed(1)}с · повторна проверка ${(perfVerify/1000).toFixed(1)}с · обновяване ${(perfRefresh/1000).toFixed(1)}с · общо ${((performance.now()-perfStart)/1000).toFixed(1)}с`;
+   console.info('PIXELAPP_CLIENT_PERF finances',summary);
+   setMsg('✅ Запазено и проверено в Google Drive. Резервно копие: '+(result.backup_id||'създадено')+' · '+summary);
    if(selectedFromHistory)onClose();
   }catch(e){setMsg('⚠️ '+String(e.message||e)+' Провери данните, преди да опиташ отново.');}
   finally{setBusy(false)}
