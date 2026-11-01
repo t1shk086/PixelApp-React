@@ -2954,3 +2954,81 @@ def neon_test_backup():
     except HTTPException: raise
     except Exception:
         raise HTTPException(503, 'Неуспешно резервно копие на тестовите Neon данни.') from None
+
+
+# P91.9.10 — non-destructive restore rehearsal of last verified Neon test backup.
+# Reads archive from Drive, checks integrity, loads into TEMP tables in a transaction,
+# compares exact content and rolls back. No existing Neon/Drive rows are changed.
+@app.post('/safe/neon-test-restore-drill', dependencies=[Depends(authorize)])
+def neon_test_restore_drill():
+    from time import perf_counter
+    start=perf_counter()
+    service=drive_service()
+    if service is None:
+        raise HTTPException(503, 'Google Drive не е свързан.')
+    try:
+        root,_=folder_and_files(service)
+        q="'%s' in parents and name = 'PixelApp_Neon_Test_Backups' and mimeType = 'application/vnd.google-apps.folder' and trashed = false" % root
+        folders=service.files().list(q=q,fields='nextPageToken,files(id)',pageSize=100).execute().get('files',[])
+        if len(folders)!=1:
+            raise HTTPException(409, 'Липсва еднозначна папка с архиви. Няма възстановяване.')
+        folder=folders[0]['id']
+        q="'%s' in parents and name contains 'neon_test_' and trashed = false" % folder
+        files=[]; token=None
+        while True:
+            resp=service.files().list(q=q,fields='nextPageToken,files(id,name,mimeType)',pageSize=1000,pageToken=token).execute()
+            files.extend(x for x in resp.get('files',[]) if x.get('name','').startswith('neon_test_') and x.get('name','').endswith('.json') and x.get('mimeType')=='application/json')
+            token=resp.get('nextPageToken')
+            if not token: break
+        if not files:
+            raise HTTPException(404, 'Няма намерен тестов Neon архив.')
+        latest=max(files,key=lambda x:x['name'])
+        raw=service.files().get_media(fileId=latest['id']).execute()
+        if not isinstance(raw,bytes) or len(raw)>10_000_000:
+            raise HTTPException(422,'Невалиден или прекалено голям архив.')
+        checksum=hashlib.sha256(raw).hexdigest()
+        if not latest['name'].endswith('_'+checksum[:10]+'.json'):
+            raise HTTPException(422,'Архивът не премина SHA-256 проверката.')
+        doc=json.loads(raw.decode('utf-8'))
+        if doc.get('format')!='pixelapp-neon-test-backup' or doc.get('schema_version')!=1:
+            raise HTTPException(422,'Неподдържан формат на архив.')
+        tables=doc.get('tables')
+        if not isinstance(tables,dict) or set(tables)!={'staged_drive_tasks_9193','sandbox_tasks_9194'}:
+            raise HTTPException(422,'Невалидни таблици в архива.')
+        staged=tables['staged_drive_tasks_9193']; sandbox=tables['sandbox_tasks_9194']
+        if not isinstance(staged,list) or not isinstance(sandbox,list) or len(staged)+len(sandbox)>20000:
+            raise HTTPException(422,'Невалидни записи в архива.')
+        for row in staged:
+            if not isinstance(row,dict) or set(row)!={'trip_id','item_id','data'} or not isinstance(row['data'],(dict,list,str,int,float,bool,type(None))):
+                raise HTTPException(422,'Невалиден копиран запис.')
+            if any(not isinstance(row[k],str) or not row[k] for k in ('trip_id','item_id')):
+                raise HTTPException(422,'Невалиден идентификатор.')
+        for row in sandbox:
+            if not isinstance(row,dict) or set(row)!={'trip_id','item_id','title','done','version'}:
+                raise HTTPException(422,'Невалиден тестов запис.')
+            if any(not isinstance(row[k],str) or not row[k] for k in ('trip_id','item_id')) or not isinstance(row['title'],str) or type(row['done']) is not bool or type(row['version']) is not int:
+                raise HTTPException(422,'Невалидни стойности в тестов запис.')
+        with _neon_demo_connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute('CREATE TEMP TABLE pixelapp_restore_stage (trip_id TEXT NOT NULL, item_id TEXT NOT NULL, data JSONB, PRIMARY KEY(trip_id,item_id)) ON COMMIT DROP')
+                    cur.execute('CREATE TEMP TABLE pixelapp_restore_sandbox (trip_id TEXT NOT NULL, item_id TEXT NOT NULL, title TEXT NOT NULL, done BOOLEAN NOT NULL, version INT NOT NULL, PRIMARY KEY(trip_id,item_id)) ON COMMIT DROP')
+                    for r in staged:
+                        cur.execute('INSERT INTO pixelapp_restore_stage VALUES (%s,%s,%s::jsonb)',(r['trip_id'],r['item_id'],json.dumps(r['data'],ensure_ascii=False)))
+                    for r in sandbox:
+                        cur.execute('INSERT INTO pixelapp_restore_sandbox VALUES (%s,%s,%s,%s,%s)',(r['trip_id'],r['item_id'],r['title'],r['done'],r['version']))
+                    cur.execute('SELECT trip_id,item_id,data::text FROM pixelapp_restore_stage ORDER BY trip_id,item_id')
+                    verified_stage=[{'trip_id':a,'item_id':b,'data':json.loads(c)} for a,b,c in cur.fetchall()]
+                    cur.execute('SELECT trip_id,item_id,title,done,version FROM pixelapp_restore_sandbox ORDER BY trip_id,item_id')
+                    verified_sandbox=[dict(zip(('trip_id','item_id','title','done','version'),r)) for r in cur.fetchall()]
+                    canonical=lambda x:json.dumps(x,ensure_ascii=False,sort_keys=True,separators=(',',':'))
+                    if canonical(verified_stage)!=canonical(staged) or canonical(verified_sandbox)!=canonical(sandbox):
+                        raise HTTPException(409,'Пробното възстановяване не съвпада с архива.')
+            finally:
+                conn.rollback()
+        return {'ok':True,'archive':latest['name'],'staged_tasks':len(staged),'sandbox_tasks':len(sandbox),
+                'elapsed_ms':round((perf_counter()-start)*1000),'no_changes':True,
+                'scope':'test-only','mode':'temporary-table-rollback'}
+    except HTTPException: raise
+    except Exception:
+        raise HTTPException(503, 'Неуспешна проба за възстановяване. Работните данни не са променени.') from None
