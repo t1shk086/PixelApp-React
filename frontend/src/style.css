@@ -1713,3 +1713,14 @@ html[data-pixelapp-skin="liquid"] .p915-swipe.is-open .p915-archive-btn {visibil
 html:not([data-pixelapp-skin="liquid"]) .p915-swipe {
   margin-bottom:10px;
 }
+
+/* P91.6.4 — restore compact spacing in classic themes only.
+   Override both the legacy card margins and the swipe-wrapper margins. */
+html:not([data-pixelapp-skin="liquid"]) .p915-swipe {
+  margin-top:0!important;
+  margin-bottom:8px!important;
+}
+html:not([data-pixelapp-skin="liquid"]) .p915-swipe > .home-trip {
+  margin:0!important;
+  margin-block:0!important;
+}
