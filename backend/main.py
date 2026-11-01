@@ -2748,3 +2748,88 @@ def neon_tasks_snapshot():
         raise
     except Exception:
         raise HTTPException(503, 'Копирането или проверката в Neon не успя. Данните в Drive не са променени.') from None
+
+
+# P91.9.4: isolated Neon write workbench. Strictly no Drive writes.
+class NeonSandboxAction(BaseModel):
+    trip_id: str
+    operation: str
+    item_id: str = ''
+    title: str = ''
+    expected_version: int | None = None
+
+
+def _neon_sandbox_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_neon_task_sandbox_9194 (
+        trip_id text NOT NULL, item_id text NOT NULL, title text NOT NULL,
+        done boolean NOT NULL DEFAULT false, version integer NOT NULL DEFAULT 0,
+        PRIMARY KEY (trip_id,item_id))""")
+
+
+def _assert_test_trip(trip_id):
+    if not trip_id or len(trip_id)>180 or not any(t in trip_id.casefold() for t in ('тест','test')):
+        raise HTTPException(403,'Тестът е разрешен само за пътуване с ТЕСТ/TEST в името.')
+
+
+@app.get('/safe/neon-task-sandbox/trips', dependencies=[Depends(authorize)])
+def neon_sandbox_trips():
+    from time import perf_counter
+    start=perf_counter()
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT DISTINCT trip_id FROM pixelapp_neon_tasks_stage_9193 ORDER BY trip_id')
+            names=[row[0] for row in cur.fetchall()]
+    return {'trips':[name for name in names if 'тест' in name.casefold() or 'test' in name.casefold()],
+            'elapsed_ms':round((perf_counter()-start)*1000)}
+
+
+@app.get('/safe/neon-task-sandbox/{trip_id}', dependencies=[Depends(authorize)])
+def neon_sandbox_read(trip_id: str):
+    from time import perf_counter
+    _assert_test_trip(trip_id)
+    start=perf_counter()
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _neon_sandbox_table(cur)
+            cur.execute('SELECT item_id,title,done,version FROM pixelapp_neon_task_sandbox_9194 WHERE trip_id=%s ORDER BY item_id',(trip_id,))
+            rows=[{'item_id':a,'title':b,'done':c,'version':d} for a,b,c,d in cur.fetchall()]
+        conn.commit()
+    return {'tasks':rows,'elapsed_ms':round((perf_counter()-start)*1000),'sandbox':True}
+
+
+@app.post('/safe/neon-task-sandbox', dependencies=[Depends(authorize)])
+def neon_sandbox_action(payload: NeonSandboxAction):
+    from time import perf_counter
+    _assert_test_trip(payload.trip_id)
+    if payload.operation not in ('add','toggle','edit','delete'):
+        raise HTTPException(422,'Неподдържано действие.')
+    title=payload.title.strip()
+    if payload.operation in ('add','edit') and not (1<=len(title)<=200):
+        raise HTTPException(422,'Заглавието трябва да е 1–200 символа.')
+    if payload.operation!='add' and (not payload.item_id or payload.expected_version is None or payload.expected_version<0):
+        raise HTTPException(422,'Липсва идентификатор или версия.')
+    start=perf_counter()
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _neon_sandbox_table(cur)
+            if payload.operation=='add':
+                new_id='sb_'+uuid.uuid4().hex
+                cur.execute('INSERT INTO pixelapp_neon_task_sandbox_9194(trip_id,item_id,title) VALUES (%s,%s,%s)',(payload.trip_id,new_id,title))
+                result={'item_id':new_id,'title':title,'done':False,'version':0}
+            else:
+                # Compare-and-swap is atomic, including deletes.
+                if payload.operation=='toggle':
+                    cur.execute('UPDATE pixelapp_neon_task_sandbox_9194 SET done=NOT done,version=version+1 WHERE trip_id=%s AND item_id=%s AND version=%s RETURNING item_id,title,done,version',
+                                (payload.trip_id,payload.item_id,payload.expected_version))
+                elif payload.operation=='edit':
+                    cur.execute('UPDATE pixelapp_neon_task_sandbox_9194 SET title=%s,version=version+1 WHERE trip_id=%s AND item_id=%s AND version=%s RETURNING item_id,title,done,version',
+                                (title,payload.trip_id,payload.item_id,payload.expected_version))
+                else:
+                    cur.execute('DELETE FROM pixelapp_neon_task_sandbox_9194 WHERE trip_id=%s AND item_id=%s AND version=%s RETURNING item_id,title,done,version',
+                                (payload.trip_id,payload.item_id,payload.expected_version))
+                record=cur.fetchone()
+                if record is None:
+                    raise HTTPException(409,'Задачата е променена или изтрита от друг профил. Натисни Прочети.')
+                result={'item_id':record[0],'title':record[1],'done':record[2],'version':record[3]}
+        conn.commit()
+    return {'ok':True,'task':result,'elapsed_ms':round((perf_counter()-start)*1000),'drive_unchanged':True}
