@@ -3032,3 +3032,61 @@ def neon_test_restore_drill():
     except HTTPException: raise
     except Exception:
         raise HTTPException(503, 'Неуспешна проба за възстановяване. Работните данни не са променени.') from None
+
+
+# P91.9.12 — shared, test-only task source preference for both accounts.
+# No actual Drive/Neon task content is migrated or overwritten here.
+class NeonSharedModeChange(BaseModel):
+    trip_id: str
+    mode: str
+    expected_version: int
+
+
+def _neon_shared_mode_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_neon_test_task_modes_91912 (
+        trip_id TEXT PRIMARY KEY, mode TEXT NOT NULL CHECK (mode IN ('drive','neon')),
+        version INTEGER NOT NULL DEFAULT 1,
+        backup_filename TEXT NOT NULL DEFAULT ''
+    )""")
+
+
+@app.get('/safe/neon-task-shared-mode/{trip_id}', dependencies=[Depends(authorize)])
+def neon_shared_mode_read(trip_id: str):
+    _assert_test_trip(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _neon_shared_mode_table(cur)
+            cur.execute('SELECT mode,version,backup_filename FROM pixelapp_neon_test_task_modes_91912 WHERE trip_id=%s',(trip_id,))
+            row=cur.fetchone()
+        conn.commit()
+    return {'trip_id':trip_id,'mode':row[0] if row else 'drive','version':row[1] if row else 0,
+            'backup_filename':row[2] if row else '', 'shared':bool(row)}
+
+
+@app.post('/safe/neon-task-shared-mode', dependencies=[Depends(authorize)])
+def neon_shared_mode_change(payload: NeonSharedModeChange):
+    _assert_test_trip(payload.trip_id)
+    if payload.mode not in ('drive','neon') or payload.expected_version<0:
+        raise HTTPException(422,'Невалиден режим или версия.')
+    # Snapshot before setting the shared mode to Neon. Existing backup logic also
+    # reads the uploaded JSON back from Drive and compares its SHA-256.
+    backup = neon_test_backup() if payload.mode=='neon' else None
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _neon_shared_mode_table(cur)
+            cur.execute('SELECT mode,version,backup_filename FROM pixelapp_neon_test_task_modes_91912 WHERE trip_id=%s FOR UPDATE',(payload.trip_id,))
+            old=cur.fetchone()
+            if (old[1] if old else 0)!=payload.expected_version:
+                raise HTTPException(409,'Режимът е променен от другия профил. Обнови и опитай пак.')
+            if old is None:
+                cur.execute('INSERT INTO pixelapp_neon_test_task_modes_91912(trip_id,mode,version,backup_filename) VALUES (%s,%s,1,%s)',
+                            (payload.trip_id,payload.mode,backup['filename'] if backup else ''))
+                ver=1
+            else:
+                ver=old[1]+1
+                cur.execute('UPDATE pixelapp_neon_test_task_modes_91912 SET mode=%s,version=%s,backup_filename=%s WHERE trip_id=%s',
+                            (payload.mode,ver,backup['filename'] if backup else old[2],payload.trip_id))
+        conn.commit()
+    return {'trip_id':payload.trip_id,'mode':payload.mode,'version':ver,'shared':True,
+            'backup_filename':backup['filename'] if backup else (old[2] if old else ''),
+            'drive_unmodified':True}
