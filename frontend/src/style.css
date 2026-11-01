@@ -1707,3 +1707,9 @@ html[data-pixelapp-skin="liquid"] .p915-swipe.is-open .p915-archive-btn {visibil
  html[data-pixelapp-skin="liquid"] .p9162-home-insights {grid-template-columns:1fr}
  html[data-pixelapp-skin="liquid"] .p9162-home-insights .home-stats {flex-direction:row}
 }
+
+/* P91.6.3 — restore compact home-trip spacing in existing skins only.
+   The swipe wrapper owns spacing; leave Liquid Glass layout untouched. */
+html:not([data-pixelapp-skin="liquid"]) .p915-swipe {
+  margin-bottom:10px;
+}
