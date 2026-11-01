@@ -1624,6 +1624,49 @@ def react_owned_trips():
         return {'trip_ids': sorted(_react_owned_ids(service, mapping))}
 
 
+# P91.7.1: read-only compatibility audit for imported Streamlit trips.
+# This endpoint NEVER registers ownership or changes any Drive file.
+@app.get('/safe/legacy-trip-audit/{trip_id}', dependencies=[Depends(authorize)])
+def legacy_trip_audit(trip_id: str):
+    ensure_local_snapshot()
+    with LOCK:
+        service = drive_service()
+        if service is None:
+            raise HTTPException(503, 'Google Drive не е достъпен.')
+        _, mapping = folder_and_files(service)
+        fid = mapping.get(FILENAMES['settings'])
+        if not fid:
+            raise HTTPException(409, 'Липсва файлът с настройките в Drive.')
+        remote = service.files().get_media(fileId=fid).execute()
+        local_path = DATA_DIR / FILENAMES['settings']
+        local_ok = local_path.exists() and hashlib.sha256(local_path.read_bytes()).digest() == hashlib.sha256(remote).digest()
+        reader = csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
+        if not reader.fieldnames or any(k not in reader.fieldnames for k in COLUMNS['settings']):
+            raise HTTPException(422, 'Непознат формат на настройките.')
+        matches = [r for r in reader if r.get('trip_id') == trip_id]
+        if len(matches) != 1:
+            raise HTTPException(409, 'Пътуването не е намерено еднозначно в Drive.')
+        trip = matches[0]
+        owned = trip_id in _react_owned_ids(service, mapping)
+        sections = {}
+        for kind in ('expenses', 'budgets', 'tasks', 'points', 'categories'):
+            sections[kind] = sum(r.get('trip_id') == trip_id for r in load_rows(kind))
+        return {
+            'trip_id': trip_id,
+            'react_owned': owned,
+            'finished': trip.get('trip_finished') == 'Да',
+            'start_date': trip.get('start_date', ''),
+            'end_date': trip.get('end_date', ''),
+            'car_trip': trip.get('car_trip') == 'Да',
+            'settings_synced': local_ok,
+            'rows': sections,
+            'writable': owned and trip.get('trip_finished') != 'Да',
+            'migration_available': False,
+            'message': ('Пътуването е от Streamlit. Не е разрешен запис, докато не се провери безопасната миграция.'
+                        if not owned else 'Пътуването е регистрирано в React.'),
+        }
+
+
 # Patch 67: create NEW trips only. Existing rows are immutable through this route.
 # Does not enable the old generic CRUD routes; Streamlit must be closed during writes.
 # No Environment toggle needed; emergency lock: PIXELAPP_NEW_TRIPS_ENABLED=false.
