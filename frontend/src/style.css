@@ -1708,19 +1708,12 @@ html[data-pixelapp-skin="liquid"] .p915-swipe.is-open .p915-archive-btn {visibil
  html[data-pixelapp-skin="liquid"] .p9162-home-insights .home-stats {flex-direction:row}
 }
 
-/* P91.6.3 — restore compact home-trip spacing in existing skins only.
-   The swipe wrapper owns spacing; leave Liquid Glass layout untouched. */
+/* P91.7 — classic-theme trip spacing: one authoritative rule. */
 html:not([data-pixelapp-skin="liquid"]) .p915-swipe {
-  margin-bottom:10px;
-}
-
-/* P91.6.4 — restore compact spacing in classic themes only.
-   Override both the legacy card margins and the swipe-wrapper margins. */
-html:not([data-pixelapp-skin="liquid"]) .p915-swipe {
-  margin-top:0!important;
-  margin-bottom:8px!important;
+  margin-top: 0 !important;
+  margin-bottom: 12px !important;
 }
 html:not([data-pixelapp-skin="liquid"]) .p915-swipe > .home-trip {
-  margin:0!important;
-  margin-block:0!important;
+  margin: 0 !important;
+  margin-block: 0 !important;
 }
