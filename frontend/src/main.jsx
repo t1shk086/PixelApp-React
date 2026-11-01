@@ -411,7 +411,73 @@ function TripGallery({tripId,authHeaders}){
   </section>;
 }
 
-function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders}) {
+// P91.9.5: isolated Neon mode inside the real trip tasks screen.
+// It never writes the canonical Google Drive tasks or the staged migration snapshot.
+function NeonTripTaskLab({tripId,request}){
+ const [enabled,setEnabled]=useState(false);
+ const [items,setItems]=useState([]);
+ const [newTitle,setNewTitle]=useState('');
+ const [editing,setEditing]=useState('');
+ const [editTitle,setEditTitle]=useState('');
+ const [busy,setBusy]=useState(false);
+ const [notice,setNotice]=useState('');
+ const [lastMs,setLastMs]=useState(null);
+ const eligible=/(тест|test)/i.test(String(tripId||''));
+ const path='/safe/neon-task-sandbox/'+encodeURIComponent(tripId);
+ const read=async()=>{
+  setBusy(true);setNotice('');
+  const start=performance.now();
+  try{const r=await request(path);setItems(r.tasks||[]);setLastMs(Math.round(performance.now()-start));setNotice('✅ Прочетено от Neon');}
+  catch(e){setNotice('⚠️ '+String(e.message||e));}
+  finally{setBusy(false)}
+ };
+ useEffect(()=>{setEnabled(false);setItems([]);setNotice('');setEditing('')},[tripId]);
+ const act=async(operation,t=null,title='')=>{
+  if(busy)return;
+  setBusy(true);setNotice('');
+  const start=performance.now();
+  try{
+   const r=await request('/safe/neon-task-sandbox','POST',{
+    trip_id:tripId,operation,item_id:t?.item_id||'',expected_version:t?.version??null,title
+   });
+   setItems(old=>operation==='add'?[...old,r.task]:operation==='delete'?old.filter(x=>x.item_id!==t.item_id):old.map(x=>x.item_id===t.item_id?r.task:x));
+   setNewTitle('');setEditing('');setLastMs(Math.round(performance.now()-start));
+   setNotice('✅ '+({add:'Добавено',toggle:'Отметнато',edit:'Редактирано',delete:'Изтрито'}[operation]||'Записано')+' само в Neon');
+  }catch(e){setNotice('⚠️ '+String(e.message||e)+' — натисни „Обнови Neon“, ако задачата е променена от другия профил.');}
+  finally{setBusy(false)}
+ };
+ if(!eligible)return null;
+ return <div className="travel-card task-preview-panel" style={{marginTop:12}}>
+  <h3>⚡ Neon тест — задачи</h3>
+  <p className="muted">Изолиран тест в това пътуване. Истинските задачи по-горе остават в Google Drive и не се променят.</p>
+  {!enabled?<button type="button" onClick={()=>{setEnabled(true);void read()}}>Отвори Neon тест</button>:<>
+   <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+    <button type="button" className="ghost" disabled={busy} onClick={()=>void read()}>↻ Обнови Neon</button>
+    <button type="button" className="ghost" onClick={()=>setEnabled(false)}>Затвори теста</button>
+    {lastMs!==null&&<small className="muted">От натискане до отговор: {lastMs} ms</small>}
+   </div>
+   <form className="task-preview-form" onSubmit={e=>{e.preventDefault();if(newTitle.trim())void act('add',null,newTitle.trim())}}>
+    <input aria-label="Нова тестова Neon задача" maxLength={200} disabled={busy} value={newTitle} onChange={e=>setNewTitle(e.target.value)} placeholder="Тестова задача…"/>
+    <button type="submit" disabled={busy||!newTitle.trim()}>➕ Добави</button>
+   </form>
+   {items.length===0&&<p className="muted">Няма тестови задачи в Neon.</p>}
+   {items.map(t=><div key={t.item_id} className={'task-visual-item task-preview-item'+(t.done?' task-visual-done':'')}>
+    <button type="button" className="task-preview-check" disabled={busy} onClick={()=>void act('toggle',t)} aria-label={t.done?'Махни отметката':'Отметни тестовата задача'}>{t.done?'✓':'○'}</button>
+    {editing===t.item_id?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(editTitle.trim())void act('edit',t,editTitle.trim())}}>
+     <input aria-label="Редакция на тестова задача" maxLength={200} disabled={busy} value={editTitle} onChange={e=>setEditTitle(e.target.value)}/>
+     <button type="submit" disabled={busy||!editTitle.trim()}>Запази</button>
+     <button type="button" className="ghost" onClick={()=>setEditing('')}>Отказ</button>
+    </form>:<><span className="task-preview-name">{t.title}</span>
+     <button type="button" className="task-preview-action" disabled={busy} onClick={()=>{setEditing(t.item_id);setEditTitle(t.title)}} aria-label="Редактирай тестова задача">✎</button>
+     <button type="button" className="task-preview-action" disabled={busy} onClick={()=>{if(window.confirm('Изтрий само тестовата задача от Neon?'))void act('delete',t)}} aria-label="Изтрий тестова задача">✕</button></>}
+   </div>)}
+   {busy&&<p className="muted">Записвам в Neon…</p>}
+   {notice&&<p role="status" className="muted">{notice}</p>}
+  </>}
+ </div>;
+}
+
+function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders,onNeonRequest,neonTripId}) {
  const [section,setSection]=useState('summary');
  const [mapTab,setMapTab]=useState('route');
  const [taskBusy,setTaskBusy]=useState(false);
@@ -714,6 +780,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   {taskBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}
   {taskMessage&&<p role="status" className="muted">{taskMessage}</p>}
  </div>
+ {onNeonRequest&&<NeonTripTaskLab tripId={neonTripId} request={onNeonRequest}/>}
  </>}
  {section==='map'&&<div className="travel-card map-showcase route82-shell"><div className="route82-header"><span className="route82-symbol">▣</span><div><small>PIXELAPP · TRAVEL</small><h3>Места и маршрут</h3></div></div><nav className="route82-tabs" aria-label="Раздели на картата">{[['route','Маршрут'],['favorites','Любими'],['add','Добавяне']].map(([id,label])=><button type="button" key={id} className={mapTab===id?'active':''} aria-current={mapTab===id?'page':undefined} onClick={()=>setMapTab(id)}>{label}</button>)}</nav>
  {mapTab==='route'&&<div className="route82-panel route82-route">
@@ -1968,7 +2035,7 @@ function App(){
  </div>
  <HomePlaces points={homePlaces}/>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
- </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onExpenseAction={(action,expense)=>{setSelectedExpenseAction({action,expense});setModal('owned-expenses')}} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>refreshAfterWrite(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>refreshAfterWrite(current)} galleryAuthHeaders={authMode==='accounts'?{Authorization:`Bearer ${key}`}:{'X-API-Key':key}} onFavoritesLoad={()=>req(`/safe/trip-places/${encodeURIComponent(current)}`)} onFavoriteChange={payload=>req(`/safe/trip-places/${encodeURIComponent(current)}`,'POST',payload)} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
+ </>: <>{chosen&&<TripDetails trip={chosen} detail={detail} readOnly={readOnly} financeOwned={reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onExpenseAction={(action,expense)=>{setSelectedExpenseAction({action,expense});setModal('owned-expenses')}} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>refreshAfterWrite(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>refreshAfterWrite(current)} galleryAuthHeaders={authMode==='accounts'?{Authorization:`Bearer ${key}`}:{'X-API-Key':key}} onNeonRequest={req} neonTripId={current} onFavoritesLoad={()=>req(`/safe/trip-places/${encodeURIComponent(current)}`)} onFavoriteChange={payload=>req(`/safe/trip-places/${encodeURIComponent(current)}`,'POST',payload)} onOpenPreview={m=>setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}/>}</>}
  
   {modal==='normal-expenses'&&(()=>{const active=trips.find(t=>tripState(t)==='active');if(!active)return <div className="overlay" onClick={()=>setModal('')}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>💳 Бърз разход</h3><button type="button" className="ghost" onClick={()=>setModal('')}>✕</button></div><p className="muted">Няма активно пътуване. Разходите за предстоящи пътувания се добавят от самото пътуване.</p></div></div>;return <TestFinancePreview key={active.id} quickOnly tripName={active.name} carTrip={active.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(active.id)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(active.id)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(active.id)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(active.id)}`,'POST',payload)} onSaved={()=>reload()}/>})()}
   {(modal==='owned-expenses'||modal==='owned-budget')&&current&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current+'-'+(selectedExpenseAction?.expense?.description||'')+'-'+(selectedExpenseAction?.action||'')} initialExpense={modal==='owned-expenses'?selectedExpenseAction?.expense:null} initialAction={selectedExpenseAction?.action||'edit'} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>{setModal('');setSelectedExpenseAction(null)}} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>refreshAfterWrite(current)}/>}
