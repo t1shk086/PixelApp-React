@@ -449,12 +449,12 @@ function NeonTripTaskLab({tripId,request}){
  };
  if(!eligible)return null;
  return <div className="travel-card task-preview-panel" style={{marginTop:12}}>
-  <h3>📋 Списък със задачи · Neon тест</h3>
-  <p className="muted">Само тестовите записи в Neon. Оригиналните задачи в Google Drive остават отделно и непроменени.</p>
-  <p className="muted">Изпълнени: {items.filter(t=>t.done).length} / {items.length}</p>
+  <h3>📋 Списък със задачи <small style={{fontSize:12,fontWeight:500,opacity:.7}}>⚡ Neon</small></h3>
+  
+  <div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{items.filter(t=>t.done).length} <em>/ {items.length}</em></strong></div><span>{items.length?Math.round(items.filter(t=>t.done).length/items.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(items.length?items.filter(t=>t.done).length/items.length*100:0)+'%'}}/></div>
   {!enabled?<button type="button" onClick={()=>{setEnabled(true);void read()}}>Отвори Neon тест</button>:<>
    <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
-    <button type="button" className="ghost" disabled={busy} onClick={()=>void read()}>↻ Обнови Neon</button>
+    <button type="button" className="ghost" disabled={busy} onClick={()=>void read()}>↻ Обнови</button>
     <button type="button" className="ghost" disabled={busy} onClick={async()=>{
       if(!window.confirm('Копирай оригиналните задачи от Drive само в тестовия Neon списък? Съществуващите Neon задачи ще останат.'))return;
       setBusy(true);setImportResult('');
@@ -463,14 +463,14 @@ function NeonTripTaskLab({tripId,request}){
         await read();
       }catch(e){setImportResult('⚠️ '+String(e.message||e));}
       finally{setBusy(false)}
-    }}>📥 Копирай оригиналните задачи</button>
-    {lastMs!==null&&<small className="muted">От натискане до отговор: {lastMs} ms</small>}
+    }}>📥 Импортирай от Drive</button>
+    {lastMs!==null&&<small className="muted">{lastMs} ms</small>}
    </div>
    <form className="task-preview-form" onSubmit={e=>{e.preventDefault();if(newTitle.trim())void act('add',null,newTitle.trim())}}>
-    <input aria-label="Нова тестова Neon задача" maxLength={200} disabled={busy} value={newTitle} onChange={e=>setNewTitle(e.target.value)} placeholder="Тестова задача…"/>
+    <input aria-label="Нова тестова Neon задача" maxLength={200} disabled={busy} value={newTitle} onChange={e=>setNewTitle(e.target.value)} placeholder="Нова задача…"/>
     <button type="submit" disabled={busy||!newTitle.trim()}>➕ Добави</button>
    </form>
-   {items.length===0&&<p className="muted">Няма тестови задачи в Neon.</p>}
+   {items.length===0&&<p className="muted">Няма задачи в Neon.</p>}
    {items.map(t=><div key={t.item_id} className={'task-visual-item task-preview-item'+(t.done?' task-visual-done':'')}>
     <button type="button" className="task-preview-check" disabled={busy} onClick={()=>void act('toggle',t)} aria-label={t.done?'Махни отметката':'Отметни тестовата задача'}>{t.done?'✓':'○'}</button>
     {editing===t.item_id?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(editTitle.trim())void act('edit',t,editTitle.trim())}}>
@@ -818,8 +818,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  {section==='tasks'&&<>
   {!neonTaskMode&&<div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>}
  {(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}>
-  <strong>⚡ P91.9.12 · Общ режим на задачите</strong>
-  <p className="muted" style={{fontSize:12}}>Изборът е общ за двата профила само в това тестово пътуване. Neon и Drive не се синхронизират автоматично.</p>
+  <strong>⚙️ Източник на задачи</strong>
+  <p className="muted" style={{fontSize:12}}>Общ избор за двата профила · само за тестовото пътуване. Drive не се синхронизира автоматично.</p>
   {sharedModeError?<p role="alert">⚠️ {sharedModeError}</p>:!sharedMode?<p className="muted">Проверявам общия режим…</p>:<>
   <p className="muted">Активен източник: <b>{sharedMode.mode==='neon'?'⚡ Neon':'☁️ Drive'}</b> · версия {sharedMode.version}</p>
   <button type="button" disabled={neonPrimaryBusy} onClick={()=>void changeSharedTaskMode(sharedMode.mode==='neon'?'drive':'neon')}>{neonPrimaryBusy?'Записвам…':sharedMode.mode==='neon'?'Избери Drive за двата профила':'Архивирай и включи Neon за двата профила'}</button>
