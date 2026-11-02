@@ -570,6 +570,10 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false}){
 function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders,onNeonRequest,neonTripId}) {
  const [section,setSection]=useState('summary');
  const [neonExpenseView,setNeonExpenseView]=useState(false);
+ const [p931StageMode,setP931StageMode]=useState(false);
+ const [p931Stage,setP931Stage]=useState(null);
+ const [p931Loading,setP931Loading]=useState(false);
+ const [p931Notice,setP931Notice]=useState('');
  const [neonExpenseWorkspace,setNeonExpenseWorkspace]=useState(null);
  const [mapTab,setMapTab]=useState('route');
  const [neonTaskMode,setNeonTaskMode]=useState(false);
@@ -736,12 +740,22 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   setPlaceQuery(fullName);setPlaceResults([]);setPlaceSearchError('');
  };
 
- useEffect(()=>{setNeonExpenseView(false);setNeonExpenseWorkspace(null);setNeonTaskMode(false);setSection('summary');setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('');},[trip?.id]);
+ useEffect(()=>{setP931StageMode(false);setP931Stage(null);setP931Notice('');setNeonExpenseView(false);setNeonExpenseWorkspace(null);setNeonTaskMode(false);setSection('summary');setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('');},[trip?.id]);
+ const isP931Test=Boolean(onNeonRequest&&String(neonTripId||'')==='ТЕСТ_НОВО_–_PixelApp');
+ const loadP931=async()=>{
+  if(!isP931Test)return;
+  setP931Loading(true);setP931Notice('');
+  try{const r=await onNeonRequest('/safe/p931-stage-preview/'+encodeURIComponent(neonTripId));if(!r.ok||!r.readonly)throw new Error('Невалиден тестов отговор.');setP931Stage(r);setP931StageMode(true);setNeonExpenseView(false)}
+  catch(e){setP931StageMode(false);setP931Stage(null);setP931Notice('⚠️ '+String(e.message||e))}
+  finally{setP931Loading(false)}
+ };
+ useEffect(()=>{if(!p931StageMode||!isP931Test)return;const handler=()=>{if(document.visibilityState==='visible')void loadP931()};window.addEventListener('focus',handler);return()=>window.removeEventListener('focus',handler)},[p931StageMode,neonTripId]);
  const isNeonExpenseTest=Boolean(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')));
- const neonActive=isNeonExpenseTest&&neonExpenseView&&Boolean(neonExpenseWorkspace?.records);
+ const p931Active=isP931Test&&p931StageMode&&Boolean(p931Stage?.records);
+ const neonActive=!p931Active&&isNeonExpenseTest&&neonExpenseView&&Boolean(neonExpenseWorkspace?.records);
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
- const rows=neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=neonActive?neonBudgets:(detail?.budgets||[]), tasks=detail?.tasks||[], points=detail?.points||[];
+ const rows=p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)), settings=p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}), budgets=p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])), tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
  const byCat={};rows.filter(paymentRow).forEach(r=>{const category=r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');byCat[category]=(byCat[category]||0)+number(r.amount)});
@@ -872,6 +886,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  return <div className="travel-detail">
  <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon" type="button" onClick={()=>onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването">⚙️</button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
  
+ {p931Active&&<div className="travel-card" role="status" style={{padding:10,marginBottom:8}}>🧪 P93.1 · Преглед на копие от Neon — само четене. Не променя Drive или работното Neon копие.</div>}
  <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
  {section==='summary'&&<>
@@ -880,7 +895,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  <div className="travel-card visual-section"><h3>🚗 Гориво и път</h3><div className="visual-overview-stats visual-road-stats"><div className="overview-tile"><span>🛣️</span><small>Изминато</small><strong>{km.toLocaleString('bg-BG')} <em>км</em></strong></div><div className="overview-tile"><span>⛽</span><small>Среден разход</small><strong>{avg?avg.toFixed(1):'—'} <em>л/100 км</em></strong></div></div></div>
  </>}
  {section==='expenses'&&<>
- {isNeonExpenseTest&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
+ {isP931Test&&<div className="travel-card" style={{padding:12,marginBottom:10}}><strong>🧪 P93.1 · Мигрирано копие (само преглед)</strong><div className="p9043-expense-actions" style={{marginTop:10,flexWrap:'wrap'}}><button type="button" className={p931Active?'selected':''} disabled={p931Loading} onClick={()=>{if(p931Active){setP931StageMode(false)}else void loadP931()}}>{p931Loading?'Зареждам…':p931Active?'✓ P93.0 копие включено':'Прегледай P93.0 копието'}</button>{p931Active&&<button type="button" className="ghost" onClick={()=>setP931StageMode(false)}>Върни нормалния източник</button>}{p931Active&&<button type="button" className="ghost" disabled={p931Loading} onClick={()=>void loadP931()}>↻ Обнови копието</button>}</div><p className="muted">{p931Active?'Разходи, гориво и бюджети се изчисляват от отделното P93.0 Neon копие. Не е разрешено редактиране или миграция.':'Само тестовото пътуване. P92.4 Neon v8 и Google Drive остават непроменени.'}</p>{p931Notice&&<p role="status" className="muted">{p931Notice}</p>}</div>}
+ {isNeonExpenseTest&&!p931Active&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
   <strong>🧪 Източник на данните · само ТЕСТ пътуване</strong>
   <div className="p9043-expense-actions" style={{marginTop:10}}>
    <button type="button" className={!neonExpenseView?'selected':''} onClick={()=>setNeonExpenseView(false)}>☁️ Drive</button>
@@ -889,9 +905,9 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   <p className="muted">{neonActive?'В нормалните екрани са показани разходите и бюджетните суми от тестовото Neon копие; горивото използва същите изчислителни функции. Drive не се записва.':'Показани са данните от Drive. Neon остава отделно тестово копие.'}</p>
   {neonExpenseView&&!neonExpenseWorkspace?.records&&<p role="status">Neon не е достъпен — превключването не е извършено.</p>}
  </div>}
- {isNeonExpenseTest&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
- <div className="p9043-expense-actions">{!neonActive&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
- <ExpenseHistory rows={rows} onExpenseAction={!neonActive&&financeOwned?onExpenseAction:null}/>
+ {isNeonExpenseTest&&!p931Active&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
+ <div className="p9043-expense-actions">{!neonActive&&!p931Active&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
+ <ExpenseHistory rows={rows} onExpenseAction={!neonActive&&!p931Active&&financeOwned?onExpenseAction:null}/>
  </>}
  {section==='fuel'&&<>
 
@@ -909,7 +925,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  <FuelHistory rows={rows}/>
  </>}
  {section==='budget'&&<>
- <BudgetInsights rows={rows} settings={settings} budgetTotal={budgetTotal} globalBudget={globalBudget} budgetEntries={budgetEntries} budgetScopedCosts={budgetScopedCosts} allCosts={allCosts} byCat={byCat} onEdit={financeOwned?()=>onOpenPreview('pilot-budget'):null}/>
+ <BudgetInsights rows={rows} settings={settings} budgetTotal={budgetTotal} globalBudget={globalBudget} budgetEntries={budgetEntries} budgetScopedCosts={budgetScopedCosts} allCosts={allCosts} byCat={byCat} onEdit={financeOwned&&!p931Active?()=>onOpenPreview('pilot-budget'):null}/>
  <div className="travel-card budget-showcase"><h3>🎯 Бюджет на пътуването</h3><div className="budget-showcase-total"><small>ОСТАВАЩ БЮДЖЕТ</small><strong className={budgetTotal>0&&allCosts>budgetTotal?'negative':''}>{budgetTotal?money(budgetTotal-allCosts):'—'}</strong></div><div className="budget-showcase-grid"><div><small>Планирано</small><b>{budgetTotal?money(budgetTotal):'—'}</b></div><div><small>Изразходвано</small><b>{money(allCosts)}</b></div></div>{budgetTotal>0&&<><div className="budget-showcase-progress"><span style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div><div className="budget-showcase-caption"><span>{Math.round(allCosts/budgetTotal*100)}% използвани</span><span>{allCosts>budgetTotal?'Над бюджета':'Остатък'}</span></div></>}</div>
  <div className="travel-card"><h3>🗂️ Бюджети по категории</h3>{budgetEntries.length?budgetEntries.map((b,i)=>{const spent=number(byCat[b.category]),limit=number(b.budget),percent=limit>0?Math.min(100,spent/limit*100):0;return <div className="budget-visual-row" key={b.category}><div className="budget-visual-head"><strong><span className={'visual-category-dot visual-palette-'+i%5}/>{b.category}</strong><b>{money(spent)} <span>/ {money(limit)}</span></b></div><div className="budget-visual-track"><span style={{width:percent+'%',background:spent>limit?'linear-gradient(90deg,#ee866a,#fd4e77)':'linear-gradient(90deg,#45d0ff,#725cff)'}}/></div><div className="budget-visual-foot"><small>{Math.round(limit>0?spent/limit*100:0)}% от бюджета</small><small>{spent>limit?'Над бюджета: '+money(spent-limit):'Остават: '+money(limit-spent)}</small></div></div>}):<p className="muted">Няма зададени отделни бюджети по категории.</p>}</div>
  </>}
