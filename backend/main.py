@@ -4259,3 +4259,45 @@ def p939_car_test(change:P939CarChange,background_tasks:BackgroundTasks):
         conn.commit()
     background_tasks.add_task(_p932_backup_worker,change.trip_id)
     return {'ok':True,'revision':revision,'operation':change.operation,'backup_required':True,'drive_modified':False}
+
+
+# P94.0 — common, authenticated, verified READ interface for all nine staged trips.
+# This endpoint deliberately does not enable writes or choose Neon for live traffic.
+# It reuses P93.0 / P93.3 immutable tables; no new data copies or migrations.
+@app.get('/safe/neon/trip-snapshot/{trip_id}', dependencies=[Depends(authorize)])
+def neon_trip_snapshot(trip_id: str):
+    if not trip_id or len(trip_id) > 220 or '/' in trip_id:
+        raise HTTPException(400, 'Невалиден идентификатор на пътуване.')
+    if trip_id == _P933_EXCLUDED:
+        live = _p930_load_drive_trip(trip_id)
+        meta_table, rows_table = 'pixelapp_p930_test_stage', 'pixelapp_p930_test_rows'
+    else:
+        # Checking all nine source identifiers first prevents foreign/orphan rows
+        # from being exposed as an apparently valid trip.
+        groups = _p933_groups_from_drive()
+        if trip_id not in groups:
+            raise HTTPException(404, 'Няма такова пътуване в Google Drive.')
+        live = groups[trip_id]
+        meta_table, rows_table = 'pixelapp_p933_stage', 'pixelapp_p933_rows'
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT to_regclass(%s)::text', ('public.' + meta_table,))
+            if cur.fetchone()[0] is None:
+                raise HTTPException(409, 'Не е подготвено проверено Neon копие.')
+            cur.execute('SELECT digest FROM ' + meta_table + ' WHERE trip_id=%s', (trip_id,))
+            found = cur.fetchone()
+            if not found:
+                raise HTTPException(409, 'Липсва Neon копие на пътуването.')
+            cur.execute('SELECT kind,payload FROM ' + rows_table + ' WHERE trip_id=%s ORDER BY kind,ord', (trip_id,))
+            staged = {kind: [] for kind in _P930_KINDS}
+            for kind, payload in cur.fetchall():
+                if kind not in staged:
+                    raise HTTPException(409, 'Неочакван тип запис в Neon копието.')
+                staged[kind].append(payload)
+    digest = _p930_digest(staged)
+    if digest != found[0] or digest != _p930_digest(live):
+        raise HTTPException(409, 'Drive или Neon се е променил след копирането; зареждането е блокирано.')
+    return {'ok': True, 'trip_id': trip_id, 'records': staged,
+            'source': 'verified_neon_stage', 'readonly': True,
+            'matches_current_drive': True, 'writes_enabled': False,
+            'production_switched': False}
