@@ -90,7 +90,7 @@ function ExpenseHistory({rows,onExpenseAction}) {
  const isPayment=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
  const categoryName=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
  const all=rows.filter(isPayment);
- const canChange=r=>onExpenseAction&&r._original!==false&&!r._temporary&&!r._temporaryEdited&&String(r.type)==='expense'&&String(r.description||'').startsWith('[P62] ')&&['0','0.0','0.00',''].includes(String(r.liters??''))&&['0','0.0','0.00',''].includes(String(r.current_km??''));
+ const canChange=r=>onExpenseAction&&((r._neonRowId&&r._neonVersion&&String(r.type)==='expense'&&Number(r.liters||0)===0&&Number(r.current_km||0)===0)||(!r._neonRowId&&r._original!==false&&!r._temporary&&!r._temporaryEdited&&String(r.type)==='expense'&&String(r.description||'').startsWith('[P62] ')&&['0','0.0','0.00',''].includes(String(r.liters??''))&&['0','0.0','0.00',''].includes(String(r.current_km??''))));
  const options=Array.from(new Set(all.map(categoryName))).sort((a,b)=>a.localeCompare(b,'bg'));
  const visible=all.filter(r=>{
   if(category!=='all'&&categoryName(r)!==category)return false;
@@ -633,6 +633,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const [p942Amount,setP942Amount]=useState('');
  const [p942Category,setP942Category]=useState('Други');
  const [p942Description,setP942Description]=useState('');
+ const [p943Editing,setP943Editing]=useState(null);
  const p942Reload=async()=>{
   if(!p942Test||!onNeonRequest)return;
   try{const result=await onNeonRequest('/safe/neon/workspace/'+encodeURIComponent(neonTripId));
@@ -640,17 +641,33 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
    setP942Data(result);setP942Error('');
   }catch(e){setP942Data(null);setP942Error(String(e.message||e));}
  };
- useEffect(()=>{setP942Data(null);setP942Error('');setP942Form(false);if(p942Test)void p942Reload();},[neonTripId]);
+ useEffect(()=>{setP942Data(null);setP942Error('');setP942Form(false);setP943Editing(null);if(p942Test)void p942Reload();},[neonTripId]);
  useEffect(()=>{if(!p942Test)return;const refresh=()=>{if(document.visibilityState==='visible')void p942Reload()};window.addEventListener('focus',refresh);return()=>window.removeEventListener('focus',refresh)},[neonTripId]);
+ const p943Action=async(action,record)=>{
+  if(!p942Test||!p942Data||p942Saving||!record?._neonRowId)return;
+  if(action==='edit'){
+   setP943Editing(record);setP942Amount(String(record.amount||''));setP942Category(String(record.category||'Други'));
+   setP942Description(String(record.description||''));setP942Error('');setP942Form(true);return;
+  }
+  if(action!=='delete'||!window.confirm('Да изтрия този разход?'))return;
+  setP942Saving(true);setP942Error('');
+  try{await onNeonRequest('/safe/neon/expense','POST',{trip_id:neonTripId,dataset:'expenses',operation:'delete',row_id:record._neonRowId,expected_version:record._neonVersion});await p942Reload();}
+  catch(err){await p942Reload();setP942Error(String(err.message||err));}
+  finally{setP942Saving(false);}
+ };
  const p942Add=async(e)=>{
   e.preventDefault();if(!p942Data||p942Saving)return;
   const amount=Number(String(p942Amount).replace(',','.'));
   if(!Number.isFinite(amount)||amount<=0){setP942Error('Въведи валидна сума.');return;}
   setP942Saving(true);setP942Error('');
-  try{await onNeonRequest('/safe/neon/expense','POST',{trip_id:neonTripId,dataset:'expenses',operation:'add',
-   row:{trip_id:neonTripId,date:new Date().toLocaleDateString('bg-BG'),amount:String(amount),category:p942Category,description:p942Description.trim(),type:'expense',liters:'',current_km:''}});
-   setP942Form(false);setP942Amount('');setP942Description('');await p942Reload();
-  }catch(err){setP942Error(String(err.message||err));}finally{setP942Saving(false);}
+  try{
+   const editing=p943Editing;
+   const row=editing?{trip_id:neonTripId,date:String(editing.date),amount:String(amount),category:p942Category,description:p942Description.trim(),type:String(editing.type),liters:String(editing.liters??''),current_km:String(editing.current_km??'')}:
+    {trip_id:neonTripId,date:new Date().toLocaleDateString('bg-BG'),amount:String(amount),category:p942Category,description:p942Description.trim(),type:'expense',liters:'',current_km:''};
+   await onNeonRequest('/safe/neon/expense','POST',{trip_id:neonTripId,dataset:'expenses',operation:editing?'edit':'add',
+    ...(editing?{row_id:editing._neonRowId,expected_version:editing._neonVersion}:{}),row});
+   setP942Form(false);setP943Editing(null);setP942Amount('');setP942Description('');await p942Reload();
+  }catch(err){await p942Reload();setP942Error(String(err.message||err));}finally{setP942Saving(false);}
  };
  const [p931StageMode,setP931StageMode]=useState(false);
  const [p931Stage,setP931Stage]=useState(null);
@@ -869,7 +886,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const neonActive=!p932Active&&!p931Active&&isNeonExpenseTest&&neonExpenseView&&Boolean(neonExpenseWorkspace?.records);
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
- const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>x.data):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=detail?.tasks||[], points=detail?.points||[];
+ const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=detail?.tasks||[], points=detail?.points||[];
  const p936DriveRows=detail?.expenses||[];
  const p936DriveBudgets=detail?.budgets||[];
  const p936DriveSettings=detail?.settings||trip?.settings||{};
@@ -1073,9 +1090,9 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  {!p942Test&&p932Mode&&isP931Test&&<NeonExpenseWorkspace key={'p932-'+neonTripId} tripId={neonTripId} request={onNeonRequest} p932 onWorkspaceChange={setP932Workspace} compact/>}
  {isNeonExpenseTest&&!isP934Canary&&!p931Active&&!p932Mode&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
  {p942Test&&p942Error&&<p role="alert" className="error">⚠️ Не може да се работи с Neon: {p942Error}</p>}
- {p942Test&&p942Form&&<form className="travel-card quick-demo-form" onSubmit={p942Add}><h3>Добави разход</h3><label>Сума (€)<input type="number" min="0.01" step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} onChange={e=>setP942Category(e.target.value)}>{categories.filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт').map(c=><option key={c}>{c}</option>)}</select></label><label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':'Запази'}</button><button type="button" className="ghost" onClick={()=>setP942Form(false)}>Отказ</button></div><small className="muted">Тестовото пътуване записва директно в Neon. Гориво и депозити остават в отделните им форми.</small></form>}
- <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving} onClick={()=>setP942Form(true)}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
- <ExpenseHistory rows={rows} onExpenseAction={!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
+ {p942Test&&p942Form&&<form className="travel-card quick-demo-form" onSubmit={p942Add}><h3>{p943Editing?'Редактирай разход':'Добави разход'}</h3><label>Сума (€)<input type="number" min="0.01" step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} onChange={e=>setP942Category(e.target.value)}>{categories.filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт').map(c=><option key={c}>{c}</option>)}</select></label><label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div><small className="muted">Тестовото пътуване записва директно в Neon. Гориво и депозити остават в отделните им форми.</small></form>}
+ <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving} onClick={()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP942Error('');setP942Form(true)}}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
+ <ExpenseHistory rows={rows} onExpenseAction={p942Test?p943Action:!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
  {section==='fuel'&&p936Reconciliation}
  {section==='fuel'&&<>
