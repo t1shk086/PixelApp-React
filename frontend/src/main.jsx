@@ -491,7 +491,7 @@ function NeonTripTaskLab({tripId,request}){
 
 // P92.5: Isolated Neon expense workspace inside the normal expenses tab.
 // No live data is switched; working-copy writes never touch Drive.
-function NeonExpenseWorkspace({tripId,request}){
+function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false}){
  const [workspace,setWorkspace]=useState(null);
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
@@ -500,15 +500,17 @@ function NeonExpenseWorkspace({tripId,request}){
  const [draft,setDraft]=useState({date:'',amount:'',category:'Други',description:'',type:'expense',liters:'',current_km:''});
  const load=async()=>{
   setBusy(true);setNotice('');
-  try{setWorkspace(await request('/safe/p924-workspace/'+encodeURIComponent(tripId)))}
-  catch(e){setWorkspace(null);setNotice('⚠️ '+String(e.message||e))}
+  try{const next=await request('/safe/p924-workspace/'+encodeURIComponent(tripId));setWorkspace(next);onWorkspaceChange?.(next)}
+  catch(e){setWorkspace(null);onWorkspaceChange?.(null);setNotice('⚠️ '+String(e.message||e))}
   finally{setBusy(false)}
  };
  useEffect(()=>{setWorkspace(null);setEditing(null);setNotice('');void load()},[tripId]);
+ // Refresh the shared test copy when either account returns to the app.
+ useEffect(()=>{const update=()=>{if(document.visibilityState==='visible')void load()};window.addEventListener('focus',update);document.addEventListener('visibilitychange',update);return()=>{window.removeEventListener('focus',update);document.removeEventListener('visibilitychange',update)}},[tripId]);
  const prepare=async()=>{
   if(!window.confirm('Да се създаде отделно Neon работно копие само за това ТЕСТ пътуване? Drive няма да се променя.'))return;
   setBusy(true);setNotice('');
-  try{await request('/safe/p924-workspace/'+encodeURIComponent(tripId),'POST');setWorkspace(await request('/safe/p924-workspace/'+encodeURIComponent(tripId)));setNotice('✅ Neon копието е подготвено.')}
+  try{await request('/safe/p924-workspace/'+encodeURIComponent(tripId),'POST');const next=await request('/safe/p924-workspace/'+encodeURIComponent(tripId));setWorkspace(next);onWorkspaceChange?.(next);setNotice('✅ Neon копието е подготвено.')}
   catch(e){setNotice('⚠️ '+String(e.message||e))}finally{setBusy(false)}
  };
  const expenses=workspace?.records?.expenses||[];
@@ -529,19 +531,19 @@ function NeonExpenseWorkspace({tripId,request}){
   setBusy(true);setNotice('');
   try{
    await request('/safe/p924-record','POST',{trip_id:tripId,dataset:'expenses',operation,row_id:item?.row_id||'',expected_version:item?.version??null,row:row??null});
-   setWorkspace(await request('/safe/p924-workspace/'+encodeURIComponent(tripId)));
+   const next=await request('/safe/p924-workspace/'+encodeURIComponent(tripId));setWorkspace(next);onWorkspaceChange?.(next);
    setEditing(null);setEditorOpen(false);setNotice('✅ '+(operation==='add'?'Добавено':operation==='edit'?'Редактирано':'Изтрито')+' в Neon. Google Drive не е променен.');
   }catch(e){setNotice('⚠️ '+String(e.message||e)+' · Обнови списъка преди следващ опит.');setEditing(null);setEditorOpen(false)}
   finally{setBusy(false)}
  };
  return <div className="travel-card visual-section" style={{marginTop:12}}>
-  <h3>⚡ Neon · тестово работно копие</h3>
-  <p className="muted">Тук се тестват реални записи в отделна Neon таблица. Основните разходи, бюджетът и горивото на пътуването продължават да се показват от Drive. Двете суми не се смесват.</p>
+  <h3>⚡ Neon · {compact?'Редактиране на разходи':'тестово работно копие'}</h3>
+  {!compact&&<p className="muted">Тук се тестват реални записи в отделна Neon таблица. Drive остава непроменен.</p>}
   {!workspace?<button type="button" disabled={busy} onClick={prepare}>{busy?'Зареждам…':'Подготви Neon копие'}</button>:<>
    <div className="p9043-expense-actions"><button type="button" disabled={busy} onClick={()=>startEdit(null)}>＋ Разход в Neon</button><button type="button" className="ghost" disabled={busy} onClick={load}>↻ Обнови от Neon</button></div>
    <p className="muted">{allowed.length} плащания · {money(allowed.reduce((sum,x)=>sum+(Number(x.data?.amount)||0),0))} · версия на копието {workspace.revision}</p>
    {allowed.map(item=><div key={item.row_id} style={{borderBottom:'1px solid var(--border,#7774)',padding:'10px 0',display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-    <div><strong>{item.data.description||item.data.category||'Разход'}</strong><div className="muted">{item.data.date} · {item.data.category} · {money(item.data.amount)} · v{item.version}</div></div>
+    <div><strong>{compact?'✎ ':''}{item.data.description||item.data.category||'Разход'}</strong><div className="muted">{item.data.date} · {item.data.category} · {money(item.data.amount)} · v{item.version}</div></div>
     <div style={{display:'flex',gap:8}}><button type="button" className="ghost" disabled={busy} onClick={()=>startEdit(item)}>✎</button><button type="button" className="ghost" disabled={busy} onClick={()=>perform('delete',item)}>🗑</button></div>
    </div>)}
    {editorOpen&&<form onSubmit={e=>{e.preventDefault();void perform(editing?'edit':'add',editing)}} style={{display:'grid',gap:9,marginTop:12}}>
@@ -559,6 +561,8 @@ function NeonExpenseWorkspace({tripId,request}){
 
 function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders,onNeonRequest,neonTripId}) {
  const [section,setSection]=useState('summary');
+ const [neonExpenseView,setNeonExpenseView]=useState(false);
+ const [neonExpenseWorkspace,setNeonExpenseWorkspace]=useState(null);
  const [mapTab,setMapTab]=useState('route');
  const [neonTaskMode,setNeonTaskMode]=useState(false);
  const [neonPrimaryTest,setNeonPrimaryTest]=useState(false);
@@ -724,8 +728,12 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   setPlaceQuery(fullName);setPlaceResults([]);setPlaceSearchError('');
  };
 
- useEffect(()=>{setNeonTaskMode(false);setSection('summary');setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('');},[trip?.id]);
- const rows=applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=detail?.budgets||[], tasks=detail?.tasks||[], points=detail?.points||[];
+ useEffect(()=>{setNeonExpenseView(false);setNeonExpenseWorkspace(null);setNeonTaskMode(false);setSection('summary');setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);setTaskMessage('');},[trip?.id]);
+ const isNeonExpenseTest=Boolean(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')));
+ const neonActive=isNeonExpenseTest&&neonExpenseView&&Boolean(neonExpenseWorkspace?.records);
+ const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
+ const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
+ const rows=neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft), settings=detail?.settings||trip?.settings||{}, budgets=neonActive?neonBudgets:(detail?.budgets||[]), tasks=detail?.tasks||[], points=detail?.points||[];
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
  const byCat={};rows.filter(paymentRow).forEach(r=>{const category=r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');byCat[category]=(byCat[category]||0)+number(r.amount)});
@@ -759,7 +767,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   ['Разходи — същият бюджетен обхват',budgetScopedCosts,serverSpent,'€'],
   ['Бюджет',budgetTotal,serverBudget,'€'],
  ];
- const controlOk=controlRows.every(([,a,b])=>near(a,b));
+ const controlOk=neonActive||controlRows.every(([,a,b])=>near(a,b));
  const taskIsDone=t=>['true','1','да','yes'].includes(String(t.done??'').toLowerCase());
  const previewTasks=tasks.map((t,i)=>({...t,_previewKey:String(t.item_id??`old-${i}`)}));
  const done=previewTasks.filter(taskIsDone).length;
@@ -863,7 +871,20 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  <div className="travel-card visual-section"><h3>💳 Разходи по категории</h3>{Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,val],i)=>{const ratio=allCosts>0?Math.max(0,Math.min(100,val/allCosts*100)):0;return <div className="visual-category" key={name}><div className="visual-category-head"><span><i className={'visual-category-dot visual-palette-'+i%5}/>{name}</span><strong>{money(val)}</strong></div><div className="visual-category-bar"><span className={'visual-palette-bg-'+i%5} style={{width:ratio+'%'}}/></div><small>{ratio.toFixed(1)}% от общите разходи</small></div>}):<p className="muted">Няма записани разходи.</p>}</div>
  <div className="travel-card visual-section"><h3>🚗 Гориво и път</h3><div className="visual-overview-stats visual-road-stats"><div className="overview-tile"><span>🛣️</span><small>Изминато</small><strong>{km.toLocaleString('bg-BG')} <em>км</em></strong></div><div className="overview-tile"><span>⛽</span><small>Среден разход</small><strong>{avg?avg.toFixed(1):'—'} <em>л/100 км</em></strong></div></div></div>
  </>}
- {section==='expenses'&&<>{onNeonRequest&&/(тест|test)/i.test(String(neonTripId||''))&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest}/>}<div className="p9043-expense-actions"><button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button><button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div><ExpenseHistory rows={rows} onExpenseAction={financeOwned?onExpenseAction:null}/></>}
+ {section==='expenses'&&<>
+ {isNeonExpenseTest&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
+  <strong>🧪 Източник на данните · само ТЕСТ пътуване</strong>
+  <div className="p9043-expense-actions" style={{marginTop:10}}>
+   <button type="button" className={!neonExpenseView?'selected':''} onClick={()=>setNeonExpenseView(false)}>☁️ Drive</button>
+   <button type="button" className={neonExpenseView?'selected':''} disabled={!neonExpenseWorkspace?.records} onClick={()=>setNeonExpenseView(true)}>⚡ Neon</button>
+  </div>
+  <p className="muted">{neonActive?'В нормалните екрани са показани разходите и бюджетните суми от тестовото Neon копие; горивото използва същите изчислителни функции. Drive не се записва.':'Показани са данните от Drive. Neon остава отделно тестово копие.'}</p>
+  {neonExpenseView&&!neonExpenseWorkspace?.records&&<p role="status">Neon не е достъпен — превключването не е извършено.</p>}
+ </div>}
+ {isNeonExpenseTest&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
+ <div className="p9043-expense-actions">{!neonActive&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
+ <ExpenseHistory rows={rows} onExpenseAction={!neonActive&&financeOwned?onExpenseAction:null}/>
+ </>}
  {section==='fuel'&&<>
 
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
