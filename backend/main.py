@@ -3684,3 +3684,96 @@ def p929_trip_diagnostics():
             'trip_count':len(comparison),'matching_trips':sum(t['matches_snapshot'] for t in comparison),
             'trips':comparison,'unassigned_rows':extra,
             'warning':'Сравнява Drive с историческото P92.0 копие, НЕ с мигрирана продукционна Neon база. Различията може да са по-нови редакции в Drive.'}
+
+
+# P93.0: immutable, isolated staging of ONE test trip from current Drive.
+# No production writes, no switch, no changes to the P92.4 editable workspace.
+_P930_KINDS=('settings','expenses','budgets','tasks','points','categories')
+
+def _p930_load_drive_trip(trip_id):
+    service=drive_service()
+    if service is None:raise HTTPException(503,'Google Drive не е достъпен.')
+    _,mapping=folder_and_files(service)
+    out={}
+    for kind in _P930_KINDS:
+        filename=FILENAMES[kind]
+        if filename not in mapping:
+            if kind in ('settings','expenses','budgets'):
+                raise HTTPException(409,'Липсва Drive файл: '+filename)
+            out[kind]=[]
+            continue
+        raw=service.files().get_media(fileId=mapping[filename]).execute()
+        reader=csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))
+        if not reader.fieldnames or any(k not in reader.fieldnames for k in COLUMNS[kind]):
+            raise HTTPException(409,'Невалиден CSV: '+filename)
+        rows=list(reader)
+        if any(None in r for r in rows):raise HTTPException(409,'Невалидни CSV редове: '+filename)
+        out[kind]=[r for r in rows if str(r.get('trip_id','')).strip()==trip_id]
+    if len(out['settings'])!=1:
+        raise HTTPException(409,'Тестовото пътуване не е открито еднозначно в текущия Drive.')
+    return out
+
+def _p930_schema(cur):
+    cur.execute('''CREATE TABLE IF NOT EXISTS pixelapp_p930_test_stage (
+        trip_id text PRIMARY KEY, digest text NOT NULL, created_at timestamptz DEFAULT now())''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS pixelapp_p930_test_rows (
+        trip_id text NOT NULL REFERENCES pixelapp_p930_test_stage(trip_id),
+        kind text NOT NULL, ord bigint NOT NULL, payload jsonb NOT NULL,
+        PRIMARY KEY(trip_id,kind,ord))''')
+
+def _p930_digest(groups):
+    return _p924_digest({k:groups[k] for k in _P930_KINDS})
+
+@app.post('/safe/p930-test-stage/{trip_id}',dependencies=[Depends(authorize)])
+def p930_test_stage(trip_id:str):
+    _assert_test_trip(trip_id)
+    from psycopg.types.json import Jsonb
+    rows=_p930_load_drive_trip(trip_id)
+    digest=_p930_digest(rows)
+    counts={k:len(v) for k,v in rows.items()}
+    created=False
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p930_schema(cur)
+            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',('p930:'+trip_id,))
+            cur.execute('SELECT digest FROM pixelapp_p930_test_stage WHERE trip_id=%s FOR UPDATE',(trip_id,))
+            found=cur.fetchone()
+            if found and found[0]!=digest:
+                raise HTTPException(409,'Drive е променен след създаване на P93.0 копието. Нищо не е презаписано.')
+            if not found:
+                cur.execute('INSERT INTO pixelapp_p930_test_stage(trip_id,digest) VALUES (%s,%s)',(trip_id,digest))
+                for kind,items in rows.items():
+                    for n,row in enumerate(items):
+                        cur.execute('INSERT INTO pixelapp_p930_test_rows(trip_id,kind,ord,payload) VALUES (%s,%s,%s,%s)',(trip_id,kind,n,Jsonb(row)))
+                created=True
+            cur.execute('SELECT kind,ord,payload FROM pixelapp_p930_test_rows WHERE trip_id=%s ORDER BY kind,ord',(trip_id,))
+            read={k:[] for k in _P930_KINDS}
+            for kind,n,row in cur.fetchall():read[kind].append(row)
+            if _p930_digest(read)!=digest:
+                raise HTTPException(409,'Neon проверката не съвпада. Транзакцията се отменя.')
+        conn.commit()
+    return {'ok':True,'trip_id':trip_id,'created':created,'verified':True,
+            'counts':counts,'sha256':digest,'drive_modified':False,
+            'editable_workspace_modified':False,'production_modified':False,'live_switch':False}
+
+@app.get('/safe/p930-test-stage/{trip_id}',dependencies=[Depends(authorize)])
+def p930_verify_stage(trip_id:str):
+    _assert_test_trip(trip_id)
+    drive=_p930_load_drive_trip(trip_id)
+    digest=_p930_digest(drive)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p930_test_stage')::text")
+            if cur.fetchone()[0] is None:raise HTTPException(404,'Няма P93.0 тестово копие.')
+            cur.execute('SELECT digest FROM pixelapp_p930_test_stage WHERE trip_id=%s',(trip_id,))
+            found=cur.fetchone()
+            if not found:raise HTTPException(404,'Няма P93.0 тестово копие.')
+            cur.execute('SELECT kind,ord,payload FROM pixelapp_p930_test_rows WHERE trip_id=%s ORDER BY kind,ord',(trip_id,))
+            staged={k:[] for k in _P930_KINDS}
+            for kind,n,row in cur.fetchall():staged[kind].append(row)
+    consistent=_p930_digest(staged)==found[0]
+    current=found[0]==digest
+    return {'ok':consistent and current,'trip_id':trip_id,'stage_integrity':consistent,
+            'drive_still_matches':current,'counts':{k:len(v) for k,v in staged.items()},
+            'production_modified':False,'live_switch':False,
+            'warning':None if consistent and current else 'Drive се е променил или копието не съвпада; превключване не е разрешено.'}
