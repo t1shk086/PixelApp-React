@@ -793,43 +793,60 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
  const rows=p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=detail?.tasks||[], points=detail?.points||[];
- const p936DriveRows=detail?.expenses||[];
- const p936DriveBudgets=detail?.budgets||[];
- const p936DriveSettings=detail?.settings||trip?.settings||{};
- const p936Number=x=>Number.isFinite(Number(x))?Number(x):0;
- const p936Metrics=(entries,limits,config)=>{
-   const expenses=(entries||[]).filter(x=>x.type==='expense'||x.type==='deposit');
-   const spent=expenses.reduce((sum,x)=>sum+p936Number(x.amount),0);
-   const global=(limits||[]).filter(x=>x.category==='__GLOBAL__').reduce((sum,x)=>sum+p936Number(x.budget),0);
-   const categoryLimits=(limits||[]).filter(x=>x.category!=='__GLOBAL__'&&p936Number(x.budget)>0);
-   const limit=global>0?global:categoryLimits.reduce((sum,x)=>sum+p936Number(x.budget),0);
-   const fuel=(entries||[]).filter(x=>x.type==='expense'&&x.category==='Транспорт'&&p936Number(x.liters)>0);
-   const fuelLiters=fuel.reduce((sum,x)=>sum+p936Number(x.liters),0)+p936Number(config?.manual_fuel);
-   const start=p936Number(config?.start_km);
-   const end=p936Number(config?.end_km)||Math.max(0,...(entries||[]).map(x=>p936Number(x.current_km)));
-   const distance=Math.max(0,end-start);
-   return {spent,limit,fuelLiters,distance,average:distance>0&&fuelLiters>0?fuelLiters/distance*100:null, fuelEntries:fuel.length,categoryCount:categoryLimits.length};
+ // P93.7: read-only parity audit. Use the existing full-to-full engine for REAL consumption.
+ const p937DriveRows=detail?.expenses||[];
+ const p937DriveBudgets=detail?.budgets||[];
+ const p937DriveSettings=detail?.settings||trip?.settings||{};
+ const p937Num=x=>{const n=Number(String(x??'').replace(',','.'));return Number.isFinite(n)?n:0};
+ const p937Metrics=(entries,limits,config)=>{
+  const expenses=(entries||[]).filter(paymentRow);
+  const spent=expenses.reduce((sum,x)=>sum+p937Num(x.amount),0);
+  const global=(limits||[]).filter(x=>x.category==='__GLOBAL__').reduce((sum,x)=>sum+p937Num(x.budget),0);
+  const categoryLimits=(limits||[]).filter(x=>x.category!=='__GLOBAL__'&&p937Num(x.budget)>0);
+  const limit=global>0?global:categoryLimits.reduce((sum,x)=>sum+p937Num(x.budget),0);
+  const fuel=(entries||[]).filter(x=>x.type==='expense'&&x.category==='Транспорт'&&p937Num(x.liters)>0);
+  const fuelLiters=fuel.reduce((sum,x)=>sum+p937Num(x.liters),0)+p937Num(config?.manual_fuel);
+  const start=p937Num(config?.start_km);
+  const end=p937Num(config?.end_km)||Math.max(0,...(entries||[]).map(x=>p937Num(x.current_km)));
+  const distance=Math.max(0,end-start);
+  const real=confirmedFuelStage(entries,start);
+  const categories=categoryLimits.map(x=>[String(x.category||''),p937Num(x.budget)]).sort((x,y)=>x[0].localeCompare(y[0],'bg'));
+  const fuelEvents=fuel.map(x=>[p937Num(x.current_km),p937Num(x.liters),String(x.description||'')]).sort((x,y)=>x[0]-y[0]);
+  return {spent,limit,fuelLiters,distance,indicative:distance>0&&fuelLiters>0?fuelLiters/distance*100:null,
+   real:real?.consumption??null,realFrom:real?.fromKm??null,realTo:real?.toKm??null,
+   fuelEntries:fuel.length,manualFuel:p937Num(config?.manual_fuel),budgetMode:global>0?'Общ':categories.length?'По категории':'Без бюджет',
+   categoryCount:categories.length,categorySignature:JSON.stringify(categories),fuelSignature:JSON.stringify(fuelEvents),
+   finishKm:p937Num(config?.end_km),startKm:start};
  };
- const p936Drive=p936Metrics(p936DriveRows,p936DriveBudgets,p936DriveSettings);
- const p936Neon=p936Metrics(rows,budgets,settings);
- const p936Display=(value,unit='',decimals=2)=>value===null?'—':Number(value).toLocaleString('bg-BG',{minimumFractionDigits:decimals,maximumFractionDigits:decimals})+unit;
- const p936Comparisons=[
-  ['Общо разходи',p936Drive.spent,p936Neon.spent,' €',2],
-  ['Зададен бюджет',p936Drive.limit,p936Neon.limit,' €',2],
-  ['Отчетени литри (вкл. пропуснати)',p936Drive.fuelLiters,p936Neon.fuelLiters,' л',2],
-  ['Пробег',p936Drive.distance,p936Neon.distance,' км',0],
-  ['Ориентировъчен разход',p936Drive.average,p936Neon.average,' л/100 км',1],
-  ['Категории с бюджет',p936Drive.categoryCount,p936Neon.categoryCount,'',0],
+ const p937Drive=p937Metrics(p937DriveRows,p937DriveBudgets,p937DriveSettings);
+ const p937Neon=p937Metrics(rows,budgets,settings);
+ const p937Fmt=(value,unit='',decimals=2)=>value===null?'—':Number(value).toLocaleString('bg-BG',{minimumFractionDigits:decimals,maximumFractionDigits:decimals})+unit;
+ const p937Comparisons=[
+  ['Общо разходи',p937Drive.spent,p937Neon.spent,' €',2],
+  ['Бюджет',p937Drive.limit,p937Neon.limit,' €',2],
+  ['Отчетени литри (вкл. пропуснати)',p937Drive.fuelLiters,p937Neon.fuelLiters,' л',2],
+  ['От тях пропуснати литри',p937Drive.manualFuel,p937Neon.manualFuel,' л',2],
+  ['Брой зареждания с литри',p937Drive.fuelEntries,p937Neon.fuelEntries,'',0],
+  ['Пробег за ориентир',p937Drive.distance,p937Neon.distance,' км',0],
+  ['Ориентировъчен разход',p937Drive.indicative,p937Neon.indicative,' л/100 км',1],
+  ['Реален разход (пълно → пълно)',p937Drive.real,p937Neon.real,' л/100 км',1],
+  ['Категории с бюджет',p937Drive.categoryCount,p937Neon.categoryCount,'',0],
  ];
+ const p937Same=(a,b)=>a===null&&b===null||(a!==null&&b!==null&&Math.abs(a-b)<0.011);
  const p936Reconciliation=p932Active&&(
-   <div className="travel-card" role="region" aria-label="P93.6 проверка Drive и Neon">
-     <h3>🔎 P93.6 · Проверка на гориво и бюджети</h3>
-     <p className="muted">Само сравнение. Нищо не се записва. Ако вече си редактирал разход в Neon, разлика спрямо Drive е нормална. Километрите и горивото тук са ориентир по същите общи данни, а не разрешение за миграция на настройките на автомобила.</p>
-     <div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:'0.92rem'}}><thead><tr><th style={{textAlign:'left'}}>Показател</th><th>Drive</th><th>Neon · редакции</th></tr></thead><tbody>
-     {p936Comparisons.map(([label,drive,neon,unit,decimals])=><tr key={label}><td>{label}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p936Display(drive,unit,decimals)}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p936Display(neon,unit,decimals)}{drive!==null&&neon!==null&&Math.abs(drive-neon)>0.011?' · ≠':''}</td></tr>)}
-     </tbody></table></div>
-     <p className="muted">⚠️ Специално зареждане, пропуснато гориво, бюджетни настройки и приключване на пътуване все още НЕ се записват през това Neon копие. Не ги тествай с реални данни. Няма автоматично обединяване на Drive и Neon.</p>
-   </div>
+  <div className="travel-card" role="region" aria-label="P93.7 проверка Drive и Neon">
+   <h3>🔎 P93.7 · Гориво и бюджети — подробна сверка</h3>
+   <p className="muted">Само сравнение, без запис. Разходите може да са различни след Neon редакции. Реалният разход се изчислява само между две пълни зареждания, като включва междинните частични.</p>
+   <div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:'0.92rem'}}><thead><tr><th style={{textAlign:'left'}}>Показател</th><th>Drive</th><th>Neon · редакции</th></tr></thead><tbody>
+   {p937Comparisons.map(([label,drive,neon,unit,decimals])=><tr key={label}><td>{label}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p937Fmt(drive,unit,decimals)}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p937Fmt(neon,unit,decimals)}{!p937Same(drive,neon)?' · ≠':''}</td></tr>)}
+   <tr><td>Режим бюджет</td><td>{p937Drive.budgetMode}</td><td>{p937Neon.budgetMode}{p937Drive.budgetMode!==p937Neon.budgetMode?' · ≠':''}</td></tr>
+   <tr><td>Бюджети по категории — точни стойности</td><td colSpan="2">{p937Drive.categorySignature===p937Neon.categorySignature?'✅ Съвпадат':'⚠️ Различават се'}</td></tr>
+   <tr><td>История на зарежданията — км, литри, описание</td><td colSpan="2">{p937Drive.fuelSignature===p937Neon.fuelSignature?'✅ Съвпада':'⚠️ Различава се'}</td></tr>
+   <tr><td>Начален / краен километраж</td><td>{p937Fmt(p937Drive.startKm,' км',0)} / {p937Fmt(p937Drive.finishKm,' км',0)}</td><td>{p937Fmt(p937Neon.startKm,' км',0)} / {p937Fmt(p937Neon.finishKm,' км',0)}</td></tr>
+   </tbody></table></div>
+   <p className="muted">Реален разход „—“ означава, че няма потвърден етап между две пълни зареждания. Ориентировъчният разход НЕ е реалният разход на автомобила.</p>
+   <p className="muted">⚠️ Специалните зареждания, пропуснатото гориво, настройките на бюджетите и приключването още НЕ се записват през Neon. Не прави реални тестови записи. Drive и оригиналното P93.0 копие остават непроменени.</p>
+  </div>
  );
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
