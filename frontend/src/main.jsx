@@ -793,6 +793,44 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
  const rows=p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=detail?.tasks||[], points=detail?.points||[];
+ const p936DriveRows=detail?.expenses||[];
+ const p936DriveBudgets=detail?.budgets||[];
+ const p936DriveSettings=detail?.settings||trip?.settings||{};
+ const p936Number=x=>Number.isFinite(Number(x))?Number(x):0;
+ const p936Metrics=(entries,limits,config)=>{
+   const expenses=(entries||[]).filter(x=>x.type==='expense'||x.type==='deposit');
+   const spent=expenses.reduce((sum,x)=>sum+p936Number(x.amount),0);
+   const global=(limits||[]).filter(x=>x.category==='__GLOBAL__').reduce((sum,x)=>sum+p936Number(x.budget),0);
+   const categoryLimits=(limits||[]).filter(x=>x.category!=='__GLOBAL__'&&p936Number(x.budget)>0);
+   const limit=global>0?global:categoryLimits.reduce((sum,x)=>sum+p936Number(x.budget),0);
+   const fuel=(entries||[]).filter(x=>x.type==='expense'&&x.category==='Транспорт'&&p936Number(x.liters)>0);
+   const fuelLiters=fuel.reduce((sum,x)=>sum+p936Number(x.liters),0)+p936Number(config?.manual_fuel);
+   const start=p936Number(config?.start_km);
+   const end=p936Number(config?.end_km)||Math.max(0,...(entries||[]).map(x=>p936Number(x.current_km)));
+   const distance=Math.max(0,end-start);
+   return {spent,limit,fuelLiters,distance,average:distance>0&&fuelLiters>0?fuelLiters/distance*100:null, fuelEntries:fuel.length,categoryCount:categoryLimits.length};
+ };
+ const p936Drive=p936Metrics(p936DriveRows,p936DriveBudgets,p936DriveSettings);
+ const p936Neon=p936Metrics(rows,budgets,settings);
+ const p936Display=(value,unit='',decimals=2)=>value===null?'—':Number(value).toLocaleString('bg-BG',{minimumFractionDigits:decimals,maximumFractionDigits:decimals})+unit;
+ const p936Comparisons=[
+  ['Общо разходи',p936Drive.spent,p936Neon.spent,' €',2],
+  ['Зададен бюджет',p936Drive.limit,p936Neon.limit,' €',2],
+  ['Отчетени литри (вкл. пропуснати)',p936Drive.fuelLiters,p936Neon.fuelLiters,' л',2],
+  ['Пробег',p936Drive.distance,p936Neon.distance,' км',0],
+  ['Ориентировъчен разход',p936Drive.average,p936Neon.average,' л/100 км',1],
+  ['Категории с бюджет',p936Drive.categoryCount,p936Neon.categoryCount,'',0],
+ ];
+ const p936Reconciliation=p932Active&&(
+   <div className="travel-card" role="region" aria-label="P93.6 проверка Drive и Neon">
+     <h3>🔎 P93.6 · Проверка на гориво и бюджети</h3>
+     <p className="muted">Само сравнение. Нищо не се записва. Ако вече си редактирал разход в Neon, разлика спрямо Drive е нормална. Километрите и горивото тук са ориентир по същите общи данни, а не разрешение за миграция на настройките на автомобила.</p>
+     <div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:'0.92rem'}}><thead><tr><th style={{textAlign:'left'}}>Показател</th><th>Drive</th><th>Neon · редакции</th></tr></thead><tbody>
+     {p936Comparisons.map(([label,drive,neon,unit,decimals])=><tr key={label}><td>{label}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p936Display(drive,unit,decimals)}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p936Display(neon,unit,decimals)}{drive!==null&&neon!==null&&Math.abs(drive-neon)>0.011?' · ≠':''}</td></tr>)}
+     </tbody></table></div>
+     <p className="muted">⚠️ Специално зареждане, пропуснато гориво, бюджетни настройки и приключване на пътуване все още НЕ се записват през това Neon копие. Не ги тествай с реални данни. Няма автоматично обединяване на Drive и Neon.</p>
+   </div>
+ );
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
  const byCat={};rows.filter(paymentRow).forEach(r=>{const category=r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');byCat[category]=(byCat[category]||0)+number(r.amount)});
@@ -961,6 +999,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  <div className="p9043-expense-actions">{!p934Active&&!neonActive&&!p931Active&&!p932Mode&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
  <ExpenseHistory rows={rows} onExpenseAction={!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
+ {section==='fuel'&&p936Reconciliation}
  {section==='fuel'&&<>
 
  <div className="travel-card"><h3>🚙 Пробег на автомобила</h3>
@@ -976,6 +1015,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  </div>
  <FuelHistory rows={rows}/>
  </>}
+ {section==='budget'&&p936Reconciliation}
  {section==='budget'&&<>
  <BudgetInsights rows={rows} settings={settings} budgetTotal={budgetTotal} globalBudget={globalBudget} budgetEntries={budgetEntries} budgetScopedCosts={budgetScopedCosts} allCosts={allCosts} byCat={byCat} onEdit={financeOwned&&!p934Active&&!p931Active&&!p932Mode?()=>onOpenPreview('pilot-budget'):null}/>
  <div className="travel-card budget-showcase"><h3>🎯 Бюджет на пътуването</h3><div className="budget-showcase-total"><small>ОСТАВАЩ БЮДЖЕТ</small><strong className={budgetTotal>0&&allCosts>budgetTotal?'negative':''}>{budgetTotal?money(budgetTotal-allCosts):'—'}</strong></div><div className="budget-showcase-grid"><div><small>Планирано</small><b>{budgetTotal?money(budgetTotal):'—'}</b></div><div><small>Изразходвано</small><b>{money(allCosts)}</b></div></div>{budgetTotal>0&&<><div className="budget-showcase-progress"><span style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div><div className="budget-showcase-caption"><span>{Math.round(allCosts/budgetTotal*100)}% използвани</span><span>{allCosts>budgetTotal?'Над бюджета':'Остатък'}</span></div></>}</div>
