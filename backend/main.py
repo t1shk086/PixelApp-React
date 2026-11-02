@@ -4543,3 +4543,63 @@ def neon_migration_readiness():
                  'Other trips must be reconciled and all data writers migrated before cutover.'),
         'trips': items,
     }
+
+
+# P94.5 — guarded, idempotent preparation of current Drive data for the 8
+# non-test trips. Never rewrites an existing workspace or switches live writers.
+@app.post('/safe/neon/prepare-remaining', dependencies=[Depends(authorize)])
+def neon_prepare_remaining(background_tasks: BackgroundTasks):
+    if os.environ.get('PIXELAPP_P945_ALLOW_PREPARE', '').strip() != '1':
+        raise HTTPException(403, 'Подготовката е изключена. Не са променени данни.')
+
+    from psycopg.types.json import Jsonb
+    groups = _p933_groups_from_drive()
+    if len(groups) != 8 or _P932_TRIP in groups:
+        raise HTTPException(409, 'Очакват се осем отделни пътувания.')
+
+    # Drive stays the authority. Read it again just before the transaction to
+    # catch ordinary intervening edits; this is not an atomic Drive snapshot.
+    fresh = _p933_groups_from_drive()
+    if set(fresh) != set(groups) or any(
+        _p930_digest(fresh[tid]) != _p930_digest(groups[tid]) for tid in groups
+    ):
+        raise HTTPException(409, 'Drive се промени по време на подготовката.')
+
+    created = []
+    existing = []
+    # All new workspaces are inserted in one DB transaction, so failure cannot
+    # leave a partly prepared batch. Each existing workspace is left intact.
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p932_schema(cur)
+            _p932_backup_schema(cur)
+            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('p945:prepare-remaining',))
+            for tid in sorted(fresh):
+                cur.execute('SELECT source_digest,revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE', (tid,))
+                old = cur.fetchone()
+                if old:
+                    # NEVER overwrite a possibly edited workspace.
+                    existing.append({'trip_id': tid, 'revision': old[1],
+                                     'source_matches_current_drive': old[0] == _p930_digest(fresh[tid])})
+                    continue
+                rows = fresh[tid]
+                if len(rows['settings']) != 1 or any(
+                    row.get('trip_id') != tid for values in rows.values() for row in values
+                ):
+                    raise HTTPException(409, 'Невалидни данни за пътуване; операцията е отменена.')
+                digest = _p930_digest(rows)
+                cur.execute('INSERT INTO pixelapp_p932_workspaces(trip_id,source_digest) VALUES(%s,%s)', (tid,digest))
+                for kind in _P930_KINDS:
+                    for order, payload in enumerate(rows[kind]):
+                        cur.execute('INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload) VALUES(%s,%s,%s,%s,%s)',
+                                    (tid,kind,uuid.uuid4().hex,order,Jsonb(payload)))
+                cur.execute('INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,1) ON CONFLICT (trip_id) DO NOTHING', (tid,))
+                created.append({'trip_id':tid,'counts':{k:len(v) for k,v in rows.items()},'revision':1})
+        conn.commit()
+    for item in created:
+        background_tasks.add_task(_p932_backup_worker, item['trip_id'])
+    return {'ok':True,'created':created,'already_existing_unchanged':existing,
+            'backup_queued_for_created':len(created),
+            'backup_verified':False,'drive_modified':False,
+            'normal_app_switched':False,
+            'note':'Drive остава активен. Преди превключване е нужна повторна проверка за нови Drive редакции и успешни архиви.'}
