@@ -4545,6 +4545,80 @@ def neon_migration_readiness():
     }
 
 
+
+# P94.6 — one guarded preparation operation with independent database readback.
+# This endpoint does NOT change the production data source. It stages the eight
+# current Drive trips once, verifies all source rows, and reports backup status.
+# The operator must explicitly arm the existing P94.5 flag; simply deploying
+# this code does not copy, edit, or switch any trips.
+@app.post('/safe/neon/execute-preparation', dependencies=[Depends(authorize)])
+def neon_execute_preparation(background_tasks: BackgroundTasks):
+    if os.environ.get('PIXELAPP_P945_ALLOW_PREPARE', '').strip() != '1':
+        raise HTTPException(403, 'Подготовката не е разрешена в Render.')
+
+    # Reuse the existing idempotent P94.5 transaction. In particular, do not
+    # overwrite previously existing workspaces or touch original Drive CSVs.
+    result = neon_prepare_remaining(background_tasks)
+    created = {item['trip_id']: item for item in result['created']}
+    existing = {item['trip_id']: item for item in result['already_existing_unchanged']}
+
+    # Verify each newly created Neon workspace against the exact current Drive
+    # documents. Re-read the DB itself; an INSERT success alone isn't evidence
+    # that the migrated data survived unchanged.
+    current = _p933_groups_from_drive()
+    verification = []
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            for trip_id in sorted(current):
+                cur.execute('SELECT source_digest,revision FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
+                meta = cur.fetchone()
+                if not meta:
+                    verification.append({'trip_id':trip_id,'state':'MISSING','matches_drive_now':False})
+                    continue
+                cur.execute('SELECT dataset,payload FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id', (trip_id,))
+                recovered = {kind: [] for kind in _P930_KINDS}
+                unexpected = False
+                for dataset,payload in cur.fetchall():
+                    if dataset not in recovered:
+                        unexpected = True
+                    else:
+                        recovered[dataset].append(payload)
+                digest = _p930_digest(recovered) if not unexpected else None
+                source_digest = _p930_digest(current[trip_id])
+                exact = digest == meta[0] == source_digest
+                cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s', (trip_id,))
+                backup = cur.fetchone()
+                backup_current = bool(backup and backup[0] >= meta[1] and backup[1] and not backup[2])
+                verification.append({
+                    'trip_id':trip_id,
+                    'state':'CREATED' if trip_id in created else 'EXISTING',
+                    'matches_drive_now':exact,
+                    'neon_revision':meta[1],
+                    'record_count':sum(map(len,recovered.values())),
+                    'backup_current':backup_current,
+                    'backup_pending':not backup_current,
+                    'backup_error':backup[2] if backup else None,
+                })
+
+    # Existing workspaces that no longer match Drive remain intact, with an
+    # explicit warning. Same for edits performed in Drive during preparation.
+    all_match = all(v['matches_drive_now'] for v in verification)
+    return {
+        'ok':True,
+        'created_count':len(created),
+        'existing_count':len(existing),
+        'neon_readback_matches_current_drive':all_match,
+        'verification':verification,
+        'drive_originals_modified':False,
+        'live_writers_switched':False,
+        'backup_queued_for_created':len(created),
+        'all_backups_verified':all(v.get('backup_current') for v in verification),
+        'requires_reconciliation':not all_match,
+        'note':('Резервните копия се правят след HTTP отговора. '
+                'Изчакай потвърждение за архивните версии в migration-readiness, '
+                'преди каквото и да е превключване на работните екрани.'),
+    }
+
 # P94.5 — guarded, idempotent preparation of current Drive data for the 8
 # non-test trips. Never rewrites an existing workspace or switches live writers.
 @app.post('/safe/neon/prepare-remaining', dependencies=[Depends(authorize)])
