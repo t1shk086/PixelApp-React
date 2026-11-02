@@ -3281,3 +3281,134 @@ def p92_reference_details():
             'classification':'системните любими места са разрешени; старите категории са предупреждения',
             'ready_for_live_switch':False,'drive_modified':False,'live_neon_modified':False,
             'elapsed_ms':round((_clock.perf_counter()-start)*1000)}
+
+
+# P92.4 — Neon working copy for a single TEST trip, with atomic revisions.
+# This is deliberately separate from production and from P92.0 immutable snapshots.
+_P924_DATASETS = ('settings', 'expenses', 'budgets', 'tasks', 'points', 'categories')
+
+def _p924_schema(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p924_workspaces (
+        trip_id text PRIMARY KEY, source_run_id text NOT NULL,
+        source_digest text NOT NULL, revision bigint NOT NULL DEFAULT 1,
+        created_at timestamptz NOT NULL DEFAULT now(), modified_at timestamptz NOT NULL DEFAULT now()
+    )""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p924_records (
+        trip_id text NOT NULL REFERENCES pixelapp_p924_workspaces(trip_id),
+        dataset text NOT NULL, row_id text NOT NULL, row_order bigint NOT NULL,
+        payload jsonb NOT NULL, version bigint NOT NULL DEFAULT 1,
+        PRIMARY KEY (trip_id, dataset, row_id)
+    )""")
+
+def _p924_digest(rows):
+    return hashlib.sha256(json.dumps(rows,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')).hexdigest()
+
+class P924Change(BaseModel):
+    trip_id: str
+    dataset: str
+    operation: str  # add / edit / delete
+    row_id: str = ''
+    expected_version: int | None = None
+    row: dict[str, str] | None = None
+
+@app.post('/safe/p924-workspace/{trip_id}', dependencies=[Depends(authorize)])
+def p924_prepare_workspace(trip_id: str):
+    # Creating a working copy is explicit, never called on normal app startup.
+    _assert_test_trip(trip_id)
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p924_schema(cur)
+            cur.execute('SELECT source_run_id,source_digest,revision FROM pixelapp_p924_workspaces WHERE trip_id=%s',(trip_id,))
+            existing=cur.fetchone()
+            if existing:
+                cur.execute('SELECT dataset,count(*) FROM pixelapp_p924_records WHERE trip_id=%s GROUP BY dataset',(trip_id,))
+                return {'ok':True,'existing':True,'revision':existing[2],'counts':dict(cur.fetchall()),'trip_id':trip_id,'drive_unchanged':True,'live_switch':False}
+            cur.execute('SELECT run_id,inventory FROM pixelapp_p92_snapshot_runs WHERE verified=true ORDER BY created_at DESC LIMIT 1')
+            latest=cur.fetchone()
+            if latest is None:raise HTTPException(409,'Няма проверено P92.0 копие.')
+            run_id,inventory=latest
+            cur.execute('SELECT source_kind,row_number,payload FROM pixelapp_p92_snapshot_rows WHERE run_id=%s ORDER BY source_kind,row_number',(run_id,))
+            originals=cur.fetchall()
+            grouped={k:[] for k in ('settings','expenses','budgets','tasks','points','categories','labels')}
+            for kind,num,row in originals:grouped[kind].append(row)
+            for kind,info in inventory.items():
+                if len(grouped[kind])!=info['count'] or _p924_digest(grouped[kind])!=info['rows_sha256']:
+                    raise HTTPException(409,'Копието не съвпада: '+kind)
+            if sum(1 for r in grouped['settings'] if r.get('trip_id')==trip_id)!=1:
+                raise HTTPException(409,'Пътуването не е открито еднозначно в копието.')
+            selected=[(kind,num,row) for kind,num,row in originals if kind in _P924_DATASETS and row.get('trip_id')==trip_id]
+            selected_digest=_p924_digest(selected)
+            cur.execute('INSERT INTO pixelapp_p924_workspaces(trip_id,source_run_id,source_digest) VALUES (%s,%s,%s)',(trip_id,run_id,selected_digest))
+            counts={k:0 for k in _P924_DATASETS}
+            for kind,num,row in selected:
+                cur.execute('INSERT INTO pixelapp_p924_records(trip_id,dataset,row_id,row_order,payload) VALUES (%s,%s,%s,%s,%s)',
+                            (trip_id,kind,uuid.uuid4().hex,num,Jsonb(row)))
+                counts[kind]+=1
+            cur.execute('SELECT dataset,row_order,payload FROM pixelapp_p924_records WHERE trip_id=%s ORDER BY dataset,row_order',(trip_id,))
+            verified=[(k,n,p) for k,n,p in cur.fetchall()]
+            if _p924_digest(sorted(selected,key=lambda x:(x[0],x[1])))!=_p924_digest(verified):
+                raise HTTPException(409,'Проверката на работното копие не е успешна.')
+        conn.commit()
+    return {'ok':True,'existing':False,'revision':1,'counts':counts,'trip_id':trip_id,'drive_unchanged':True,'live_switch':False}
+
+@app.get('/safe/p924-workspace/{trip_id}', dependencies=[Depends(authorize)])
+def p924_read_workspace(trip_id: str):
+    _assert_test_trip(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p924_schema(cur)
+            cur.execute('SELECT source_run_id,revision FROM pixelapp_p924_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            if meta is None:raise HTTPException(404,'Тестовото пътуване няма работно Neon копие.')
+            cur.execute('SELECT dataset,row_id,payload,version FROM pixelapp_p924_records WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
+            rows={kind:[] for kind in _P924_DATASETS}
+            for kind,row_id,payload,version in cur.fetchall():rows[kind].append({'row_id':row_id,'version':version,'data':payload})
+        conn.commit()
+    return {'trip_id':trip_id,'source_run_id':meta[0],'revision':meta[1],'records':rows,'live_switch':False}
+
+@app.post('/safe/p924-record', dependencies=[Depends(authorize)])
+def p924_change_record(change: P924Change):
+    _assert_test_trip(change.trip_id)
+    if change.dataset not in ('expenses','budgets','tasks','points','categories'):
+        raise HTTPException(403,'Настройките на пътуванията и общите данни не се редактират в този етап.')
+    if change.operation not in ('add','edit','delete'):raise HTTPException(422,'Невалидно действие.')
+    if change.operation!='add' and (not change.row_id or change.expected_version is None or change.expected_version<1):
+        raise HTTPException(422,'Изисква се версия на записа.')
+    if change.operation in ('add','edit'):
+        if not isinstance(change.row,dict) or set(change.row)!=set(COLUMNS[change.dataset]):
+            raise HTTPException(422,'Редът трябва да съдържа точно оригиналните CSV колони.')
+        if any(not isinstance(value,str) for value in change.row.values()) or change.row.get('trip_id')!=change.trip_id:
+            raise HTTPException(422,'Невалидни стойности или пътуване.')
+        if len(json.dumps(change.row,ensure_ascii=False))>12000:raise HTTPException(422,'Твърде голям запис.')
+        if change.dataset=='tasks' and not change.row.get('item_id','').strip():raise HTTPException(422,'Задачата трябва да има item_id.')
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p924_schema(cur)
+            # Row lock serializes edits and revision changes across both accounts.
+            cur.execute('SELECT revision FROM pixelapp_p924_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
+            found=cur.fetchone()
+            if not found:raise HTTPException(409,'Няма подготвено тестово копие.')
+            if change.operation=='add':
+                row_id=uuid.uuid4().hex
+                cur.execute('SELECT COALESCE(max(row_order),0)+1 FROM pixelapp_p924_records WHERE trip_id=%s AND dataset=%s',(change.trip_id,change.dataset))
+                order=cur.fetchone()[0]
+                cur.execute('INSERT INTO pixelapp_p924_records(trip_id,dataset,row_id,row_order,payload) VALUES (%s,%s,%s,%s,%s)',(change.trip_id,change.dataset,row_id,order,Jsonb(change.row)))
+                version=1
+            elif change.operation=='edit':
+                cur.execute('UPDATE pixelapp_p924_records SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset=%s AND row_id=%s AND version=%s RETURNING version',
+                            (Jsonb(change.row),change.trip_id,change.dataset,change.row_id,change.expected_version))
+                updated=cur.fetchone()
+                if not updated:raise HTTPException(409,'Друг профил вече е променил или изтрил записа. Обнови данните.')
+                row_id=change.row_id;version=updated[0]
+            else:
+                cur.execute('DELETE FROM pixelapp_p924_records WHERE trip_id=%s AND dataset=%s AND row_id=%s AND version=%s RETURNING version',
+                            (change.trip_id,change.dataset,change.row_id,change.expected_version))
+                deleted=cur.fetchone()
+                if not deleted:raise HTTPException(409,'Друг профил вече е променил или изтрил записа. Обнови данните.')
+                row_id=change.row_id;version=None
+            cur.execute('UPDATE pixelapp_p924_workspaces SET revision=revision+1,modified_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=cur.fetchone()[0]
+        conn.commit()
+    return {'ok':True,'trip_id':change.trip_id,'dataset':change.dataset,'row_id':row_id,'version':version,'revision':revision,'drive_unchanged':True,'live_switch':False}
