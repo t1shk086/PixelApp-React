@@ -3924,7 +3924,8 @@ def _p932_backup_schema(cur):
         archive_file text, last_error text, updated_at timestamptz DEFAULT now())""")
 
 def _p932_backup_document(trip_id):
-    _p932_assert(trip_id)
+    # Internal backup worker also serves explicitly enabled P94.1 workspaces.
+    # The external legacy P93.2 endpoints retain their strict test-only guard.
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT source_digest,revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
@@ -4301,3 +4302,141 @@ def neon_trip_snapshot(trip_id: str):
             'source': 'verified_neon_stage', 'readonly': True,
             'matches_current_drive': True, 'writes_enabled': False,
             'production_switched': False}
+
+
+# P94.1: shared WRITE foundation. No live UI cutover and no CSV modifications.
+# Only the long-running test trip is enabled by default. An operator may explicitly
+# enable other trip IDs using PIXELAPP_NEON_WRITE_TRIPS (semicolon-separated IDs)
+# after independent review of their backup and migration readiness.
+def _p941_write_allowed(trip_id):
+    configured = os.environ.get('PIXELAPP_NEON_WRITE_TRIPS', _P932_TRIP)
+    allowed = {v.strip() for v in configured.split(';') if v.strip()}
+    if trip_id not in allowed or len(trip_id) > 220 or '/' in trip_id:
+        raise HTTPException(403, 'Neon записът не е разрешен за това пътуване.')
+
+
+def _p941_stage_source(trip_id):
+    # Resolve one immutable and verified source without creating new staging tables.
+    if trip_id == _P932_TRIP:
+        return 'pixelapp_p930_test_stage', 'pixelapp_p930_test_rows'
+    return 'pixelapp_p933_stage', 'pixelapp_p933_rows'
+
+
+@app.post('/safe/neon/workspace/{trip_id}', dependencies=[Depends(authorize)])
+def neon_prepare_workspace(trip_id: str):
+    """Idempotent setup for a pre-authorized trip; does not change live data."""
+    _p941_write_allowed(trip_id)
+    from psycopg.types.json import Jsonb
+    live = _p930_load_drive_trip(trip_id)
+    digest = _p930_digest(live)
+    meta_table, rows_table = _p941_stage_source(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p932_schema(cur)
+            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('p941:' + trip_id,))
+            cur.execute('SELECT source_digest,revision FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
+            existing = cur.fetchone()
+            if existing:
+                # Do not reset edited workspaces or quietly merge different histories.
+                return {'ok': True, 'existing': True, 'revision': existing[1],
+                        'production_switched': False, 'drive_modified': False}
+            cur.execute('SELECT to_regclass(%s)::text', ('public.' + meta_table,))
+            if cur.fetchone()[0] is None:
+                raise HTTPException(409, 'Липсва проверено миграционно копие.')
+            cur.execute('SELECT digest FROM ' + meta_table + ' WHERE trip_id=%s', (trip_id,))
+            found = cur.fetchone()
+            if not found or found[0] != digest:
+                raise HTTPException(409, 'Drive се е променил спрямо миграционното копие.')
+            cur.execute('SELECT kind,ord,payload FROM ' + rows_table +
+                        ' WHERE trip_id=%s ORDER BY kind,ord', (trip_id,))
+            source = cur.fetchall()
+            groups = {kind: [] for kind in _P930_KINDS}
+            for kind, order, payload in source:
+                if kind not in groups:
+                    raise HTTPException(409, 'Непознат вид данни.')
+                groups[kind].append(payload)
+            if _p930_digest(groups) != digest:
+                raise HTTPException(409, 'Neon копието не премина проверката.')
+            cur.execute('INSERT INTO pixelapp_p932_workspaces(trip_id,source_digest) VALUES(%s,%s)', (trip_id,digest))
+            for kind,order,payload in source:
+                cur.execute('INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload) VALUES(%s,%s,%s,%s,%s)',
+                            (trip_id,kind,uuid.uuid4().hex,order,Jsonb(payload)))
+            _p932_backup_schema(cur)
+            cur.execute('INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,1)',(trip_id,))
+        conn.commit()
+    return {'ok': True, 'existing': False, 'revision': 1,
+            'production_switched': False, 'drive_modified': False}
+
+
+@app.get('/safe/neon/workspace/{trip_id}', dependencies=[Depends(authorize)])
+def neon_read_workspace(trip_id: str):
+    _p941_write_allowed(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
+            found = cur.fetchone()
+            if not found:
+                raise HTTPException(404, 'Няма подготвено работно Neon копие.')
+            cur.execute('SELECT dataset,row_id,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id', (trip_id,))
+            rows = {kind: [] for kind in _P930_KINDS}
+            for kind,row_id,payload,version in cur.fetchall():
+                if kind not in rows:
+                    raise HTTPException(409, 'Неочакван вид данни.')
+                rows[kind].append({'row_id':row_id,'data':payload,'version':version})
+    return {'ok':True,'trip_id':trip_id,'revision':found[0],'records':rows,
+            'production_switched':False,'drive_modified':False}
+
+
+@app.post('/safe/neon/expense', dependencies=[Depends(authorize)])
+def neon_shared_expense(change: P924Change, background_tasks: BackgroundTasks):
+    """Common optimistic-locking expense writer. Existing live Drive path unaffected."""
+    _p941_write_allowed(change.trip_id)
+    if change.dataset != 'expenses' or change.operation not in ('add','edit','delete'):
+        raise HTTPException(422, 'Разрешени са само операции с разходи.')
+    if change.operation != 'add' and (not change.row_id or change.expected_version is None or change.expected_version < 1):
+        raise HTTPException(422, 'Изисква се версия на записа.')
+    if change.operation != 'delete':
+        if not isinstance(change.row, dict) or set(change.row) != set(COLUMNS['expenses']):
+            raise HTTPException(422, 'Невалидни колони на разхода.')
+        if change.row.get('trip_id') != change.trip_id or any(not isinstance(v,str) for v in change.row.values()):
+            raise HTTPException(422, 'Невалидни стойности.')
+        if len(json.dumps(change.row,ensure_ascii=False)) > 12000:
+            raise HTTPException(422, 'Твърде голям запис.')
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE', (change.trip_id,))
+            if not cur.fetchone():
+                raise HTTPException(409, 'Първо подготви Neon работното копие.')
+            cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'", (change.trip_id,))
+            settings = cur.fetchone()
+            if settings and (str(settings[0].get('trip_finished','')).lower()=='да' or float(settings[0].get('end_km') or 0)>0):
+                raise HTTPException(409, 'Завършеното пътуване е заключено.')
+            if change.operation == 'add':
+                row_id = uuid.uuid4().hex
+                cur.execute("SELECT COALESCE(MAX(row_order),-1)+1 FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'",(change.trip_id,))
+                order = cur.fetchone()[0]
+                cur.execute('INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload) VALUES(%s,%s,%s,%s,%s)',
+                            (change.trip_id,'expenses',row_id,order,Jsonb(change.row)))
+                version = 1
+            elif change.operation == 'edit':
+                cur.execute("UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset='expenses' AND row_id=%s AND version=%s RETURNING version",
+                            (Jsonb(change.row),change.trip_id,change.row_id,change.expected_version))
+                changed = cur.fetchone()
+                if not changed: raise HTTPException(409,'Другият профил е променил записа. Обнови данните.')
+                row_id,version = change.row_id,changed[0]
+            else:
+                cur.execute("DELETE FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses' AND row_id=%s AND version=%s RETURNING version",
+                            (change.trip_id,change.row_id,change.expected_version))
+                if not cur.fetchone(): raise HTTPException(409,'Другият профил е променил записа. Обнови данните.')
+                row_id,version = change.row_id,None
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=cur.fetchone()[0]
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s)
+                ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",
+                (change.trip_id,revision))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'trip_id':change.trip_id,'row_id':row_id,'version':version,
+            'revision':revision,'backup_pending':True,'production_switched':False,'drive_modified':False}
