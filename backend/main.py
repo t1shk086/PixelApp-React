@@ -3412,3 +3412,101 @@ def p924_change_record(change: P924Change):
             revision=cur.fetchone()[0]
         conn.commit()
     return {'ok':True,'trip_id':change.trip_id,'dataset':change.dataset,'row_id':row_id,'version':version,'revision':revision,'drive_unchanged':True,'live_switch':False}
+
+
+# P92.7 — immutable, verified Google Drive archive of a single TEST Neon workspace.
+# This is a manual safety gate before any production migration, not a full backup.
+def _p927_archive_document(trip_id):
+    _assert_test_trip(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            _p924_schema(cur)
+            cur.execute('SELECT source_run_id,source_digest,revision FROM pixelapp_p924_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            if meta is None:raise HTTPException(404,'Липсва тестово Neon работно копие.')
+            cur.execute('SELECT dataset,row_id,row_order,payload,version FROM pixelapp_p924_records WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
+            records=[{'dataset':kind,'row_id':rid,'row_order':order,'data':payload,'version':version} for kind,rid,order,payload,version in cur.fetchall()]
+        conn.rollback()
+    counts={kind:sum(r['dataset']==kind for r in records) for kind in _P924_DATASETS}
+    return {'format':'pixelapp-p927-test-workspace','schema_version':1,'trip_id':trip_id,
+            'source_run_id':meta[0],'source_digest':meta[1],'revision':meta[2],
+            'counts':counts,'records':records,
+            'note':'TEST Neon working copy only. No production switch; no automatic restore.'}
+
+@app.post('/safe/p927-workspace-backup/{trip_id}', dependencies=[Depends(authorize)])
+def p927_workspace_backup(trip_id: str):
+    from datetime import datetime, timezone
+    from googleapiclient.http import MediaIoBaseUpload
+    _assert_test_trip(trip_id)
+    service=drive_service()
+    if service is None:raise HTTPException(503,'Drive не е свързан. Няма архив.')
+    doc=_p927_archive_document(trip_id)
+    doc['created_utc']=datetime.now(timezone.utc).isoformat()
+    raw=json.dumps(doc,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+    digest=hashlib.sha256(raw).hexdigest()
+    try:
+        root,_=folder_and_files(service)
+        folder_name='PixelApp_Neon_Test_Backups'
+        q="'%s' in parents and name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"%(root,folder_name)
+        found=service.files().list(q=q,fields='files(id)',pageSize=20).execute().get('files',[])
+        folder=found[0]['id'] if found else service.files().create(body={'name':folder_name,'mimeType':'application/vnd.google-apps.folder','parents':[root]},fields='id').execute()['id']
+        stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ')
+        name='p927_workspace_'+stamp+'_'+digest[:12]+'.json'
+        created=service.files().create(body={'name':name,'parents':[folder], 'description':'Verified isolated Neon TEST workspace backup'},media_body=MediaIoBaseUpload(io.BytesIO(raw),mimetype='application/json',resumable=False),fields='id').execute()
+        downloaded=service.files().get_media(fileId=created['id']).execute()
+        if downloaded!=raw or hashlib.sha256(downloaded).hexdigest()!=digest:
+            raise HTTPException(503,'Архивът не премина проверката след качването.')
+        # Detect writes that landed during the upload. Archive is still valid for its labelled revision.
+        latest=_p927_archive_document(trip_id)
+        current=latest['revision']==doc['revision']
+        return {'ok':True,'verified':True,'filename':name,'sha256':digest,'trip_id':trip_id,
+                'revision':doc['revision'],'still_current':current,'counts':doc['counts'],
+                'size_bytes':len(raw),'scope':'test-workspace-only', 'drive_csv_unchanged':True}
+    except HTTPException:raise
+    except Exception:
+        raise HTTPException(503,'Неуспешно създаване или проверка на Drive архива.') from None
+
+@app.post('/safe/p927-workspace-archive-check/{trip_id}', dependencies=[Depends(authorize)])
+def p927_archive_check(trip_id: str):
+    _assert_test_trip(trip_id)
+    service=drive_service()
+    if service is None:raise HTTPException(503,'Drive не е свързан.')
+    try:
+        root,_=folder_and_files(service)
+        q="'%s' in parents and name = 'PixelApp_Neon_Test_Backups' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"%root
+        found=service.files().list(q=q,fields='files(id)',pageSize=20).execute().get('files',[])
+        if not found:raise HTTPException(404,'Няма папка за Neon архиви.')
+        folder=found[0]['id']
+        files=[];token=None
+        while True:
+            result=service.files().list(q="'%s' in parents and name contains 'p927_workspace_' and trashed = false"%folder,fields='nextPageToken,files(id,name)',pageSize=100,pageToken=token).execute()
+            files.extend(f for f in result.get('files',[]) if f['name'].startswith('p927_workspace_') and f['name'].endswith('.json'))
+            token=result.get('nextPageToken')
+            if not token:break
+        if not files:raise HTTPException(404,'Няма P92.7 архив.')
+        # Names contain UTC timestamps with microseconds; lexicographic order is chronological.
+        files.sort(key=lambda x:x['name'],reverse=True)
+        found_doc=None;found_name=''
+        for f in files:
+            raw=service.files().get_media(fileId=f['id']).execute()
+            data=json.loads(raw)
+            if data.get('format')!='pixelapp-p927-test-workspace' or data.get('trip_id')!=trip_id:continue
+            digest=hashlib.sha256(raw).hexdigest()
+            if not f['name'].endswith('_'+digest[:12]+'.json'):
+                raise HTTPException(409,'Невалидна контролна сума на архива.')
+            if data.get('schema_version')!=1 or not isinstance(data.get('records'),list):
+                raise HTTPException(409,'Неподдържан формат на архива.')
+            counts={kind:sum(r.get('dataset')==kind for r in data['records']) for kind in _P924_DATASETS}
+            if counts!=data.get('counts') or any(r.get('dataset') not in _P924_DATASETS or not isinstance(r.get('data'),dict) or r['data'].get('trip_id')!=trip_id for r in data['records']):
+                raise HTTPException(409,'Нарушена структура на архивираните записи.')
+            found_doc=data;found_name=f['name'];break
+        if found_doc is None:raise HTTPException(404,'Не е открит архив за това тестово пътуване.')
+        latest=_p927_archive_document(trip_id)
+        same=(latest['revision']==found_doc['revision'] and latest['source_digest']==found_doc['source_digest'] and latest['records']==found_doc['records'])
+        return {'ok':True,'verified':True,'archive':found_name,'revision':found_doc['revision'],
+                'current_revision':latest['revision'],'matches_current_workspace':same,
+                'counts':found_doc['counts'],'restore_performed':False,'drive_csv_unchanged':True}
+    except HTTPException:raise
+    except Exception:
+        raise HTTPException(503,'Неуспешна проверка на тестовия архив.') from None
