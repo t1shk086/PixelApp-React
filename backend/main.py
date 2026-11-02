@@ -4204,7 +4204,7 @@ def _p939_decimal(value, maximum, allow_zero=False):
 @app.post('/safe/p939-car-test', dependencies=[Depends(authorize)])
 def p939_car_test(change:P939CarChange,background_tasks:BackgroundTasks):
     _p932_assert(change.trip_id)
-    if change.operation not in ('initial_fuel','missed_fuel','finish') or change.expected_revision<1:
+    if change.operation not in ('missed_fuel','finish') or change.expected_revision<1:
         raise HTTPException(422,'Невалидна тестова операция или версия.')
     from psycopg.types.json import Jsonb
     with _neon_demo_connection() as conn:
