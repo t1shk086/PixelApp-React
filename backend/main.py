@@ -3090,3 +3090,81 @@ def neon_shared_mode_change(payload: NeonSharedModeChange):
     return {'trip_id':payload.trip_id,'mode':payload.mode,'version':ver,'shared':True,
             'backup_filename':backup['filename'] if backup else (old[2] if old else ''),
             'drive_unmodified':True}
+
+
+
+# P92.0: read-only Drive -> isolated Neon snapshot; no live app routing changes.
+@app.post('/safe/p92-full-snapshot', dependencies=[Depends(authorize)])
+def p92_full_snapshot():
+    import time as _p92time
+    from psycopg.types.json import Jsonb
+    started = _p92time.perf_counter()
+    service = drive_service()
+    if service is None:
+        raise HTTPException(503, 'Google Drive is not configured.')
+    try:
+        folder, mapping = folder_and_files(service)
+        required = ('settings','expenses','budgets','tasks','points','categories','labels')
+        raw_sets = {}
+        # Read directly from Drive, not the Render local cache.
+        for kind in required:
+            name = FILENAMES[kind]
+            if name not in mapping:
+                if kind in ('settings','expenses','budgets'):
+                    raise ValueError('Required source file missing: '+name)
+                raw_sets[kind] = {'name':name,'exists':False,'rows':[],'columns':list(COLUMNS[kind]),'sha256':None}
+                continue
+            raw = service.files().get_media(fileId=mapping[name]).execute()
+            text = raw.decode('utf-8-sig')
+            reader = csv.DictReader(io.StringIO(text))
+            headers = list(reader.fieldnames or [])
+            if not headers or any(col not in headers for col in COLUMNS[kind]):
+                raise ValueError('Unrecognized CSV schema for '+name)
+            rows = list(reader)
+            if any(None in row for row in rows):
+                raise ValueError('Malformed CSV rows: '+name)
+            raw_sets[kind] = {'name':name,'exists':True,'rows':rows,'columns':headers,'sha256':hashlib.sha256(raw).hexdigest()}
+        # A second source signature check prevents claiming parity if source changes
+        # while we are copying. Does not alter Drive.
+        for kind, item in raw_sets.items():
+            if not item['exists']:continue
+            again=service.files().get_media(fileId=mapping[item['name']]).execute()
+            if hashlib.sha256(again).hexdigest()!=item['sha256']:
+                raise ValueError('Source changed during copy: '+item['name'])
+        run_id = uuid.uuid4().hex
+        report={}
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''CREATE TABLE IF NOT EXISTS pixelapp_p92_snapshot_runs (
+                  run_id text PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now(),
+                  inventory jsonb NOT NULL, verified boolean NOT NULL DEFAULT false)''')
+                cur.execute('''CREATE TABLE IF NOT EXISTS pixelapp_p92_snapshot_rows (
+                  run_id text NOT NULL REFERENCES pixelapp_p92_snapshot_runs(run_id),
+                  source_kind text NOT NULL, row_number integer NOT NULL,
+                  payload jsonb NOT NULL, PRIMARY KEY(run_id,source_kind,row_number))''')
+                manifest={kind:{'filename':it['name'],'present':it['exists'],'count':len(it['rows']),
+                    'columns':it['columns'],'source_sha256':it['sha256'],
+                    'rows_sha256':hashlib.sha256(json.dumps(it['rows'],ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+                    for kind,it in raw_sets.items()}
+                cur.execute('INSERT INTO pixelapp_p92_snapshot_runs(run_id,inventory) VALUES (%s,%s)',(run_id,Jsonb(manifest)))
+                for kind,it in raw_sets.items():
+                    for idx,row in enumerate(it['rows'],1):
+                        cur.execute('INSERT INTO pixelapp_p92_snapshot_rows(run_id,source_kind,row_number,payload) VALUES (%s,%s,%s,%s)',(run_id,kind,idx,Jsonb(row)))
+                    cur.execute('SELECT payload FROM pixelapp_p92_snapshot_rows WHERE run_id=%s AND source_kind=%s ORDER BY row_number',(run_id,kind))
+                    verify=[r[0] for r in cur.fetchall()]
+                    actual=hashlib.sha256(json.dumps(verify,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+                    if actual!=manifest[kind]['rows_sha256'] or len(verify)!=len(it['rows']):
+                        raise ValueError('Neon parity mismatch for '+kind)
+                    report[kind]={'rows':len(verify),'present':it['exists'],'verified':True}
+                cur.execute('UPDATE pixelapp_p92_snapshot_runs SET verified=true WHERE run_id=%s',(run_id,))
+            conn.commit()
+        return {'ok':True,'run_id':run_id,'datasets':report,
+          'total_rows':sum(x['rows'] for x in report.values()),
+          'elapsed_ms':round((_p92time.perf_counter()-started)*1000),
+          'google_drive_modified':False,'live_neon_tables_modified':False,
+          'note':'Diagnostic copy only; no trip has been switched to Neon.'}
+    except HTTPException:
+        raise
+    except Exception:
+        # Fail closed. No credentials or source data in public errors.
+        raise HTTPException(503,'P92.0 copy/verification failed. No live tables were switched; inspect Render logs.') from None
