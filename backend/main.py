@@ -3199,12 +3199,24 @@ def p92_readiness():
             issues.append(kind+': хешът на редовете не съвпада')
     if len(known_ids)!=len(records['settings']):issues.append('Повтарящ се или празен идентификатор на пътуване')
     per_trip={k:{'settings':0,'expenses':0,'budgets':0,'tasks':0,'points':0,'categories':0} for k in sorted(known_ids)}
+    warnings=[]
+    shared_favorites=0
+    orphan_categories=0
     for kind in ('settings','expenses','budgets','tasks','points','categories'):
         for r in records[kind]:
             tid=str(r.get('trip_id','')).strip()
-            if tid not in known_ids:
+            if tid in known_ids:
+                per_trip[tid][kind]+=1
+            elif kind=='points' and tid=='__PIXELAPP_SHARED_FAVORITES__':
+                # Reserved system scope: shared favorites belong to the library, not a trip.
+                shared_favorites+=1
+            elif kind=='categories' and tid and tid not in known_ids:
+                # Preserve historic category rows exactly; exclude them from per-trip views.
+                # They remain warnings pending an explicit cleanup decision.
+                orphan_categories+=1
+                warnings.append('categories: стара категория без съществуващо пътуване')
+            else:
                 issues.append(kind+': запис с непознато пътуване')
-            else:per_trip[tid][kind]+=1
     for tid in known_ids:
         ids=[str(r.get('item_id','')).strip() for r in records['tasks'] if str(r.get('trip_id','')).strip()==tid]
         if len(ids)!=len(set(ids)) or any(not v for v in ids):issues.append('Задачи: празен или повторен ID в пътуване')
@@ -3222,7 +3234,9 @@ def p92_readiness():
             if hashlib.sha256(source).hexdigest()!=item['source_sha256']:stale.append(kind)
     return {'ok':not issues and not stale,'ready_for_live_switch':False,'run_id':run_id,
       'total_rows':sum(len(records[k]) for k in kinds),'trip_count':len(known_ids),
-      'per_trip':per_trip,'issues':list(dict.fromkeys(issues)), 'stale_sources':stale,
+      'per_trip':per_trip,'issues':list(dict.fromkeys(issues)),
+      'warnings':list(dict.fromkeys(warnings)), 'shared_favorites':shared_favorites,
+      'orphan_categories':orphan_categories, 'stale_sources':stale,
       'source_is_current':not stale,'elapsed_ms':round((_clock.perf_counter()-start)*1000),
       'note':'Integrity/readiness audit only. Live read/write migration and full backups are NOT yet implemented.'}
 
@@ -3250,14 +3264,20 @@ def p92_reference_details():
         if kind not in ('points','categories'):continue
         trip_id=str(payload.get('trip_id','')).strip()
         if trip_id in known:continue
+        classification=('shared_favorites' if kind=='points' and trip_id=='__PIXELAPP_SHARED_FAVORITES__'
+                        else 'orphan_category' if kind=='categories' and trip_id
+                        else 'unresolved')
+        reason=('обща библиотека с любими места — системен идентификатор' if classification=='shared_favorites'
+                else 'стара категория без съществуващо пътуване — запазена' if classification=='orphan_category'
+                else 'празен trip_id' if not trip_id else 'няма такова пътуване в settings')
         details.append({'dataset':kind,'row_number':idx,'trip_id':trip_id,
                         'trip_id_is_blank':not bool(trip_id),
                         'title':str(payload.get('title',''))[:180] if kind=='points' else '',
                         'category':str(payload.get('category',''))[:180] if kind=='categories' else '',
                         'stop_type':str(payload.get('stop_type',''))[:80] if kind=='points' else '',
-                        'reason':'празен trip_id' if not trip_id else 'няма такова пътуване в settings'})
+                        'classification':classification,'reason':reason})
     return {'ok':True,'run_id':run_id,'known_trip_count':len(known),
             'unresolved_count':len(details),'unresolved':details,
-            'classification':'неопределена — необходима е проверка преди корекция',
+            'classification':'системните любими места са разрешени; старите категории са предупреждения',
             'ready_for_live_switch':False,'drive_modified':False,'live_neon_modified':False,
             'elapsed_ms':round((_clock.perf_counter()-start)*1000)}
