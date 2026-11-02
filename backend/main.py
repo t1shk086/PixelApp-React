@@ -4125,3 +4125,50 @@ def p934_canary_preview(trip_id: str):
     return {'ok': True, 'readonly': True, 'trip_id': trip_id,
             'records': staged, 'source': 'p930_stage', 'matched_current_drive': True,
             'message': 'P93.4.1: проверено Neon копие, само за преглед; Drive остава основен източник.'}
+
+
+# P93.8: budget mode writes on the isolated P93.2 workspace only.
+class P938BudgetChange(BaseModel):
+    trip_id: str
+    expected_revision: int
+    mode: str
+    amount: str = '0'
+    categories: dict[str,str] = Field(default_factory=dict)
+
+@app.post('/safe/p938-test-budget', dependencies=[Depends(authorize)])
+def p938_test_budget(change:P938BudgetChange, background_tasks:BackgroundTasks):
+    _p932_assert(change.trip_id)
+    if change.mode not in ('global','category') or change.expected_revision < 1:
+        raise HTTPException(422,'Невалиден режим или версия.')
+    def checked(v):
+        try:
+            n=Decimal(str(v).replace(',','.'))
+            if not n.is_finite() or n < 0 or n > 10000000 or n.as_tuple().exponent < -2:raise ValueError()
+            return str(n)
+        except (InvalidOperation,ValueError):raise HTTPException(422,'Невалидна сума на бюджет.')
+    if change.mode=='global':
+        rows=[{'trip_id':change.trip_id,'category':'__GLOBAL__','budget':checked(change.amount)}]
+    else:
+        if not change.categories or len(change.categories)>60:raise HTTPException(422,'Добави бюджет по категории.')
+        rows=[]
+        for category,value in change.categories.items():
+            if not isinstance(category,str) or not category.strip() or category=='__GLOBAL__' or len(category)>80:
+                raise HTTPException(422,'Невалидна категория.')
+            rows.append({'trip_id':change.trip_id,'category':category,'budget':checked(value)})
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
+            meta=cur.fetchone()
+            if not meta or meta[0]!=change.expected_revision:
+                raise HTTPException(409,'Пътуването е променено от другия профил. Обнови и опитай пак.')
+            cur.execute("DELETE FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='budgets'",(change.trip_id,))
+            for i,row in enumerate(rows):
+                cur.execute('INSERT INTO pixelapp_p932_rows (trip_id,dataset,row_id,row_order,payload) VALUES (%s,%s,%s,%s,%s)',(change.trip_id,'budgets',uuid.uuid4().hex,i,Jsonb(row)))
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=cur.fetchone()[0]
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s) ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",(change.trip_id,revision))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'revision':revision,'drive_modified':False,'backup_required':True}
