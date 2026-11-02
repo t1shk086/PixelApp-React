@@ -4093,3 +4093,35 @@ def p933_verify_remaining():
                                 'reason':None if ok else 'Копието или Drive са променени'})
     return {'ok':all(t['verified'] for t in results),'staged_count':sum(t['verified'] for t in results),
             'trips':results,'live_switch':False,'drive_modified':False,'production_modified':False}
+
+
+# P93.4 — single-trip canary, read-only; never changes production/Drive.
+_P934_CANARY = 'ТЕСТ_67_PixelApp'
+
+@app.get('/safe/p934-canary-preview/{trip_id}', dependencies=[Depends(authorize)])
+def p934_canary_preview(trip_id: str):
+    if trip_id != _P934_CANARY:
+        raise HTTPException(403, 'P93.4 е разрешен само за определеното тестово пътуване.')
+    # Compare against live Drive before exposing staged data, fail closed on drift.
+    current = _p930_load_drive_trip(trip_id)
+    current_digest = _p930_digest(current)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p933_stage')::text")
+            if cur.fetchone()[0] is None:
+                raise HTTPException(409, 'Липсва проверено P93.3 Neon копие.')
+            cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s', (trip_id,))
+            found = cur.fetchone()
+            if not found:
+                raise HTTPException(409, 'Пътуването няма P93.3 копие.')
+            cur.execute('SELECT kind,payload FROM pixelapp_p933_rows WHERE trip_id=%s ORDER BY kind,ord', (trip_id,))
+            staged = {k: [] for k in _P930_KINDS}
+            for kind,payload in cur.fetchall():
+                if kind not in staged:
+                    raise HTTPException(409, 'Непознат тип запис в Neon копието.')
+                staged[kind].append(payload)
+    if _p930_digest(staged) != found[0] or current_digest != found[0]:
+        raise HTTPException(409, 'Drive е променен или Neon копието не съвпада. Прегледът е блокиран; няма промени.')
+    return {'ok':True, 'readonly':True, 'trip_id':trip_id,
+            'records':staged,'source':'p933_stage','matched_current_drive':True,
+            'message':'P93.4: проверено Neon копие, само за преглед; Drive остава основен източник.'}
