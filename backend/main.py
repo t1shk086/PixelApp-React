@@ -3804,3 +3804,192 @@ def p931_stage_preview(trip_id:str):
             'records':groups,'counts':{key:len(value) for key,value in groups.items()},
             'stage_digest':found[0], 'production_modified':False,
             'message':'Преглед само на мигрираното тестово копие. Записването е забранено.'}
+
+
+# P93.2 — isolated editable fork of the immutable P93.0 migration stage.
+# NEVER changes P93.0 stage, P92.4 workspace, production CSVs, or other trips.
+_P932_TRIP = 'ТЕСТ_НОВО_–_PixelApp'
+
+def _p932_schema(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p932_workspaces (
+        trip_id text PRIMARY KEY, source_digest text NOT NULL, revision bigint NOT NULL DEFAULT 1,
+        created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p932_rows (
+        trip_id text NOT NULL REFERENCES pixelapp_p932_workspaces(trip_id),
+        dataset text NOT NULL, row_id text NOT NULL, row_order bigint NOT NULL,
+        payload jsonb NOT NULL, version bigint NOT NULL DEFAULT 1,
+        PRIMARY KEY (trip_id,dataset,row_id))""")
+
+def _p932_assert(trip_id):
+    if trip_id != _P932_TRIP:
+        raise HTTPException(403,'P93.2 е разрешен само за изричното тестово пътуване.')
+
+@app.post('/safe/p932-workspace/{trip_id}', dependencies=[Depends(authorize)])
+def p932_prepare(trip_id:str):
+    _p932_assert(trip_id)
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p932_schema(cur)
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
+            exists=cur.fetchone()
+            if exists:
+                return {'ok':True,'existing':True,'revision':exists[0]}
+            cur.execute('SELECT digest FROM pixelapp_p930_test_stage WHERE trip_id=%s',(trip_id,))
+            source=cur.fetchone()
+            if not source:raise HTTPException(409,'Първо създай проверено P93.0 копие.')
+            cur.execute('SELECT kind,ord,payload FROM pixelapp_p930_test_rows WHERE trip_id=%s ORDER BY kind,ord',(trip_id,))
+            rows={kind:[] for kind in _P930_KINDS}
+            records=cur.fetchall()
+            for kind,order,row in records:rows[kind].append(row)
+            if _p930_digest(rows)!=source[0]:raise HTTPException(409,'P93.0 копието не съвпада с оригинала.')
+            cur.execute('INSERT INTO pixelapp_p932_workspaces (trip_id,source_digest) VALUES (%s,%s)',(trip_id,source[0]))
+            for kind,order,row in records:
+                cur.execute('INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload) VALUES (%s,%s,%s,%s,%s)',
+                            (trip_id,kind,uuid.uuid4().hex,order,Jsonb(row)))
+        conn.commit()
+    return {'ok':True,'existing':False,'revision':1}
+
+@app.get('/safe/p932-workspace/{trip_id}',dependencies=[Depends(authorize)])
+def p932_read(trip_id:str):
+    _p932_assert(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT source_digest,revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            if not meta:raise HTTPException(404,'Първо създай P93.2 работно копие.')
+            cur.execute('SELECT dataset,row_id,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
+            rows={k:[] for k in _P930_KINDS}
+            for kind,row_id,payload,version in cur.fetchall():rows[kind].append({'row_id':row_id,'data':payload,'version':version})
+    return {'ok':True,'trip_id':trip_id,'revision':meta[1],'source_digest':meta[0],
+            'records':rows,'live_switch':False,'production_modified':False}
+
+@app.post('/safe/p932-record',dependencies=[Depends(authorize)])
+def p932_change(change:P924Change, background_tasks:BackgroundTasks):
+    _p932_assert(change.trip_id)
+    if change.dataset!='expenses':raise HTTPException(403,'P93.2 разрешава само редакции на тестовите разходи.')
+    if change.operation not in ('add','edit','delete'):raise HTTPException(422,'Невалидно действие.')
+    if change.operation!='add' and (not change.row_id or change.expected_version is None or change.expected_version<1):
+        raise HTTPException(422,'Изисква се актуална версия на записа.')
+    if change.operation!='delete':
+        if not isinstance(change.row,dict) or set(change.row)!=set(COLUMNS['expenses']):
+            raise HTTPException(422,'Невалидни колони в разхода.')
+        if change.row.get('trip_id')!=change.trip_id or any(not isinstance(v,str) for v in change.row.values()):
+            raise HTTPException(422,'Невалидни стойности за тестовото пътуване.')
+        if len(json.dumps(change.row,ensure_ascii=False))>12000:raise HTTPException(422,'Твърде голям разход.')
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
+            if not cur.fetchone():raise HTTPException(409,'Първо подготви P93.2 копие.')
+            if change.operation=='add':
+                rid=uuid.uuid4().hex
+                cur.execute("SELECT COALESCE(MAX(row_order),-1)+1 FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'",(change.trip_id,))
+                order=cur.fetchone()[0]
+                cur.execute('INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload) VALUES (%s,%s,%s,%s,%s)',
+                            (change.trip_id,'expenses',rid,order,Jsonb(change.row)))
+                version=1
+            elif change.operation=='edit':
+                cur.execute("UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset='expenses' AND row_id=%s AND version=%s RETURNING version",
+                            (Jsonb(change.row),change.trip_id,change.row_id,change.expected_version))
+                result=cur.fetchone()
+                if not result:raise HTTPException(409,'Записът е променен от другия профил. Обнови.')
+                rid=change.row_id;version=result[0]
+            else:
+                cur.execute("DELETE FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses' AND row_id=%s AND version=%s RETURNING version",
+                            (change.trip_id,change.row_id,change.expected_version))
+                if not cur.fetchone():raise HTTPException(409,'Записът е променен от другия профил. Обнови.')
+                rid=change.row_id;version=None
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=cur.fetchone()[0]
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s) ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",(change.trip_id,revision))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'row_id':rid,'version':version,'revision':revision,
+            'drive_modified':False,'stage_modified':False,'production_modified':False,
+            'backup_required':True}
+
+
+# P93.2 isolated backup queue, independent of P92.8/P92.4.
+def _p932_backup_schema(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p932_backup_state(
+        trip_id text PRIMARY KEY REFERENCES pixelapp_p932_workspaces(trip_id),
+        wanted_revision bigint NOT NULL DEFAULT 1,
+        archived_revision bigint NOT NULL DEFAULT 0,
+        archive_file text, last_error text, updated_at timestamptz DEFAULT now())""")
+
+def _p932_backup_document(trip_id):
+    _p932_assert(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT source_digest,revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            if meta is None:raise HTTPException(404,'Няма P93.2 копие.')
+            cur.execute('SELECT dataset,row_id,row_order,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
+            records=[{'dataset':k,'row_id':rid,'row_order':ord,'payload':p,'version':v} for k,rid,ord,p,v in cur.fetchall()]
+    return {'format':'pixelapp-p932-test-workspace','schema_version':1,'trip_id':trip_id,
+            'source_digest':meta[0],'revision':meta[1],'records':records}
+
+def _p932_backup_worker(trip_id):
+    # Errors are recorded; writes to Neon are already committed.
+    try:
+        from googleapiclient.http import MediaIoBaseUpload
+        from datetime import datetime,timezone
+        doc=_p932_backup_document(trip_id)
+        service=drive_service()
+        if service is None:raise RuntimeError('Drive не е свързан')
+        raw=json.dumps(doc,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode('utf-8')
+        sha=hashlib.sha256(raw).hexdigest()
+        root,_=folder_and_files(service)
+        folder_name='PixelApp_Neon_Test_Backups'
+        found=service.files().list(q="'%s' in parents and name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"%(root,folder_name),fields='files(id)',pageSize=20).execute().get('files',[])
+        folder=found[0]['id'] if found else service.files().create(body={'name':folder_name,'mimeType':'application/vnd.google-apps.folder','parents':[root]},fields='id').execute()['id']
+        name='p932_workspace_'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ')+'_'+sha[:12]+'.json'
+        created=service.files().create(body={'name':name,'parents':[folder],'description':'Verified isolated P93.2 TEST migration workspace'},media_body=MediaIoBaseUpload(io.BytesIO(raw),mimetype='application/json',resumable=False),fields='id').execute()
+        downloaded=service.files().get_media(fileId=created['id']).execute()
+        if downloaded!=raw or hashlib.sha256(downloaded).hexdigest()!=sha:raise RuntimeError('Проверка на архива неуспешна')
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                _p932_backup_schema(cur)
+                cur.execute("""UPDATE pixelapp_p932_backup_state SET archived_revision=GREATEST(archived_revision,%s),archive_file=%s,last_error=NULL,updated_at=now() WHERE trip_id=%s""",(doc['revision'],name,trip_id))
+            conn.commit()
+    except Exception as e:
+        try:
+            with _neon_demo_connection() as conn:
+                with conn.cursor() as cur:
+                    _p932_backup_schema(cur)
+                    cur.execute('UPDATE pixelapp_p932_backup_state SET last_error=%s,updated_at=now() WHERE trip_id=%s',(str(e)[:240],trip_id))
+                conn.commit()
+        except Exception:pass
+
+@app.get('/safe/p932-backup-status/{trip_id}',dependencies=[Depends(authorize)])
+def p932_backup_status(trip_id:str):
+    _p932_assert(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p932_backup_schema(cur)
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            if not meta:raise HTTPException(404,'Няма P93.2 копие')
+            cur.execute('SELECT wanted_revision,archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s',(trip_id,))
+            row=cur.fetchone()
+    return {'revision':meta[0],'wanted_revision':row[0] if row else meta[0],
+            'archived_revision':row[1] if row else 0,'archive_file':row[2] if row else None,
+            'last_error':row[3] if row else None,
+            'up_to_date':bool(row and row[1]>=meta[0]),'scope':'p932-test-only'}
+
+@app.post('/safe/p932-backup-retry/{trip_id}',dependencies=[Depends(authorize)])
+def p932_backup_retry(trip_id:str,background_tasks:BackgroundTasks):
+    _p932_assert(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p932_backup_schema(cur)
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
+            found=cur.fetchone()
+            if not found:raise HTTPException(404,'Няма P93.2 копие')
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s)
+                ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision)""",(trip_id,found[0]))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,trip_id)
+    return {'ok':True,'queued':True,'revision':found[0]}
