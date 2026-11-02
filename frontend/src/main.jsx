@@ -593,16 +593,15 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
     <div style={{display:'flex',gap:8}}><button type="button" className="ghost" disabled={busy} onClick={()=>startEdit(item)}>✎</button><button type="button" className="ghost" disabled={busy} onClick={()=>perform('delete',item)}>🗑</button></div>
    </div>)}
    {p932&&workspace?.records?.settings?.length===1&&<section className="p21-section" style={{display:'grid',gap:9,marginTop:12}}>
-    <strong>🚗 P93.9 · Автомобил — само Neon тест</strong>
-    <small>Drive остава непроменен. Начално гориво, пропуснати литри и приключване са отделни действия; след приключване пътуването се заключва.</small>
-    <p className="muted">Начално гориво: {workspace.records.settings[0].data.manual_fuel||'0'} л · Краен км: {workspace.records.settings[0].data.end_km||'0'}</p>
+    <strong>🚗 Автомобил · тестово Neon копие</strong>
+    <small>Оригиналният Drive остава непроменен. Не е необходимо да знаеш началните литри в резервоара. След приключване тестовото копие се заключва.</small>
+    <p className="muted">Краен километраж: {workspace.records.settings[0].data.end_km||'не е въведен'}</p>
     <label>Литри<input inputMode="decimal" value={p939Liters} onChange={e=>setP939Liters(e.target.value)} placeholder="Напр. 15.5"/></label>
-    <div className="actions"><button type="button" disabled={busy} onClick={()=>void p939Save('initial_fuel')}>Запиши начално гориво</button></div>
     <label>Платена сума за пропуснатото (€; 0 ако няма)<input inputMode="decimal" value={p939Amount} onChange={e=>setP939Amount(e.target.value)}/></label>
     <div className="actions"><button type="button" disabled={busy} onClick={()=>void p939Save('missed_fuel')}>Добави пропуснати литри</button></div>
     <label>Краен километраж<input type="number" step="1" value={p939EndKm} onChange={e=>setP939EndKm(e.target.value)}/></label>
     <button type="button" disabled={busy} onClick={()=>void p939Save('finish')}>Приключи само Neon тестовото пътуване</button>
-    <small>Преди приключване първо тествай началните и пропуснатите литри. След приключване нови настройки са забранени.</small>
+    <small>Приключването заключва само тестовото Neon копие. Не натискай, докато правиш останалите проверки.</small>
    </section>}
    {p932&&testMode==='budget'&&<div className="p21-section" style={{display:'grid',gap:9,marginTop:12}}><strong>💰 P93.8 · Само тестов Neon бюджет</strong><label>Режим<select value={budgetKind} onChange={e=>setBudgetKind(e.target.value)}><option value="global">Общ</option><option value="category">По категории</option></select></label>{budgetKind==='global'?<label>Общо (€)<input inputMode="decimal" value={budgetValue} onChange={e=>setBudgetValue(e.target.value)}/></label>:<><p className="muted">Редактирай сумите по категории. За нова категория първо я създай в настройките на пътуването в Drive.</p>{[...new Set(['Храна и напитки','Транспорт','Други','Нощувки/Хотел',...Object.keys(budgetPerCat),...(workspace?.records?.categories||[]).map(x=>x.data.category)])].map(cat=><label key={cat}>{cat}<input inputMode="decimal" value={budgetPerCat[cat]??'0'} onChange={e=>setBudgetPerCat(p=>({...p,[cat]:e.target.value}))}/></label>)}</>}<div className="actions"><button type="button" disabled={busy} onClick={()=>void saveBudget()}>Запази тестовия бюджет</button><button type="button" className="ghost" onClick={()=>setTestMode('expense')}>Отказ</button></div></div>}
    {editorOpen&&<form onSubmit={e=>{e.preventDefault();void perform(editing?'edit':'add',editing)}} style={{display:'grid',gap:9,marginTop:12}}>
@@ -1023,13 +1022,12 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  </>}
  {section==='expenses'&&<>
  {isP934Canary&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
-  <strong>⚡ P93.5 · Източник на разходите (само ТЕСТ_НОВО)</strong>
+  <strong>Източник на данните · само ТЕСТ НОВО</strong>
   <div className="p9043-expense-actions" style={{marginTop:10,flexWrap:'wrap'}}>
-   <button type="button" className={!p934Active&&!p932Mode?'selected':''} disabled={p934Busy} onClick={()=>{setP934View(false);setP934Data(null);setP932Mode(false);setP932Workspace(null);setP931StageMode(false);setNeonExpenseView(false)}}>☁️ Drive</button>
-   <button type="button" className={p934Active?'selected':''} disabled={p934Busy} onClick={()=>void loadP934()}>{p934Busy?'Проверявам…':'⚡ Neon · преглед'}</button>
-   <button type="button" className={p932Mode?'selected':''} disabled={p934Busy} onClick={()=>void activateP935()}>{p934Busy?'Проверявам…':'✎ Neon · редакции'}</button>
+   <button type="button" className={!p934Active&&!p932Mode?'selected':''} disabled={p934Busy} onClick={()=>{setP934View(false);setP934Data(null);setP932Mode(false);setP932Workspace(null);setP931StageMode(false);setNeonExpenseView(false)}}>☁️ Drive (оригинал)</button>
+   <button type="button" className={p932Mode?'selected':''} disabled={p934Busy} onClick={()=>void activateP935()}>{p934Busy?'Проверявам…':'⚡ Neon (тестово копие)'}</button>
   </div>
-  <p className="muted">{p932Mode?'Активно е съществуващото редактируемо P93.2 Neon копие, с отделен автоматичен архив в Drive. Оригиналните Drive CSV не се актуализират.':'В Drive виждаш старите записи; Neon · преглед показва провереното P93.0 копие, а Neon · редакции — отделното P93.2 копие.'} Връщането към Drive сменя само изгледа, не прехвърля Neon редакции.</p>
+  <p className="muted">{p932Mode?'Показва и записва само в изолираното Neon тестово копие. Автоматичният архив е отделен от оригиналните Drive CSV.':'Показва оригиналните данни от Drive. Новите тестови Neon разходи няма да се виждат тук.'} Реалните пътувания засега използват Drive.</p>
   {p934Error&&<p role="alert" className="error">⚠️ {p934Error}</p>}
  </div>}
 
