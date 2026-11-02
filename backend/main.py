@@ -3993,3 +3993,103 @@ def p932_backup_retry(trip_id:str,background_tasks:BackgroundTasks):
         conn.commit()
     background_tasks.add_task(_p932_backup_worker,trip_id)
     return {'ok':True,'queued':True,'revision':found[0]}
+
+
+# P93.3 — immutable batch stage of the remaining eight trips. No live source switching.
+_P933_EXCLUDED = 'ТЕСТ_НОВО_–_PixelApp'
+
+def _p933_schema(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p933_stage (
+        trip_id text PRIMARY KEY, digest text NOT NULL, created_at timestamptz NOT NULL DEFAULT now())""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p933_rows (
+        trip_id text NOT NULL REFERENCES pixelapp_p933_stage(trip_id),
+        kind text NOT NULL, ord bigint NOT NULL, payload jsonb NOT NULL,
+        PRIMARY KEY (trip_id,kind,ord))""")
+
+def _p933_groups_from_drive():
+    service=drive_service()
+    if service is None:raise HTTPException(503,'Google Drive не е достъпен.')
+    _,mapping=folder_and_files(service)
+    all_rows={}
+    for kind in _P930_KINDS:
+        filename=FILENAMES[kind]
+        if filename not in mapping:
+            if kind in ('settings','expenses','budgets'):
+                raise HTTPException(409,'Липсва задължителен Drive CSV: '+filename)
+            all_rows[kind]=[]
+            continue
+        raw=service.files().get_media(fileId=mapping[filename]).execute()
+        reader=csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))
+        if not reader.fieldnames or any(col not in reader.fieldnames for col in COLUMNS[kind]):
+            raise HTTPException(409,'Невалиден Drive CSV: '+filename)
+        rows=list(reader)
+        if any(None in row for row in rows):raise HTTPException(409,'Невалиден CSV ред: '+filename)
+        all_rows[kind]=rows
+    ids=[str(row.get('trip_id','')).strip() for row in all_rows['settings']]
+    if len(ids)!=9 or len(set(ids))!=9 or _P933_EXCLUDED not in ids or any(not item for item in ids):
+        raise HTTPException(409,'Очаквани са точно 9 уникални пътувания, включително тестовото. Нищо не е копирано.')
+    target_ids=sorted(tid for tid in ids if tid!=_P933_EXCLUDED)
+    groups={tid:{kind:[] for kind in _P930_KINDS} for tid in target_ids}
+    for kind,rows in all_rows.items():
+        for row in rows:
+            tid=str(row.get('trip_id','')).strip()
+            if tid in groups:groups[tid][kind].append(row)
+    return groups
+
+@app.post('/safe/p933-stage-remaining',dependencies=[Depends(authorize)])
+def p933_stage_remaining():
+    from psycopg.types.json import Jsonb
+    source=_p933_groups_from_drive()
+    results=[]
+    # One transaction: any conflict aborts ALL new staging inserts.
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p933_schema(cur)
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('pixelapp-p933-batch'))")
+            for tid,groups in source.items():
+                digest=_p930_digest(groups)
+                cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s FOR UPDATE',(tid,))
+                old=cur.fetchone()
+                if old and old[0]!=digest:
+                    raise HTTPException(409,'Drive е променен след първото копиране на '+tid+'. Не е презаписано нищо; необходим е нов безопасен преглед.')
+                if not old:
+                    cur.execute('INSERT INTO pixelapp_p933_stage(trip_id,digest) VALUES (%s,%s)',(tid,digest))
+                    for kind,items in groups.items():
+                        for idx,row in enumerate(items):
+                            cur.execute('INSERT INTO pixelapp_p933_rows(trip_id,kind,ord,payload) VALUES (%s,%s,%s,%s)',(tid,kind,idx,Jsonb(row)))
+                cur.execute('SELECT kind,payload FROM pixelapp_p933_rows WHERE trip_id=%s ORDER BY kind,ord',(tid,))
+                actual={kind:[] for kind in _P930_KINDS}
+                for kind,payload in cur.fetchall():actual[kind].append(payload)
+                if _p930_digest(actual)!=digest:
+                    raise HTTPException(409,'Копието не премина проверката: '+tid)
+                results.append({'trip_id':tid,'verified':True,'new':not bool(old),
+                                'counts':{kind:len(rows) for kind,rows in groups.items()}})
+        conn.commit()
+    return {'ok':True,'staged_count':len(results),'trips':results,
+            'production_modified':False,'drive_modified':False,'live_switch':False,
+            'p930_modified':False,'p932_modified':False,
+            'message':'Осем отделни Neon копия са проверени. Реалните екрани още използват Drive.'}
+
+@app.get('/safe/p933-stage-remaining',dependencies=[Depends(authorize)])
+def p933_verify_remaining():
+    source=_p933_groups_from_drive()
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p933_stage')::text")
+            if cur.fetchone()[0] is None:
+                return {'ok':False,'staged_count':0,'trips':[],'live_switch':False}
+            results=[]
+            for tid,groups in source.items():
+                cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s',(tid,))
+                row=cur.fetchone()
+                if not row:
+                    results.append({'trip_id':tid,'verified':False,'reason':'Няма копие'})
+                    continue
+                cur.execute('SELECT kind,payload FROM pixelapp_p933_rows WHERE trip_id=%s ORDER BY kind,ord',(tid,))
+                staged={k:[] for k in _P930_KINDS}
+                for kind,payload in cur.fetchall():staged[kind].append(payload)
+                ok=_p930_digest(staged)==row[0]==_p930_digest(groups)
+                results.append({'trip_id':tid,'verified':ok,
+                                'reason':None if ok else 'Копието или Drive са променени'})
+    return {'ok':all(t['verified'] for t in results),'staged_count':sum(t['verified'] for t in results),
+            'trips':results,'live_switch':False,'drive_modified':False,'production_modified':False}
