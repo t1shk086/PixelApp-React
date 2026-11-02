@@ -3168,3 +3168,60 @@ def p92_full_snapshot():
     except Exception:
         # Fail closed. No credentials or source data in public errors.
         raise HTTPException(503,'P92.0 copy/verification failed. No live tables were switched; inspect Render logs.') from None
+
+
+# P92.1 — migration readiness audit. This endpoint is deliberately read-only.
+@app.get('/safe/p92-readiness', dependencies=[Depends(authorize)])
+def p92_readiness():
+    import collections, time as _clock
+    start = _clock.perf_counter()
+    kinds = ('settings','expenses','budgets','tasks','points','categories','labels')
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p92_snapshot_runs')::text")
+            if cur.fetchone()[0] is None:
+                raise HTTPException(409,'Няма P92.0 копие. Първо изпълни копирането.')
+            cur.execute('SELECT run_id,inventory FROM pixelapp_p92_snapshot_runs WHERE verified=true ORDER BY created_at DESC LIMIT 1')
+            latest=cur.fetchone()
+            if latest is None:raise HTTPException(409,'Няма проверено P92.0 копие.')
+            run_id,manifest=latest
+            cur.execute('SELECT source_kind,payload FROM pixelapp_p92_snapshot_rows WHERE run_id=%s ORDER BY source_kind,row_number',(run_id,))
+            records=collections.defaultdict(list)
+            for kind,row in cur.fetchall():records[kind].append(row)
+    # Validate all copied rows and references without touching either data store.
+    known_ids={str(r.get('trip_id','')).strip() for r in records['settings'] if str(r.get('trip_id','')).strip()}
+    issues=[]
+    for kind in kinds:
+        if len(records[kind])!=manifest[kind]['count']:
+            issues.append(kind+': несъвпадащ брой редове')
+        digest=hashlib.sha256(json.dumps(records[kind],ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        if digest!=manifest[kind]['rows_sha256']:
+            issues.append(kind+': хешът на редовете не съвпада')
+    if len(known_ids)!=len(records['settings']):issues.append('Повтарящ се или празен идентификатор на пътуване')
+    per_trip={k:{'settings':0,'expenses':0,'budgets':0,'tasks':0,'points':0,'categories':0} for k in sorted(known_ids)}
+    for kind in ('settings','expenses','budgets','tasks','points','categories'):
+        for r in records[kind]:
+            tid=str(r.get('trip_id','')).strip()
+            if tid not in known_ids:
+                issues.append(kind+': запис с непознато пътуване')
+            else:per_trip[tid][kind]+=1
+    for tid in known_ids:
+        ids=[str(r.get('item_id','')).strip() for r in records['tasks'] if str(r.get('trip_id','')).strip()==tid]
+        if len(ids)!=len(set(ids)) or any(not v for v in ids):issues.append('Задачи: празен или повторен ID в пътуване')
+    # Recheck source freshness directly in Google Drive (read only).
+    service=drive_service()
+    if service is None:raise HTTPException(503,'Google Drive не е достъпен за проверка на актуалността.')
+    _,mapping=folder_and_files(service)
+    stale=[]
+    for kind in kinds:
+        item=manifest[kind]
+        file_id=mapping.get(item['filename'])
+        if bool(file_id)!=bool(item['present']):stale.append(kind);continue
+        if file_id:
+            source=service.files().get_media(fileId=file_id).execute()
+            if hashlib.sha256(source).hexdigest()!=item['source_sha256']:stale.append(kind)
+    return {'ok':not issues and not stale,'ready_for_live_switch':False,'run_id':run_id,
+      'total_rows':sum(len(records[k]) for k in kinds),'trip_count':len(known_ids),
+      'per_trip':per_trip,'issues':list(dict.fromkeys(issues)), 'stale_sources':stale,
+      'source_is_current':not stale,'elapsed_ms':round((_clock.perf_counter()-start)*1000),
+      'note':'Integrity/readiness audit only. Live read/write migration and full backups are NOT yet implemented.'}
