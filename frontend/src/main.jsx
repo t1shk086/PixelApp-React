@@ -500,6 +500,11 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
  const [archiveNotice,setArchiveNotice]=useState('');
  const [p932Backup,setP932Backup]=useState(null);
  const [editorOpen,setEditorOpen]=useState(false);
+ const [testMode,setTestMode]=useState('expense');
+ const [fuelKind,setFuelKind]=useState('full');
+ const [budgetKind,setBudgetKind]=useState('global');
+ const [budgetValue,setBudgetValue]=useState('');
+ const [budgetPerCat,setBudgetPerCat]=useState({});
  const [draft,setDraft]=useState({date:'',amount:'',category:'Други',description:'',type:'expense',liters:'',current_km:''});
  const load=async()=>{
   setBusy(true);setNotice('');
@@ -519,9 +524,16 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
  const expenses=workspace?.records?.expenses||[];
  const allowed=expenses.filter(x=>['expense','deposit'].includes(x.data?.type));
  const startEdit=(item)=>{
-  setEditing(item);setEditorOpen(true);
+  setTestMode('expense');setEditing(item);setEditorOpen(true);
   setDraft(item?{...item.data}:{date:new Date().toLocaleDateString('bg-BG'),amount:'',category:'Други',description:'',type:'expense',liters:'',current_km:''});
  };
+ const startFuel=()=>{setEditing(null);setTestMode('fuel');setFuelKind('full');setEditorOpen(true);setDraft({date:new Date().toLocaleDateString('bg-BG'),amount:'',category:'Транспорт',description:'',type:'expense',liters:'',current_km:''})};
+ const startBudget=()=>{const existing=workspace?.records?.budgets||[];const global=existing.find(x=>x.data.category==='__GLOBAL__');setBudgetKind(global?'global':'category');setBudgetValue(global?.data.budget||'0');setBudgetPerCat(Object.fromEntries(existing.filter(x=>x.data.category!=='__GLOBAL__').map(x=>[x.data.category,x.data.budget])));setEditorOpen(false);setTestMode('budget')};
+ const saveBudget=async()=>{setBusy(true);setNotice('');try{
+  const categories=Object.fromEntries(Object.entries(budgetPerCat).filter(([k])=>k.trim()));
+  await request('/safe/p938-test-budget','POST',{trip_id:tripId,expected_revision:workspace.revision,mode:budgetKind,amount:budgetValue,categories});
+  const next=await request('/safe/p932-workspace/'+encodeURIComponent(tripId));setWorkspace(next);onWorkspaceChange?.(next);setTestMode('expense');setP932Backup(await request('/safe/p932-backup-status/'+encodeURIComponent(tripId)));setNotice('✅ Тестовият бюджет е записан в Neon, архивът е заявен.');
+ }catch(e){setNotice('⚠️ '+String(e.message||e))}finally{setBusy(false)}};
  const perform=async(operation,item)=>{
   if(busy)return;
   if(operation==='delete'&&!window.confirm('Изтриване само от Neon тестовото копие?'))return;
@@ -529,7 +541,14 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
   if(operation!=='delete'){
    if(!draft.amount.trim()||!Number.isFinite(Number(draft.amount.replace(',','.')))||Number(draft.amount.replace(',','.'))<0){setNotice('⚠️ Въведи валидна сума.');return}
    if(!draft.date.trim()){setNotice('⚠️ Датата е задължителна.');return}
-   row={trip_id:tripId,date:String(draft.date),amount:String(draft.amount.replace(',','.')),category:String(draft.category),description:String(draft.description),type:String(draft.type),liters:String(draft.liters),current_km:String(draft.current_km)};
+   if(testMode==='fuel'){
+    const liters=Number(String(draft.liters).replace(',','.')),km=Number(draft.current_km);
+    if(!Number.isFinite(liters)||liters<=0||liters>200||!Number.isSafeInteger(km)||km<=0){setNotice('⚠️ Провери литрите и километража.');setBusy(false);return}
+    const existing=(workspace?.records?.expenses||[]).filter(x=>Number(x.data?.liters)>0&&Number(x.data?.current_km)>0);
+    if(existing.some(x=>Number(x.data.current_km)>=km)){setNotice('⚠️ Километражът трябва да е над последното зареждане.');setBusy(false);return}
+   }
+   const marker=testMode==='fuel'?(fuelKind==='full'?'[ПЪЛНО ЗАРЕЖДАНЕ] ':'[ЧАСТИЧНО ЗАРЕЖДАНЕ] '):'';
+   row={trip_id:tripId,date:String(draft.date),amount:String(draft.amount.replace(',','.')),category:testMode==='fuel'?'Транспорт':String(draft.category),description:marker+String(draft.description),type:String(draft.type),liters:testMode==='fuel'?String(draft.liters).replace(',','.'):String(draft.liters),current_km:String(draft.current_km)};
   }
   setBusy(true);setNotice('');
   try{
@@ -543,7 +562,7 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
   <h3>⚡ {p932?'P93.2 · Отделно миграционно копие':`Neon · ${compact?'Редактиране на разходи':'тестово работно копие'}`}</h3>
   {!compact&&<p className="muted">Тук се тестват реални записи в отделна Neon таблица. Drive остава непроменен.</p>}
   {!workspace?<button type="button" disabled={busy} onClick={prepare}>{busy?'Зареждам…':'Подготви Neon копие'}</button>:<>
-   <div className="p9043-expense-actions"><button type="button" disabled={busy} onClick={()=>startEdit(null)}>＋ Разход в Neon</button><button type="button" className="ghost" disabled={busy} onClick={load}>↻ Обнови от Neon</button></div>
+   <div className="p9043-expense-actions"><button type="button" disabled={busy} onClick={()=>startEdit(null)}>＋ Разход в Neon</button>{p932&&<><button type="button" disabled={busy} onClick={startFuel}>⛽ Тестово зареждане</button><button type="button" disabled={busy} onClick={startBudget}>💰 Тестов бюджет</button></>}<button type="button" className="ghost" disabled={busy} onClick={load}>↻ Обнови от Neon</button></div>
    {!p932&&<div className="p9043-expense-actions" style={{flexWrap:'wrap'}}>
     <button type="button" className="ghost" disabled={busy||archiveBusy} onClick={async()=>{setArchiveBusy(true);setArchiveNotice('');try{const r=await request('/safe/p927-workspace-backup/'+encodeURIComponent(tripId),'POST');setArchiveNotice(r.verified?(r.still_current?'✅ Проверен архив в Drive · версия ':'⚠️ Архивът е проверен, но има по-нови промени · архивирана версия ')+r.revision+' · '+r.filename:'⚠️ Няма потвърден архив.')}catch(e){setArchiveNotice('⚠️ '+String(e.message||e))}finally{setArchiveBusy(false)}}}>{archiveBusy?'Проверявам…':'☁️ Архивирай Neon в Drive'}</button>
     <button type="button" className="ghost" disabled={busy||archiveBusy} onClick={async()=>{setArchiveBusy(true);setArchiveNotice('');try{const r=await request('/safe/p927-workspace-archive-check/'+encodeURIComponent(tripId),'POST');setArchiveNotice(r.matches_current_workspace?'✅ Архивът съвпада с текущия Neon · v'+r.revision:'⚠️ Архивът е четим, но Neon има нови промени. Архивирай отново.')}catch(e){setArchiveNotice('⚠️ '+String(e.message||e))}finally{setArchiveBusy(false)}}}>✓ Провери архива</button>
@@ -556,9 +575,11 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
     <div><strong>{compact?'✎ ':''}{item.data.description||item.data.category||'Разход'}</strong><div className="muted">{item.data.date} · {item.data.category} · {money(item.data.amount)} · v{item.version}</div></div>
     <div style={{display:'flex',gap:8}}><button type="button" className="ghost" disabled={busy} onClick={()=>startEdit(item)}>✎</button><button type="button" className="ghost" disabled={busy} onClick={()=>perform('delete',item)}>🗑</button></div>
    </div>)}
+   {p932&&testMode==='budget'&&<div className="p21-section" style={{display:'grid',gap:9,marginTop:12}}><strong>💰 P93.8 · Само тестов Neon бюджет</strong><label>Режим<select value={budgetKind} onChange={e=>setBudgetKind(e.target.value)}><option value="global">Общ</option><option value="category">По категории</option></select></label>{budgetKind==='global'?<label>Общо (€)<input inputMode="decimal" value={budgetValue} onChange={e=>setBudgetValue(e.target.value)}/></label>:<><p className="muted">Редактирай сумите по категории. За нова категория първо я създай в настройките на пътуването в Drive.</p>{[...new Set(['Храна и напитки','Транспорт','Други','Нощувки/Хотел',...Object.keys(budgetPerCat),...(workspace?.records?.categories||[]).map(x=>x.data.category)])].map(cat=><label key={cat}>{cat}<input inputMode="decimal" value={budgetPerCat[cat]??'0'} onChange={e=>setBudgetPerCat(p=>({...p,[cat]:e.target.value}))}/></label>)}</>}<div className="actions"><button type="button" disabled={busy} onClick={()=>void saveBudget()}>Запази тестовия бюджет</button><button type="button" className="ghost" onClick={()=>setTestMode('expense')}>Отказ</button></div></div>}
    {editorOpen&&<form onSubmit={e=>{e.preventDefault();void perform(editing?'edit':'add',editing)}} style={{display:'grid',gap:9,marginTop:12}}>
     <label>Дата<input value={draft.date} onChange={e=>setDraft({...draft,date:e.target.value})} required/></label>
     <label>Сума (€)<input inputMode="decimal" value={draft.amount} onChange={e=>setDraft({...draft,amount:e.target.value})} required/></label>
+    {testMode==='fuel'&&<><p className="muted">⛽ Тестово зареждане — само Neon копие. Пълно/частично се използва за измерването на реалния разход.</p><label>Зареждане<select value={fuelKind} onChange={e=>setFuelKind(e.target.value)}><option value="full">Пълно</option><option value="partial">Частично</option></select></label><label>Литри<input inputMode="decimal" value={draft.liters} onChange={e=>setDraft({...draft,liters:e.target.value})} required/></label><label>Километраж<input type="number" min="1" value={draft.current_km} onChange={e=>setDraft({...draft,current_km:e.target.value})} required/></label></>}
     <label>Категория<input value={draft.category} onChange={e=>setDraft({...draft,category:e.target.value})} required/></label>
     <label>Описание<input value={draft.description} onChange={e=>setDraft({...draft,description:e.target.value})}/></label>
     <label>Вид<select value={draft.type} onChange={e=>setDraft({...draft,type:e.target.value})}><option value="expense">Разход</option><option value="deposit">Депозит</option></select></label>
@@ -793,60 +814,43 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
  const rows=p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=detail?.tasks||[], points=detail?.points||[];
- // P93.7: read-only parity audit. Use the existing full-to-full engine for REAL consumption.
- const p937DriveRows=detail?.expenses||[];
- const p937DriveBudgets=detail?.budgets||[];
- const p937DriveSettings=detail?.settings||trip?.settings||{};
- const p937Num=x=>{const n=Number(String(x??'').replace(',','.'));return Number.isFinite(n)?n:0};
- const p937Metrics=(entries,limits,config)=>{
-  const expenses=(entries||[]).filter(paymentRow);
-  const spent=expenses.reduce((sum,x)=>sum+p937Num(x.amount),0);
-  const global=(limits||[]).filter(x=>x.category==='__GLOBAL__').reduce((sum,x)=>sum+p937Num(x.budget),0);
-  const categoryLimits=(limits||[]).filter(x=>x.category!=='__GLOBAL__'&&p937Num(x.budget)>0);
-  const limit=global>0?global:categoryLimits.reduce((sum,x)=>sum+p937Num(x.budget),0);
-  const fuel=(entries||[]).filter(x=>x.type==='expense'&&x.category==='Транспорт'&&p937Num(x.liters)>0);
-  const fuelLiters=fuel.reduce((sum,x)=>sum+p937Num(x.liters),0)+p937Num(config?.manual_fuel);
-  const start=p937Num(config?.start_km);
-  const end=p937Num(config?.end_km)||Math.max(0,...(entries||[]).map(x=>p937Num(x.current_km)));
-  const distance=Math.max(0,end-start);
-  const real=confirmedFuelStage(entries,start);
-  const categories=categoryLimits.map(x=>[String(x.category||''),p937Num(x.budget)]).sort((x,y)=>x[0].localeCompare(y[0],'bg'));
-  const fuelEvents=fuel.map(x=>[p937Num(x.current_km),p937Num(x.liters),String(x.description||'')]).sort((x,y)=>x[0]-y[0]);
-  return {spent,limit,fuelLiters,distance,indicative:distance>0&&fuelLiters>0?fuelLiters/distance*100:null,
-   real:real?.consumption??null,realFrom:real?.fromKm??null,realTo:real?.toKm??null,
-   fuelEntries:fuel.length,manualFuel:p937Num(config?.manual_fuel),budgetMode:global>0?'Общ':categories.length?'По категории':'Без бюджет',
-   categoryCount:categories.length,categorySignature:JSON.stringify(categories),fuelSignature:JSON.stringify(fuelEvents),
-   finishKm:p937Num(config?.end_km),startKm:start};
+ const p936DriveRows=detail?.expenses||[];
+ const p936DriveBudgets=detail?.budgets||[];
+ const p936DriveSettings=detail?.settings||trip?.settings||{};
+ const p936Number=x=>Number.isFinite(Number(x))?Number(x):0;
+ const p936Metrics=(entries,limits,config)=>{
+   const expenses=(entries||[]).filter(x=>x.type==='expense'||x.type==='deposit');
+   const spent=expenses.reduce((sum,x)=>sum+p936Number(x.amount),0);
+   const global=(limits||[]).filter(x=>x.category==='__GLOBAL__').reduce((sum,x)=>sum+p936Number(x.budget),0);
+   const categoryLimits=(limits||[]).filter(x=>x.category!=='__GLOBAL__'&&p936Number(x.budget)>0);
+   const limit=global>0?global:categoryLimits.reduce((sum,x)=>sum+p936Number(x.budget),0);
+   const fuel=(entries||[]).filter(x=>x.type==='expense'&&x.category==='Транспорт'&&p936Number(x.liters)>0);
+   const fuelLiters=fuel.reduce((sum,x)=>sum+p936Number(x.liters),0)+p936Number(config?.manual_fuel);
+   const start=p936Number(config?.start_km);
+   const end=p936Number(config?.end_km)||Math.max(0,...(entries||[]).map(x=>p936Number(x.current_km)));
+   const distance=Math.max(0,end-start);
+   return {spent,limit,fuelLiters,distance,average:distance>0&&fuelLiters>0?fuelLiters/distance*100:null, fuelEntries:fuel.length,categoryCount:categoryLimits.length};
  };
- const p937Drive=p937Metrics(p937DriveRows,p937DriveBudgets,p937DriveSettings);
- const p937Neon=p937Metrics(rows,budgets,settings);
- const p937Fmt=(value,unit='',decimals=2)=>value===null?'—':Number(value).toLocaleString('bg-BG',{minimumFractionDigits:decimals,maximumFractionDigits:decimals})+unit;
- const p937Comparisons=[
-  ['Общо разходи',p937Drive.spent,p937Neon.spent,' €',2],
-  ['Бюджет',p937Drive.limit,p937Neon.limit,' €',2],
-  ['Отчетени литри (вкл. пропуснати)',p937Drive.fuelLiters,p937Neon.fuelLiters,' л',2],
-  ['От тях пропуснати литри',p937Drive.manualFuel,p937Neon.manualFuel,' л',2],
-  ['Брой зареждания с литри',p937Drive.fuelEntries,p937Neon.fuelEntries,'',0],
-  ['Пробег за ориентир',p937Drive.distance,p937Neon.distance,' км',0],
-  ['Ориентировъчен разход',p937Drive.indicative,p937Neon.indicative,' л/100 км',1],
-  ['Реален разход (пълно → пълно)',p937Drive.real,p937Neon.real,' л/100 км',1],
-  ['Категории с бюджет',p937Drive.categoryCount,p937Neon.categoryCount,'',0],
+ const p936Drive=p936Metrics(p936DriveRows,p936DriveBudgets,p936DriveSettings);
+ const p936Neon=p936Metrics(rows,budgets,settings);
+ const p936Display=(value,unit='',decimals=2)=>value===null?'—':Number(value).toLocaleString('bg-BG',{minimumFractionDigits:decimals,maximumFractionDigits:decimals})+unit;
+ const p936Comparisons=[
+  ['Общо разходи',p936Drive.spent,p936Neon.spent,' €',2],
+  ['Зададен бюджет',p936Drive.limit,p936Neon.limit,' €',2],
+  ['Отчетени литри (вкл. пропуснати)',p936Drive.fuelLiters,p936Neon.fuelLiters,' л',2],
+  ['Пробег',p936Drive.distance,p936Neon.distance,' км',0],
+  ['Ориентировъчен разход',p936Drive.average,p936Neon.average,' л/100 км',1],
+  ['Категории с бюджет',p936Drive.categoryCount,p936Neon.categoryCount,'',0],
  ];
- const p937Same=(a,b)=>a===null&&b===null||(a!==null&&b!==null&&Math.abs(a-b)<0.011);
  const p936Reconciliation=p932Active&&(
-  <div className="travel-card" role="region" aria-label="P93.7 проверка Drive и Neon">
-   <h3>🔎 P93.7 · Гориво и бюджети — подробна сверка</h3>
-   <p className="muted">Само сравнение, без запис. Разходите може да са различни след Neon редакции. Реалният разход се изчислява само между две пълни зареждания, като включва междинните частични.</p>
-   <div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:'0.92rem'}}><thead><tr><th style={{textAlign:'left'}}>Показател</th><th>Drive</th><th>Neon · редакции</th></tr></thead><tbody>
-   {p937Comparisons.map(([label,drive,neon,unit,decimals])=><tr key={label}><td>{label}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p937Fmt(drive,unit,decimals)}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p937Fmt(neon,unit,decimals)}{!p937Same(drive,neon)?' · ≠':''}</td></tr>)}
-   <tr><td>Режим бюджет</td><td>{p937Drive.budgetMode}</td><td>{p937Neon.budgetMode}{p937Drive.budgetMode!==p937Neon.budgetMode?' · ≠':''}</td></tr>
-   <tr><td>Бюджети по категории — точни стойности</td><td colSpan="2">{p937Drive.categorySignature===p937Neon.categorySignature?'✅ Съвпадат':'⚠️ Различават се'}</td></tr>
-   <tr><td>История на зарежданията — км, литри, описание</td><td colSpan="2">{p937Drive.fuelSignature===p937Neon.fuelSignature?'✅ Съвпада':'⚠️ Различава се'}</td></tr>
-   <tr><td>Начален / краен километраж</td><td>{p937Fmt(p937Drive.startKm,' км',0)} / {p937Fmt(p937Drive.finishKm,' км',0)}</td><td>{p937Fmt(p937Neon.startKm,' км',0)} / {p937Fmt(p937Neon.finishKm,' км',0)}</td></tr>
-   </tbody></table></div>
-   <p className="muted">Реален разход „—“ означава, че няма потвърден етап между две пълни зареждания. Ориентировъчният разход НЕ е реалният разход на автомобила.</p>
-   <p className="muted">⚠️ Специалните зареждания, пропуснатото гориво, настройките на бюджетите и приключването още НЕ се записват през Neon. Не прави реални тестови записи. Drive и оригиналното P93.0 копие остават непроменени.</p>
-  </div>
+   <div className="travel-card" role="region" aria-label="P93.6 проверка Drive и Neon">
+     <h3>🔎 P93.6 · Проверка на гориво и бюджети</h3>
+     <p className="muted">Само сравнение. Нищо не се записва. Ако вече си редактирал разход в Neon, разлика спрямо Drive е нормална. Километрите и горивото тук са ориентир по същите общи данни, а не разрешение за миграция на настройките на автомобила.</p>
+     <div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:'0.92rem'}}><thead><tr><th style={{textAlign:'left'}}>Показател</th><th>Drive</th><th>Neon · редакции</th></tr></thead><tbody>
+     {p936Comparisons.map(([label,drive,neon,unit,decimals])=><tr key={label}><td>{label}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p936Display(drive,unit,decimals)}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}>{p936Display(neon,unit,decimals)}{drive!==null&&neon!==null&&Math.abs(drive-neon)>0.011?' · ≠':''}</td></tr>)}
+     </tbody></table></div>
+     <p className="muted">⚠️ Специално зареждане, пропуснато гориво, бюджетни настройки и приключване на пътуване все още НЕ се записват през това Neon копие. Не ги тествай с реални данни. Няма автоматично обединяване на Drive и Neon.</p>
+   </div>
  );
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
