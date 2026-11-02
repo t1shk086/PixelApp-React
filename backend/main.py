@@ -25,7 +25,7 @@ def sofia_now():
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Header, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Header, Request, Response, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -3368,7 +3368,7 @@ def p924_read_workspace(trip_id: str):
     return {'trip_id':trip_id,'source_run_id':meta[0],'revision':meta[1],'records':rows,'live_switch':False}
 
 @app.post('/safe/p924-record', dependencies=[Depends(authorize)])
-def p924_change_record(change: P924Change):
+def p924_change_record(change: P924Change, background_tasks: BackgroundTasks):
     _assert_test_trip(change.trip_id)
     if change.dataset not in ('expenses','budgets','tasks','points','categories'):
         raise HTTPException(403,'Настройките на пътуванията и общите данни не се редактират в този етап.')
@@ -3410,8 +3410,16 @@ def p924_change_record(change: P924Change):
                 row_id=change.row_id;version=None
             cur.execute('UPDATE pixelapp_p924_workspaces SET revision=revision+1,modified_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
             revision=cur.fetchone()[0]
+            # P92.8: persist the archive obligation in the SAME transaction as the edit.
+            _p928_schema(cur)
+            cur.execute('''INSERT INTO pixelapp_p928_backup_state (trip_id,wanted_revision)
+                           VALUES (%s,%s) ON CONFLICT (trip_id) DO UPDATE
+                           SET wanted_revision=GREATEST(pixelapp_p928_backup_state.wanted_revision,EXCLUDED.wanted_revision),
+                               updated_at=now()''', (change.trip_id,revision))
         conn.commit()
-    return {'ok':True,'trip_id':change.trip_id,'dataset':change.dataset,'row_id':row_id,'version':version,'revision':revision,'drive_unchanged':True,'live_switch':False}
+    # The write is committed before Drive access. A Drive error cannot roll it back.
+    background_tasks.add_task(_p928_backup_worker,change.trip_id)
+    return {'ok':True,'trip_id':change.trip_id,'dataset':change.dataset,'row_id':row_id,'version':version,'revision':revision,'drive_unchanged':True,'live_switch':False,'backup':'queued'}
 
 
 # P92.7 — immutable, verified Google Drive archive of a single TEST Neon workspace.
@@ -3511,3 +3519,89 @@ def p927_archive_check(trip_id: str):
     except HTTPException:raise
     except Exception:
         raise HTTPException(503,'Неуспешна проверка на тестовия архив.') from None
+
+
+# P92.8 — test-only, best-effort automatic verified Drive archival after Neon commits.
+# Pending revisions survive worker restarts in Postgres; GET status (or a new edit)
+# retries pending archives. No production trip or legacy CSV is switched/modified.
+def _p928_schema(cur):
+    cur.execute('''CREATE TABLE IF NOT EXISTS pixelapp_p928_backup_state (
+        trip_id text PRIMARY KEY REFERENCES pixelapp_p924_workspaces(trip_id),
+        wanted_revision bigint NOT NULL,
+        archived_revision bigint NOT NULL DEFAULT 0,
+        archive_filename text NOT NULL DEFAULT '',
+        last_error text NOT NULL DEFAULT '',
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        archived_at timestamptz
+    )''')
+
+
+def _p928_backup_worker(trip_id):
+    # Serialize automatic archival per trip, even across multiple Render workers.
+    import hashlib as _hashlib
+    lock_number = int.from_bytes(_hashlib.sha256(('p928:'+trip_id).encode()).digest()[:8], 'big', signed=True)
+    try:
+        with _neon_demo_connection() as lock_conn:
+            with lock_conn.cursor() as cur:
+                cur.execute('SELECT pg_try_advisory_lock(%s)', (lock_number,))
+                if not cur.fetchone()[0]:
+                    return  # another worker is archiving; next status poll can retry
+            try:
+                for _ in range(3):
+                    with _neon_demo_connection() as conn:
+                        with conn.cursor() as cur:
+                            _p928_schema(cur)
+                            cur.execute('SELECT wanted_revision,archived_revision FROM pixelapp_p928_backup_state WHERE trip_id=%s',(trip_id,))
+                            state=cur.fetchone()
+                    if not state or state[1]>=state[0]:
+                        return
+                    try:
+                        result=p927_workspace_backup(trip_id)
+                        if not result.get('verified'):
+                            raise RuntimeError('Drive verification failed')
+                    except Exception:
+                        # Keep actionable state without leaking Drive credentials or internal errors.
+                        with _neon_demo_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute('UPDATE pixelapp_p928_backup_state SET last_error=%s,updated_at=now() WHERE trip_id=%s',('Архивирането не успя; нужен е нов опит.',trip_id))
+                            conn.commit()
+                        return
+                    with _neon_demo_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute('''UPDATE pixelapp_p928_backup_state
+                                SET archived_revision=GREATEST(archived_revision,%s),
+                                    archive_filename=CASE WHEN archived_revision<=%s THEN %s ELSE archive_filename END,
+                                    last_error='',archived_at=now(),updated_at=now()
+                                WHERE trip_id=%s''',(result['revision'],result['revision'],result['filename'],trip_id))
+                        conn.commit()
+            finally:
+                with lock_conn.cursor() as cur:
+                    cur.execute('SELECT pg_advisory_unlock(%s)',(lock_number,))
+    except Exception:
+        # Never throw from a background task and mask an already committed Neon edit.
+        return
+
+
+@app.get('/safe/p928-backup-status/{trip_id}', dependencies=[Depends(authorize)])
+def p928_backup_status(trip_id: str, background_tasks: BackgroundTasks):
+    _assert_test_trip(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p928_schema(cur)
+            cur.execute('SELECT revision FROM pixelapp_p924_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            if meta is None:raise HTTPException(404,'Липсва тестово работно копие.')
+            cur.execute('''INSERT INTO pixelapp_p928_backup_state(trip_id,wanted_revision)
+                VALUES (%s,%s) ON CONFLICT (trip_id) DO UPDATE SET
+                wanted_revision=GREATEST(pixelapp_p928_backup_state.wanted_revision,EXCLUDED.wanted_revision)''',(trip_id,meta[0]))
+            cur.execute('''SELECT wanted_revision,archived_revision,archive_filename,last_error,archived_at
+                           FROM pixelapp_p928_backup_state WHERE trip_id=%s''',(trip_id,))
+            wanted,archived,filename,error,when=cur.fetchone()
+        conn.commit()
+    pending=archived<wanted
+    if pending:background_tasks.add_task(_p928_backup_worker,trip_id)
+    return {'ok':True,'trip_id':trip_id,'current_revision':meta[0],
+            'wanted_revision':wanted,'archived_revision':archived,
+            'matches_current':not pending,'status':'retrying' if pending and error else 'pending' if pending else 'verified',
+            'archive':filename,'last_error':error,'archived_at':when.isoformat() if when else None,
+            'scope':'test-workspace-only','automatic_restore':False,'drive_csv_unchanged':True}
