@@ -496,6 +496,8 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false}){
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
  const [editing,setEditing]=useState(null);
+ const [archiveBusy,setArchiveBusy]=useState(false);
+ const [archiveNotice,setArchiveNotice]=useState('');
  const [editorOpen,setEditorOpen]=useState(false);
  const [draft,setDraft]=useState({date:'',amount:'',category:'Други',description:'',type:'expense',liters:'',current_km:''});
  const load=async()=>{
@@ -541,6 +543,12 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false}){
   {!compact&&<p className="muted">Тук се тестват реални записи в отделна Neon таблица. Drive остава непроменен.</p>}
   {!workspace?<button type="button" disabled={busy} onClick={prepare}>{busy?'Зареждам…':'Подготви Neon копие'}</button>:<>
    <div className="p9043-expense-actions"><button type="button" disabled={busy} onClick={()=>startEdit(null)}>＋ Разход в Neon</button><button type="button" className="ghost" disabled={busy} onClick={load}>↻ Обнови от Neon</button></div>
+   <div className="p9043-expense-actions" style={{flexWrap:'wrap'}}>
+    <button type="button" className="ghost" disabled={busy||archiveBusy} onClick={async()=>{setArchiveBusy(true);setArchiveNotice('');try{const r=await request('/safe/p927-workspace-backup/'+encodeURIComponent(tripId),'POST');setArchiveNotice(r.verified?(r.still_current?'✅ Проверен архив в Drive · версия ':'⚠️ Архивът е проверен, но има по-нови промени · архивирана версия ')+r.revision+' · '+r.filename:'⚠️ Няма потвърден архив.')}catch(e){setArchiveNotice('⚠️ '+String(e.message||e))}finally{setArchiveBusy(false)}}}>{archiveBusy?'Проверявам…':'☁️ Архивирай Neon в Drive'}</button>
+    <button type="button" className="ghost" disabled={busy||archiveBusy} onClick={async()=>{setArchiveBusy(true);setArchiveNotice('');try{const r=await request('/safe/p927-workspace-archive-check/'+encodeURIComponent(tripId),'POST');setArchiveNotice(r.matches_current_workspace?'✅ Архивът съвпада с текущия Neon · v'+r.revision:'⚠️ Архивът е четим, но Neon има нови промени. Архивирай отново.')}catch(e){setArchiveNotice('⚠️ '+String(e.message||e))}finally{setArchiveBusy(false)}}}>✓ Провери архива</button>
+   </div>
+   <p className="muted">P92.7 · Ръчен проверен архив на тестовото Neon копие (разходи, бюджети и други тестови записи). Не архивира автоматично след всяка промяна и не включва реалните пътувания.</p>
+   {archiveNotice&&<p className="muted" role="status">{archiveNotice}</p>}
    <p className="muted">{allowed.length} плащания · {money(allowed.reduce((sum,x)=>sum+(Number(x.data?.amount)||0),0))} · версия на копието {workspace.revision}</p>
    {allowed.map(item=><div key={item.row_id} style={{borderBottom:'1px solid var(--border,#7774)',padding:'10px 0',display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',flexWrap:'wrap'}}>
     <div><strong>{compact?'✎ ':''}{item.data.description||item.data.category||'Разход'}</strong><div className="muted">{item.data.date} · {item.data.category} · {money(item.data.amount)} · v{item.version}</div></div>
