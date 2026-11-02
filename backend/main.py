@@ -3777,3 +3777,30 @@ def p930_verify_stage(trip_id:str):
             'drive_still_matches':current,'counts':{k:len(v) for k,v in staged.items()},
             'production_modified':False,'live_switch':False,
             'warning':None if consistent and current else 'Drive се е променил или копието не съвпада; превключване не е разрешено.'}
+
+
+# P93.1: read-only, isolated normal-screen preview of the P93.0 migration stage.
+# The original stage and the editable P92.4 workspace remain untouched.
+@app.get('/safe/p931-stage-preview/{trip_id}',dependencies=[Depends(authorize)])
+def p931_stage_preview(trip_id:str):
+    if trip_id != 'ТЕСТ_НОВО_–_PixelApp':
+        raise HTTPException(403,'P93.1 е разрешен само за избраното тестово пътуване.')
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p930_test_stage')::text")
+            if cur.fetchone()[0] is None:
+                raise HTTPException(404,'Първо създай P93.0 копие.')
+            cur.execute('SELECT digest FROM pixelapp_p930_test_stage WHERE trip_id=%s',(trip_id,))
+            found=cur.fetchone()
+            if not found:raise HTTPException(404,'Първо създай P93.0 копие.')
+            cur.execute('SELECT kind,ord,payload FROM pixelapp_p930_test_rows WHERE trip_id=%s ORDER BY kind,ord',(trip_id,))
+            groups={kind:[] for kind in _P930_KINDS}
+            for kind,ord_value,row in cur.fetchall():
+                if kind not in groups:raise HTTPException(409,'Непознат вид данни в копието.')
+                groups[kind].append(row)
+    if _p930_digest(groups)!=found[0]:
+        raise HTTPException(409,'P93.0 копието не премина проверката за цялост.')
+    return {'ok':True,'trip_id':trip_id,'readonly':True,'source':'p930-stage',
+            'records':groups,'counts':{key:len(value) for key,value in groups.items()},
+            'stage_digest':found[0], 'production_modified':False,
+            'message':'Преглед само на мигрираното тестово копие. Записването е забранено.'}
