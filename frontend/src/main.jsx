@@ -760,6 +760,23 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  };
  useEffect(()=>{if(!p934View||!isP934Canary)return;const onFocus=()=>{if(document.visibilityState==='visible')void loadP934()};window.addEventListener('focus',onFocus);return()=>window.removeEventListener('focus',onFocus)},[p934View,neonTripId]);
 
+ // P93.5: reuse the already-tested P93.2 editable workspace, never create a fourth copy.
+ const activateP935=async()=>{
+  if(!isP934Canary||p934Busy)return;
+  setP934Busy(true);setP934Error('');
+  try{
+   // Fail closed if today's Drive has diverged from the immutable migration baseline.
+   const verified=await onNeonRequest('/safe/p934-canary-preview/'+encodeURIComponent(neonTripId));
+   if(!verified?.ok||!verified?.matched_current_drive)throw Error('Текущият Drive не съвпада с провереното P93.0 копие.');
+   // This workspace already contains the P93.2 test edits and its independent backups.
+   const editable=await onNeonRequest('/safe/p932-workspace/'+encodeURIComponent(neonTripId));
+   if(!editable?.ok||!editable?.records)throw Error('Липсва P93.2 копието.');
+   if(!window.confirm('P93.5: Използвай съществуващото P93.2 Neon копие за разходите на това ТЕСТ пътуване? Оригиналният Drive НЕ се обновява. При връщане към Drive новите Neon редакции няма да се виждат там.'))return;
+   setP934View(false);setP934Data(null);setP931StageMode(false);setNeonExpenseView(false);
+   setP932Workspace(editable);setP932Mode(true);
+  }catch(e){setP934Error(String(e?.message||e))}
+  finally{setP934Busy(false)}
+ };
  const loadP931=async()=>{
   if(!isP931Test)return;
   setP934View(false);setP934Data(null);setP932Mode(false);setP931Loading(true);setP931Notice('');
@@ -907,7 +924,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon" type="button" onClick={()=>onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването">⚙️</button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
  
  {p934Active&&<div className="travel-card" role="status">⚡ P93.4.1 · Данни от Neon (само преглед). Drive остава основният източник. За редакция се върни към Drive.</div>}
- {p932Active&&<div className="travel-card" role="status">🧪 P93.2 · Редактируемо миграционно копие. Само тестовото пътуване; Drive и оригиналното P93.0 копие не се променят.</div>}
+ {p932Active&&<div className="travel-card" role="status">⚡ P93.5 · Редакции през провереното P93.2 Neon копие. Само тестовото пътуване; Drive и оригиналното P93.0 копие не се променят.</div>}
  {p931Active&&<div className="travel-card" role="status" style={{padding:10,marginBottom:8}}>🧪 P93.1 · Преглед на копие от Neon — само четене. Не променя Drive или работното Neon копие.</div>}
  <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">Зареждаме данните за пътуването…</div>:<>
@@ -918,18 +935,19 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  </>}
  {section==='expenses'&&<>
  {isP934Canary&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
-  <strong>⚡ P93.4.1 · Преглед на Neon с разходи в нормалния екран</strong>
+  <strong>⚡ P93.5 · Източник на разходите (само ТЕСТ_НОВО)</strong>
   <div className="p9043-expense-actions" style={{marginTop:10,flexWrap:'wrap'}}>
-   <button type="button" className={!p934Active?'selected':''} onClick={()=>{setP934View(false);setP934Data(null)}}>☁️ Drive</button>
-   <button type="button" className={p934Active?'selected':''} disabled={p934Busy} onClick={()=>void loadP934()}>{p934Busy?'Сверявам…':p934Active?'↻ Обнови Neon':'⚡ Преглед от Neon'}</button>
+   <button type="button" className={!p934Active&&!p932Mode?'selected':''} disabled={p934Busy} onClick={()=>{setP934View(false);setP934Data(null);setP932Mode(false);setP932Workspace(null);setP931StageMode(false);setNeonExpenseView(false)}}>☁️ Drive</button>
+   <button type="button" className={p934Active?'selected':''} disabled={p934Busy} onClick={()=>void loadP934()}>{p934Busy?'Проверявам…':'⚡ Neon · преглед'}</button>
+   <button type="button" className={p932Mode?'selected':''} disabled={p934Busy} onClick={()=>void activateP935()}>{p934Busy?'Проверявам…':'✎ Neon · редакции'}</button>
   </div>
-  <p className="muted">Само ТЕСТ_НОВО_–_PixelApp. Преди зареждане се проверява текущият Drive спрямо Neon. Ако има промяна, прегледът се блокира. Редакциите през Neon още не са включени.</p>
+  <p className="muted">{p932Mode?'Активно е съществуващото редактируемо P93.2 Neon копие, с отделен автоматичен архив в Drive. Оригиналните Drive CSV не се актуализират.':'В Drive виждаш старите записи; Neon · преглед показва провереното P93.0 копие, а Neon · редакции — отделното P93.2 копие.'} Връщането към Drive сменя само изгледа, не прехвърля Neon редакции.</p>
   {p934Error&&<p role="alert" className="error">⚠️ {p934Error}</p>}
  </div>}
 
- {isP931Test&&<div className="travel-card" style={{padding:12,marginBottom:10}}><button type="button" disabled={p931Loading} className={p932Active?'selected':''} onClick={async()=>{if(p932Mode){setP932Mode(false);return;}setP934View(false);setP934Data(null);if(!window.confirm('P93.2 ще създаде отделно редактираемо Neon копие само на тестовото пътуване. Продължи?'))return;try{await onNeonRequest('/safe/p932-workspace/'+encodeURIComponent(neonTripId),'POST');setP931StageMode(false);setNeonExpenseView(false);setP932Mode(true)}catch(e){setP931Notice('⚠️ '+String(e.message||e))}}}>{p932Active?'✓ P93.2 включено':'🧪 Активирай P93.2 редакции'}</button></div>}
- {isP931Test&&<div className="travel-card" style={{padding:12,marginBottom:10}}><strong>🧪 P93.1 · Мигрирано копие (само преглед)</strong><div className="p9043-expense-actions" style={{marginTop:10,flexWrap:'wrap'}}><button type="button" className={p931Active?'selected':''} disabled={p931Loading} onClick={()=>{if(p931Active){setP931StageMode(false)}else void loadP931()}}>{p931Loading?'Зареждам…':p931Active?'✓ P93.0 копие включено':'Прегледай P93.0 копието'}</button>{p931Active&&<button type="button" className="ghost" onClick={()=>setP931StageMode(false)}>Върни нормалния източник</button>}{p931Active&&<button type="button" className="ghost" disabled={p931Loading} onClick={()=>void loadP931()}>↻ Обнови копието</button>}</div><p className="muted">{p931Active?'Разходи, гориво и бюджети се изчисляват от отделното P93.0 Neon копие. Не е разрешено редактиране или миграция.':'Само тестовото пътуване. P92.4 Neon v8 и Google Drive остават непроменени.'}</p>{p931Notice&&<p role="status" className="muted">{p931Notice}</p>}</div>}
- {isNeonExpenseTest&&!p931Active&&!p932Active&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
+ {isP931Test&&!isP934Canary&&<div className="travel-card" style={{padding:12,marginBottom:10}}><button type="button" disabled={p931Loading} className={p932Active?'selected':''} onClick={async()=>{if(p932Mode){setP932Mode(false);return;}setP934View(false);setP934Data(null);if(!window.confirm('P93.2 ще създаде отделно редактираемо Neon копие само на тестовото пътуване. Продължи?'))return;try{await onNeonRequest('/safe/p932-workspace/'+encodeURIComponent(neonTripId),'POST');setP931StageMode(false);setNeonExpenseView(false);setP932Mode(true)}catch(e){setP931Notice('⚠️ '+String(e.message||e))}}}>{p932Active?'✓ P93.2 включено':'🧪 Активирай P93.2 редакции'}</button></div>}
+ {isP931Test&&!isP934Canary&&<div className="travel-card" style={{padding:12,marginBottom:10}}><strong>🧪 P93.1 · Мигрирано копие (само преглед)</strong><div className="p9043-expense-actions" style={{marginTop:10,flexWrap:'wrap'}}><button type="button" className={p931Active?'selected':''} disabled={p931Loading} onClick={()=>{if(p931Active){setP931StageMode(false)}else void loadP931()}}>{p931Loading?'Зареждам…':p931Active?'✓ P93.0 копие включено':'Прегледай P93.0 копието'}</button>{p931Active&&<button type="button" className="ghost" onClick={()=>setP931StageMode(false)}>Върни нормалния източник</button>}{p931Active&&<button type="button" className="ghost" disabled={p931Loading} onClick={()=>void loadP931()}>↻ Обнови копието</button>}</div><p className="muted">{p931Active?'Разходи, гориво и бюджети се изчисляват от отделното P93.0 Neon копие. Не е разрешено редактиране или миграция.':'Само тестовото пътуване. P92.4 Neon v8 и Google Drive остават непроменени.'}</p>{p931Notice&&<p role="status" className="muted">{p931Notice}</p>}</div>}
+ {isNeonExpenseTest&&!isP934Canary&&!p931Active&&!p932Active&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
   <strong>🧪 Източник на данните · само ТЕСТ пътуване</strong>
   <div className="p9043-expense-actions" style={{marginTop:10}}>
    <button type="button" className={!neonExpenseView?'selected':''} onClick={()=>setNeonExpenseView(false)}>☁️ Drive</button>
@@ -939,7 +957,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   {neonExpenseView&&!neonExpenseWorkspace?.records&&<p role="status">Neon не е достъпен — превключването не е извършено.</p>}
  </div>}
  {p932Mode&&isP931Test&&<NeonExpenseWorkspace key={'p932-'+neonTripId} tripId={neonTripId} request={onNeonRequest} p932 onWorkspaceChange={setP932Workspace} compact/>}
- {isNeonExpenseTest&&!p931Active&&!p932Mode&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
+ {isNeonExpenseTest&&!isP934Canary&&!p931Active&&!p932Mode&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
  <div className="p9043-expense-actions">{!p934Active&&!neonActive&&!p931Active&&!p932Mode&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
  <ExpenseHistory rows={rows} onExpenseAction={!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
