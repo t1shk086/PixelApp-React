@@ -3605,3 +3605,82 @@ def p928_backup_status(trip_id: str, background_tasks: BackgroundTasks):
             'matches_current':not pending,'status':'retrying' if pending and error else 'pending' if pending else 'verified',
             'archive':filename,'last_error':error,'archived_at':when.isoformat() if when else None,
             'scope':'test-workspace-only','automatic_restore':False,'drive_csv_unchanged':True}
+
+
+# P92.9 — strictly read-only comparison of current Drive and the last verified P92 snapshot.
+@app.get('/safe/p929-trip-diagnostics', dependencies=[Depends(authorize)])
+def p929_trip_diagnostics():
+    from collections import defaultdict
+    kinds=('settings','expenses','budgets','tasks','points','categories')
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p92_snapshot_runs')::text")
+            if cur.fetchone()[0] is None:
+                raise HTTPException(409, 'Няма P92.0 копие за сравнение.')
+            cur.execute('SELECT run_id,inventory FROM pixelapp_p92_snapshot_runs WHERE verified=true ORDER BY created_at DESC LIMIT 1')
+            meta=cur.fetchone()
+            if not meta: raise HTTPException(409,'Няма проверено Neon копие.')
+            run_id, manifest=meta
+            cur.execute('SELECT source_kind,payload FROM pixelapp_p92_snapshot_rows WHERE run_id=%s ORDER BY source_kind,row_number',(run_id,))
+            snapshot=defaultdict(list)
+            for kind,payload in cur.fetchall(): snapshot[kind].append(payload)
+    service=drive_service()
+    if service is None: raise HTTPException(503,'Google Drive не е достъпен.')
+    _,mapping=folder_and_files(service)
+    source={}
+    for kind in kinds:
+        filename=FILENAMES[kind]
+        if filename not in mapping:
+            if kind in ('settings','expenses','budgets'): raise HTTPException(409,'Липсва необходим Drive файл: '+filename)
+            source[kind]=[]
+            continue
+        raw=service.files().get_media(fileId=mapping[filename]).execute()
+        reader=csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))
+        if not reader.fieldnames or any(c not in reader.fieldnames for c in COLUMNS[kind]):
+            raise HTTPException(409,'Невалиден Drive CSV: '+filename)
+        source[kind]=list(reader)
+        if any(None in row for row in source[kind]):
+            raise HTTPException(409,'Невалидни CSV редове: '+filename)
+
+    def summary(rows,kind):
+        # Preserve exact original row contents in fingerprints, including amounts and fuel.
+        digest=hashlib.sha256(json.dumps(rows,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        data={'count':len(rows),'sha256':digest}
+        if kind=='expenses':
+            from decimal import Decimal, InvalidOperation
+            amount=Decimal(0);fuel=0;liters=Decimal(0);bad=0
+            by_category=defaultdict(int)
+            for r in rows:
+                by_category[str(r.get('category',''))]+=1
+                try: amount+=Decimal(str(r.get('amount','0')).replace(',','.').strip() or '0')
+                except InvalidOperation:bad+=1
+                if str(r.get('type','')).lower() in ('fuel','гориво','refuel','зареждане') or str(r.get('liters','')).strip():
+                    fuel+=1
+                    try:liters+=Decimal(str(r.get('liters','0')).replace(',','.').strip() or '0')
+                    except InvalidOperation:bad+=1
+            data.update(amount=str(amount),fuel_records=fuel,fuel_liters=str(liters),invalid_numeric=bad,categories=dict(sorted(by_category.items())))
+        return data
+
+    trip_ids=sorted({str(r.get('trip_id','')).strip() for r in source['settings']+snapshot['settings'] if str(r.get('trip_id','')).strip()})
+    comparison=[]
+    for tid in trip_ids:
+        items={};different=[]
+        for kind in kinds:
+            live_rows=[r for r in source[kind] if str(r.get('trip_id','')).strip()==tid]
+            snap_rows=[r for r in snapshot[kind] if str(r.get('trip_id','')).strip()==tid]
+            live=summary(live_rows,kind);snap=summary(snap_rows,kind)
+            # Order-sensitive identity also detects reordering; no mismatches are hidden.
+            match=live['sha256']==snap['sha256']
+            if not match:different.append(kind)
+            items[kind]={'drive':live,'snapshot':snap,'match':match}
+        comparison.append({'trip_id':tid,'matches_snapshot':not different,'different_datasets':different,'datasets':items,'live_neon_migrated':False})
+    extra={}
+    for kind in kinds:
+        live=[r for r in source[kind] if not str(r.get('trip_id','')).strip() or str(r.get('trip_id','')).strip() not in trip_ids]
+        old=[r for r in snapshot[kind] if not str(r.get('trip_id','')).strip() or str(r.get('trip_id','')).strip() not in trip_ids]
+        extra[kind]={'drive_count':len(live),'snapshot_count':len(old)}
+    return {'ok':True,'read_only':True,'drive_modified':False,'snapshot_modified':False,
+            'live_neon_migrated':False,'ready_for_live_switch':False,'snapshot_run_id':run_id,
+            'trip_count':len(comparison),'matching_trips':sum(t['matches_snapshot'] for t in comparison),
+            'trips':comparison,'unassigned_rows':extra,
+            'warning':'Сравнява Drive с историческото P92.0 копие, НЕ с мигрирана продукционна Neon база. Различията може да са по-нови редакции в Drive.'}
