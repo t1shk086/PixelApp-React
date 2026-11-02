@@ -3420,8 +3420,9 @@ def _p927_archive_document(trip_id):
     _assert_test_trip(trip_id)
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
+            # Tables were initialized by the P92.4 workspace endpoints.
+            # Never run CREATE TABLE inside this read-only snapshot transaction.
             cur.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-            _p924_schema(cur)
             cur.execute('SELECT source_run_id,source_digest,revision FROM pixelapp_p924_workspaces WHERE trip_id=%s',(trip_id,))
             meta=cur.fetchone()
             if meta is None:raise HTTPException(404,'Липсва тестово Neon работно копие.')
