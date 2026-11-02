@@ -3225,3 +3225,39 @@ def p92_readiness():
       'per_trip':per_trip,'issues':list(dict.fromkeys(issues)), 'stale_sources':stale,
       'source_is_current':not stale,'elapsed_ms':round((_clock.perf_counter()-start)*1000),
       'note':'Integrity/readiness audit only. Live read/write migration and full backups are NOT yet implemented.'}
+
+
+# P92.2 — detailed, read-only inspection of unresolved trip references.
+@app.get('/safe/p92-reference-details', dependencies=[Depends(authorize)])
+def p92_reference_details():
+    import time as _clock
+    start = _clock.perf_counter()
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p92_snapshot_runs')::text")
+            if cur.fetchone()[0] is None:
+                raise HTTPException(409, 'Няма P92.0 копие.')
+            cur.execute('SELECT run_id,inventory FROM pixelapp_p92_snapshot_runs WHERE verified=true ORDER BY created_at DESC LIMIT 1')
+            latest=cur.fetchone()
+            if latest is None:raise HTTPException(409, 'Няма проверено P92.0 копие.')
+            run_id,manifest=latest
+            cur.execute('SELECT source_kind,row_number,payload FROM pixelapp_p92_snapshot_rows WHERE run_id=%s AND source_kind IN (%s,%s,%s) ORDER BY source_kind,row_number',
+                        (run_id,'settings','points','categories'))
+            rows=cur.fetchall()
+    known={str(payload.get('trip_id','')).strip() for kind,idx,payload in rows if kind=='settings' and str(payload.get('trip_id','')).strip()}
+    details=[]
+    for kind,idx,payload in rows:
+        if kind not in ('points','categories'):continue
+        trip_id=str(payload.get('trip_id','')).strip()
+        if trip_id in known:continue
+        details.append({'dataset':kind,'row_number':idx,'trip_id':trip_id,
+                        'trip_id_is_blank':not bool(trip_id),
+                        'title':str(payload.get('title',''))[:180] if kind=='points' else '',
+                        'category':str(payload.get('category',''))[:180] if kind=='categories' else '',
+                        'stop_type':str(payload.get('stop_type',''))[:80] if kind=='points' else '',
+                        'reason':'празен trip_id' if not trip_id else 'няма такова пътуване в settings'})
+    return {'ok':True,'run_id':run_id,'known_trip_count':len(known),
+            'unresolved_count':len(details),'unresolved':details,
+            'classification':'неопределена — необходима е проверка преди корекция',
+            'ready_for_live_switch':False,'drive_modified':False,'live_neon_modified':False,
+            'elapsed_ms':round((_clock.perf_counter()-start)*1000)}
