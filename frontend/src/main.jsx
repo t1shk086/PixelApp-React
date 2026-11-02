@@ -505,6 +505,9 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
  const [budgetKind,setBudgetKind]=useState('global');
  const [budgetValue,setBudgetValue]=useState('');
  const [budgetPerCat,setBudgetPerCat]=useState({});
+ const [p939Liters,setP939Liters]=useState('');
+ const [p939Amount,setP939Amount]=useState('0');
+ const [p939EndKm,setP939EndKm]=useState('');
  const [draft,setDraft]=useState({date:'',amount:'',category:'Други',description:'',type:'expense',liters:'',current_km:''});
  const load=async()=>{
   setBusy(true);setNotice('');
@@ -534,6 +537,20 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
   await request('/safe/p938-test-budget','POST',{trip_id:tripId,expected_revision:workspace.revision,mode:budgetKind,amount:budgetValue,categories});
   const next=await request('/safe/p932-workspace/'+encodeURIComponent(tripId));setWorkspace(next);onWorkspaceChange?.(next);setTestMode('expense');setP932Backup(await request('/safe/p932-backup-status/'+encodeURIComponent(tripId)));setNotice('✅ Тестовият бюджет е записан в Neon, архивът е заявен.');
  }catch(e){setNotice('⚠️ '+String(e.message||e))}finally{setBusy(false)}};
+ const p939Save=async(operation)=>{
+  if(!workspace||busy)return;
+  if(operation==='finish'&&!window.confirm('Да приключим САМО отделното тестово Neon пътуване? След това то ще е заключено за нови промени.'))return;
+  setBusy(true);setNotice('');
+  try{
+   await request('/safe/p939-car-test','POST',{trip_id:tripId,expected_revision:workspace.revision,operation,
+    liters:p939Liters,amount:p939Amount,end_km:p939EndKm});
+   const next=await request('/safe/p932-workspace/'+encodeURIComponent(tripId));
+   setWorkspace(next);onWorkspaceChange?.(next);
+   setP932Backup(await request('/safe/p932-backup-status/'+encodeURIComponent(tripId)));
+   setNotice('✅ P93.9: Записано само в тестовия Neon. Архивът е заявен.');
+  }catch(e){setNotice('⚠️ '+String(e.message||e)+' · Обнови Neon преди нов опит.')}
+  finally{setBusy(false)}
+ };
  const perform=async(operation,item)=>{
   if(busy)return;
   if(operation==='delete'&&!window.confirm('Изтриване само от Neon тестовото копие?'))return;
@@ -575,6 +592,18 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
     <div><strong>{compact?'✎ ':''}{item.data.description||item.data.category||'Разход'}</strong><div className="muted">{item.data.date} · {item.data.category} · {money(item.data.amount)} · v{item.version}</div></div>
     <div style={{display:'flex',gap:8}}><button type="button" className="ghost" disabled={busy} onClick={()=>startEdit(item)}>✎</button><button type="button" className="ghost" disabled={busy} onClick={()=>perform('delete',item)}>🗑</button></div>
    </div>)}
+   {p932&&workspace?.records?.settings?.length===1&&<section className="p21-section" style={{display:'grid',gap:9,marginTop:12}}>
+    <strong>🚗 P93.9 · Автомобил — само Neon тест</strong>
+    <small>Drive остава непроменен. Начално гориво, пропуснати литри и приключване са отделни действия; след приключване пътуването се заключва.</small>
+    <p className="muted">Начално гориво: {workspace.records.settings[0].data.manual_fuel||'0'} л · Краен км: {workspace.records.settings[0].data.end_km||'0'}</p>
+    <label>Литри<input inputMode="decimal" value={p939Liters} onChange={e=>setP939Liters(e.target.value)} placeholder="Напр. 15.5"/></label>
+    <div className="actions"><button type="button" disabled={busy} onClick={()=>void p939Save('initial_fuel')}>Запиши начално гориво</button></div>
+    <label>Платена сума за пропуснатото (€; 0 ако няма)<input inputMode="decimal" value={p939Amount} onChange={e=>setP939Amount(e.target.value)}/></label>
+    <div className="actions"><button type="button" disabled={busy} onClick={()=>void p939Save('missed_fuel')}>Добави пропуснати литри</button></div>
+    <label>Краен километраж<input type="number" step="1" value={p939EndKm} onChange={e=>setP939EndKm(e.target.value)}/></label>
+    <button type="button" disabled={busy} onClick={()=>void p939Save('finish')}>Приключи само Neon тестовото пътуване</button>
+    <small>Преди приключване първо тествай началните и пропуснатите литри. След приключване нови настройки са забранени.</small>
+   </section>}
    {p932&&testMode==='budget'&&<div className="p21-section" style={{display:'grid',gap:9,marginTop:12}}><strong>💰 P93.8 · Само тестов Neon бюджет</strong><label>Режим<select value={budgetKind} onChange={e=>setBudgetKind(e.target.value)}><option value="global">Общ</option><option value="category">По категории</option></select></label>{budgetKind==='global'?<label>Общо (€)<input inputMode="decimal" value={budgetValue} onChange={e=>setBudgetValue(e.target.value)}/></label>:<><p className="muted">Редактирай сумите по категории. За нова категория първо я създай в настройките на пътуването в Drive.</p>{[...new Set(['Храна и напитки','Транспорт','Други','Нощувки/Хотел',...Object.keys(budgetPerCat),...(workspace?.records?.categories||[]).map(x=>x.data.category)])].map(cat=><label key={cat}>{cat}<input inputMode="decimal" value={budgetPerCat[cat]??'0'} onChange={e=>setBudgetPerCat(p=>({...p,[cat]:e.target.value}))}/></label>)}</>}<div className="actions"><button type="button" disabled={busy} onClick={()=>void saveBudget()}>Запази тестовия бюджет</button><button type="button" className="ghost" onClick={()=>setTestMode('expense')}>Отказ</button></div></div>}
    {editorOpen&&<form onSubmit={e=>{e.preventDefault();void perform(editing?'edit':'add',editing)}} style={{display:'grid',gap:9,marginTop:12}}>
     <label>Дата<input value={draft.date} onChange={e=>setDraft({...draft,date:e.target.value})} required/></label>
