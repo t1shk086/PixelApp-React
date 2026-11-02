@@ -4440,3 +4440,106 @@ def neon_shared_expense(change: P924Change, background_tasks: BackgroundTasks):
     background_tasks.add_task(_p932_backup_worker,change.trip_id)
     return {'ok':True,'trip_id':change.trip_id,'row_id':row_id,'version':version,
             'revision':revision,'backup_pending':True,'production_switched':False,'drive_modified':False}
+
+
+# P94.4 — read-only migration readiness audit. No new copies, flags or live switching.
+# A workspace intentionally diverges from the original Drive snapshot after edits;
+# compare *stages* with Drive, and assess workspace backup independently.
+@app.get('/safe/neon/migration-readiness', dependencies=[Depends(authorize)])
+def neon_migration_readiness():
+    groups = _p933_groups_from_drive()
+    trip_ids = [_P932_TRIP] + sorted(groups)
+    if len(trip_ids) != 9:
+        raise HTTPException(409, 'Очакват се девет пътувания. Не е извършена промяна.')
+
+    items = []
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            # Treat missing tables as a non-ready state, never create them in a GET.
+            table_names = ('pixelapp_p930_test_stage', 'pixelapp_p930_test_rows',
+                           'pixelapp_p933_stage', 'pixelapp_p933_rows',
+                           'pixelapp_p932_workspaces', 'pixelapp_p932_rows',
+                           'pixelapp_p932_backup_state')
+            present = {}
+            for table in table_names:
+                cur.execute('SELECT to_regclass(%s)::text', ('public.' + table,))
+                present[table] = bool(cur.fetchone()[0])
+
+            for tid in trip_ids:
+                source_meta, source_rows = _p941_stage_source(tid)
+                source_complete = present[source_meta] and present[source_rows]
+                stage_digest = None
+                stage_matches_drive = False
+                counts = {kind: 0 for kind in _P930_KINDS}
+                if source_complete:
+                    cur.execute('SELECT digest FROM ' + source_meta + ' WHERE trip_id=%s', (tid,))
+                    stage = cur.fetchone()
+                    if stage:
+                        stage_digest = stage[0]
+                        cur.execute('SELECT kind,payload FROM ' + source_rows +
+                                    ' WHERE trip_id=%s ORDER BY kind,ord', (tid,))
+                        staged = {kind: [] for kind in _P930_KINDS}
+                        invalid_kind = False
+                        for kind, payload in cur.fetchall():
+                            if kind not in staged:
+                                invalid_kind = True
+                            else:
+                                staged[kind].append(payload)
+                        counts = {kind: len(rows) for kind, rows in staged.items()}
+                        # Compare to the independently loaded live Drive data.
+                        live = _p930_load_drive_trip(tid) if tid == _P932_TRIP else groups[tid]
+                        stage_matches_drive = (not invalid_kind and
+                                               _p930_digest(staged) == stage_digest and
+                                               _p930_digest(live) == stage_digest)
+
+                workspace_revision = None
+                workspace_rows = 0
+                archived_revision = 0
+                backup_error = None
+                backup_file = None
+                if present['pixelapp_p932_workspaces']:
+                    cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s', (tid,))
+                    workspace = cur.fetchone()
+                    if workspace:
+                        workspace_revision = workspace[0]
+                        if present['pixelapp_p932_rows']:
+                            cur.execute('SELECT count(*) FROM pixelapp_p932_rows WHERE trip_id=%s', (tid,))
+                            workspace_rows = cur.fetchone()[0]
+                        if present['pixelapp_p932_backup_state']:
+                            cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s', (tid,))
+                            backup = cur.fetchone()
+                            if backup:
+                                archived_revision,backup_file,backup_error = backup
+
+                # An up-to-date archive is meaningful only for an existing workspace.
+                backup_current = (workspace_revision is not None and
+                                  archived_revision >= workspace_revision and
+                                  bool(backup_file) and not backup_error)
+                items.append({
+                    'trip_id': tid,
+                    'staged_copy_exists': stage_digest is not None,
+                    'stage_matches_live_drive': stage_matches_drive,
+                    'staged_record_counts': counts,
+                    'workspace_exists': workspace_revision is not None,
+                    'workspace_revision': workspace_revision,
+                    'workspace_record_count': workspace_rows,
+                    'backup_revision': archived_revision,
+                    'backup_current': backup_current,
+                    'backup_error': backup_error,
+                    # No user-visible filenames or permanent Drive links are needed.
+                    'safe_to_auto_cutover': False,
+                })
+
+    return {
+        'ok': True,
+        'read_only': True,
+        'production_switched': False,
+        'trip_count': len(items),
+        'stage_matches_drive_count': sum(x['stage_matches_live_drive'] for x in items),
+        'workspace_count': sum(x['workspace_exists'] for x in items),
+        'backed_up_workspace_count': sum(x['backup_current'] for x in items),
+        'all_trips_ready_for_cutover': False,
+        'note': ('Readiness only. Existing editable test copy may differ from Drive intentionally. '
+                 'Other trips must be reconciled and all data writers migrated before cutover.'),
+        'trips': items,
+    }
