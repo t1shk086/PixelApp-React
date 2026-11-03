@@ -4516,6 +4516,107 @@ def neon_shared_collection(change: P924Change, background_tasks: BackgroundTasks
             'drive_modified': False}
 
 
+# P95.1 — atomic map actions in the already existing Neon workspace.
+# The points CSV contains both route stops and per-trip favorites. Reordering
+# therefore must happen as one transaction, not two optimistic row edits.
+class P951PointAction(BaseModel):
+    trip_id: str
+    kind: str
+    operation: str
+    expected_revision: int
+    index: int = -1
+    position: int = -1
+    title: str = ''
+    lat: float = 0
+    lon: float = 0
+    stop_type: str = 'planned'
+
+@app.post('/safe/neon/points-action', dependencies=[Depends(authorize)])
+def neon_points_action(change: P951PointAction, background_tasks: BackgroundTasks):
+    _p941_write_allowed(change.trip_id)
+    if change.kind not in ('route', 'favorite') or change.operation not in ('add','edit','delete','move'):
+        raise HTTPException(422, 'Невалидно действие с картата.')
+    if change.operation == 'move' and change.kind != 'route':
+        raise HTTPException(422, 'Любимите места не се пренареждат.')
+    if change.operation in ('add','edit'):
+        if (not change.title.strip() or len(change.title.strip()) > 150 or
+            not math.isfinite(change.lat) or not math.isfinite(change.lon) or
+            abs(change.lat) > 90 or abs(change.lon) > 180):
+            raise HTTPException(422, 'Невалидни координати или име.')
+    if change.kind == 'route' and change.operation == 'add' and change.stop_type not in ('planned','unplanned'):
+        raise HTTPException(422, 'Невалиден тип спирка.')
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE', (change.trip_id,))
+            meta=cur.fetchone()
+            if not meta:raise HTTPException(409, 'Липсва Neon копието.')
+            if meta[0] != change.expected_revision:
+                raise HTTPException(409, 'Другият профил е променил данните. Обнови картата.')
+            cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",(change.trip_id,))
+            settings=cur.fetchone()
+            if settings and (str(settings[0].get('trip_finished','')).lower()=='да' or
+                             float(settings[0].get('end_km') or 0)>0):
+                raise HTTPException(409,'Пътуването е приключено.')
+            cur.execute("SELECT row_id,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='points' ORDER BY row_order,row_id FOR UPDATE",(change.trip_id,))
+            items=[{'id':r[0], 'row':r[1], 'version':r[2]} for r in cur.fetchall()]
+            def is_route(entry):
+                r=entry['row']
+                return str(r.get('title','')).startswith('3b:') and r.get('color') in ('purple','orange')
+            matches=[i for i,v in enumerate(items) if is_route(v)==(change.kind=='route')]
+            if change.operation != 'add' and not (0<=change.index<len(matches)):
+                raise HTTPException(409,'Мястото вече не съществува. Обнови картата.')
+            if change.operation=='add':
+                name=change.title.strip()
+                if change.kind=='favorite' and any(
+                    v['row'].get('title','').casefold()==name.casefold() and
+                    abs(float(v['row']['lat'])-change.lat)<0.00001 and
+                    abs(float(v['row']['lon'])-change.lon)<0.00001 for v in
+                    (items[i] for i in matches)):
+                    raise HTTPException(409,'Любимото място вече съществува.')
+                data={'trip_id':change.trip_id,'lat':str(change.lat),'lon':str(change.lon),
+                      'title':('3b: '+name) if change.kind=='route' else name,
+                      'color':('purple' if change.stop_type=='planned' else 'orange') if change.kind=='route' else 'blue',
+                      'stop_type':change.stop_type if change.kind=='route' else 'favorite'}
+                new={'id':uuid.uuid4().hex,'row':data,'version':1,'new':True}
+                if change.kind=='favorite':insert=len(items)
+                elif change.position<0 or change.position>=len(matches):insert=matches[-1]+1 if matches else len(items)
+                else:insert=matches[change.position]
+                items.insert(insert,new)
+            elif change.operation=='delete':
+                items.pop(matches[change.index])
+            elif change.operation=='edit':
+                old=items[matches[change.index]]
+                old['row']={**old['row'],'title':change.title.strip(),'lat':str(change.lat),'lon':str(change.lon)}
+                old['version']+=1;old['edited']=True
+            else:
+                other=change.index+change.position
+                if change.position not in (-1,1) or not 0<=other<len(matches):
+                    raise HTTPException(422,'Невъзможно преместване.')
+                a,b=matches[change.index],matches[other]
+                items[a],items[b]=items[b],items[a]
+            kept={x['id'] for x in items}
+            cur.execute("SELECT row_id FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='points'",(change.trip_id,))
+            for (old_id,) in cur.fetchall():
+                if old_id not in kept:
+                    cur.execute("DELETE FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='points' AND row_id=%s",(change.trip_id,old_id))
+            for order,item in enumerate(items):
+                if item.get('new'):
+                    cur.execute("INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload,version) VALUES(%s,'points',%s,%s,%s,1)",(change.trip_id,item['id'],order,Jsonb(item['row'])))
+                elif item.get('edited'):
+                    cur.execute("UPDATE pixelapp_p932_rows SET row_order=%s,payload=%s,version=%s WHERE trip_id=%s AND dataset='points' AND row_id=%s",(order,Jsonb(item['row']),item['version'],change.trip_id,item['id']))
+                else:
+                    cur.execute("UPDATE pixelapp_p932_rows SET row_order=%s WHERE trip_id=%s AND dataset='points' AND row_id=%s",(order,change.trip_id,item['id']))
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=cur.fetchone()[0]
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s)
+                ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",(change.trip_id,revision))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'revision':revision,'backup_pending':True,'production_switched':False}
+
+
 # P94.4 — read-only migration readiness audit. No new copies, flags or live switching.
 # A workspace intentionally diverges from the original Drive snapshot after edits;
 # compare *stages* with Drive, and assess workspace backup independently.
