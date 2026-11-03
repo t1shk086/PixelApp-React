@@ -90,7 +90,7 @@ function ExpenseHistory({rows,onExpenseAction}) {
  const isPayment=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
  const categoryName=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
  const all=rows.filter(isPayment);
- const canChange=r=>onExpenseAction&&((r._neonRowId&&r._neonVersion&&String(r.type)==='expense'&&Number(r.liters||0)===0&&Number(r.current_km||0)===0)||(!r._neonRowId&&r._original!==false&&!r._temporary&&!r._temporaryEdited&&String(r.type)==='expense'&&String(r.description||'').startsWith('[P62] ')&&['0','0.0','0.00',''].includes(String(r.liters??''))&&['0','0.0','0.00',''].includes(String(r.current_km??''))));
+ const canChange=r=>onExpenseAction&&((r._neonRowId&&Number(r._neonVersion)>0&&String(r.type)==='expense'&&!/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i.test(String(r.description||'')))||(!r._neonRowId&&r._original!==false&&!r._temporary&&!r._temporaryEdited&&String(r.type)==='expense'&&String(r.description||'').startsWith('[P62] ')&&['0','0.0','0.00',''].includes(String(r.liters??''))&&['0','0.0','0.00',''].includes(String(r.current_km??''))));
  const options=Array.from(new Set(all.map(categoryName))).sort((a,b)=>a.localeCompare(b,'bg'));
  const visible=all.filter(r=>{
   if(category!=='all'&&categoryName(r)!==category)return false;
@@ -966,6 +966,11 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  const [p942Category,setP942Category]=useState('Други');
  const [p942Description,setP942Description]=useState('');
  const [p943Editing,setP943Editing]=useState(null);
+ const [p943Liters,setP943Liters]=useState('');
+ const [p943Km,setP943Km]=useState('');
+ const [p943FuelKind,setP943FuelKind]=useState('untagged');
+ const isFuelExpense=r=>String(r?.category||'')==='Транспорт'&&(Number(r?.liters||0)>0||Number(r?.current_km||0)>0||/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(String(r?.description||'')));
+ const fuelPrefix=/^\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]\s*/i;
  const [p950BudgetOpen,setP950BudgetOpen]=useState(false);
  const [p952CarOpen,setP952CarOpen]=useState(false);
  const [p952FuelAmount,setP952FuelAmount]=useState('');
@@ -1002,12 +1007,16 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  useEffect(()=>{if(!p942Test)return;const refresh=()=>{if(document.visibilityState==='visible')void p942Reload()};window.addEventListener('focus',refresh);return()=>window.removeEventListener('focus',refresh)},[neonTripId]);
  const p943Action=async(action,record)=>{
   if(p953Finished||!p942Test||!p942Data||p942Saving||!record?._neonRowId)return;
-  if(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ|ПРОПУСНАТО\s+ГОРИВО\]/i.test(String(record.description||''))){setP942Error('Горивото е защитено. Редакцията му ще бъде добавена към автомобилния модул.');return;}
+  if(/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i.test(String(record.description||''))){setP942Error('Пропуснатите литри се управляват от настройките на автомобила.');return;}
   if(action==='edit'){
-   setP943Editing(record);setP942Amount(String(record.amount||''));setP942Category(String(record.category||'Други'));
-   setP942Description(String(record.description||''));setP942Error('');setP942Form(true);return;
+   const raw=String(record.description||'');
+   setP943Editing(record);setP942Amount(String(record.amount??''));setP942Category(String(record.category||'Други'));
+   setP942Description(isFuelExpense(record)?raw.replace(fuelPrefix,''):raw);
+   setP943Liters(String(record.liters??''));setP943Km(String(record.current_km??''));
+   setP943FuelKind(/^\[(?:ПЪЛНО|ПЪЛЕН)\s+ЗАРЕЖДАНЕ\]/i.test(raw)?'full':/^\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(raw)?'partial':'untagged');
+   setP942Error('');setP942Form(true);return;
   }
-  if(action!=='delete'||!window.confirm('Да изтрия този разход?'))return;
+  if(action!=='delete'||!window.confirm(isFuelExpense(record)?'Да изтрия зареждането? Това ще преизчисли разхода на гориво и пробега по етапи.':'Да изтрия този разход?'))return;
   setP942Saving(true);setP942Error('');
   try{await onNeonRequest('/safe/neon/expense','POST',{trip_id:neonTripId,dataset:'expenses',operation:'delete',row_id:record._neonRowId,expected_version:record._neonVersion});await p942Reload();}
   catch(err){await p942Reload();setP942Error(String(err.message||err));}
@@ -1016,11 +1025,20 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  const p942Add=async(e)=>{
   e.preventDefault();if(!p942Data||p942Saving||p953Finished)return;
   const amount=Number(String(p942Amount).replace(',','.'));
-  if(!Number.isFinite(amount)||amount<=0){setP942Error('Въведи валидна сума.');return;}
+  const fuelEdit=!!p943Editing&&isFuelExpense(p943Editing);
+  if(!Number.isFinite(amount)||(fuelEdit?amount<0:amount<=0)||amount>100000){setP942Error('Въведи валидна сума.');return;}
+  if(fuelEdit){
+   const rawLiters=String(p943Liters).trim().replace(',','.');
+   const rawKm=String(p943Km).trim();
+   const l=Number(rawLiters);
+   if(!/^\d+(?:\.\d{1,2})?$/.test(rawLiters)||!Number.isFinite(l)||l<=0||l>200){setP942Error('Литрите трябва да са над 0 и до 200, с максимум 2 знака след запетаята.');return;}
+   if((p943FuelKind!=='untagged'||rawKm)&&(!/^\d{1,9}$/.test(rawKm)||Number(rawKm)<=0)){setP942Error('Въведи валиден цял километраж.');return;}
+  }
   setP942Saving(true);setP942Error('');
   try{
    const editing=p943Editing;
-   const row=editing?{trip_id:neonTripId,date:String(editing.date),amount:String(amount),category:p942Category,description:p942Description.trim(),type:String(editing.type),liters:String(editing.liters??''),current_km:String(editing.current_km??'')}:
+   const kindLabel=p943FuelKind==='full'?'[ПЪЛНО ЗАРЕЖДАНЕ] ':p943FuelKind==='partial'?'[ЧАСТИЧНО ЗАРЕЖДАНЕ] ':'';
+   const row=editing?{trip_id:neonTripId,date:String(editing.date),amount:String(amount),category:fuelEdit?'Транспорт':p942Category,description:fuelEdit?kindLabel+p942Description.trim():p942Description.trim(),type:String(editing.type),liters:fuelEdit?String(p943Liters).trim().replace(',','.'):String(editing.liters??''),current_km:fuelEdit?String(p943Km).trim():String(editing.current_km??'')}:
     {trip_id:neonTripId,date:new Date().toLocaleDateString('bg-BG'),amount:String(amount),category:p942Category,description:p942Description.trim(),type:'expense',liters:'',current_km:''};
    await onNeonRequest('/safe/neon/expense','POST',{trip_id:neonTripId,dataset:'expenses',operation:editing?'edit':'add',
     ...(editing?{row_id:editing._neonRowId,expected_version:editing._neonVersion}:{}),row});
@@ -1492,7 +1510,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  {!p942Test&&p932Mode&&isP931Test&&<NeonExpenseWorkspace key={'p932-'+neonTripId} tripId={neonTripId} request={onNeonRequest} p932 onWorkspaceChange={setP932Workspace} compact/>}
  {isNeonExpenseTest&&!isP934Canary&&!p931Active&&!p932Mode&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
  {p942Test&&p942Error&&<p role="alert" className="error">⚠️ Не може да се работи с Neon: {p942Error}</p>}
- {p942Test&&p942Form&&<form className="travel-card quick-demo-form" onSubmit={p942Add}><h3>{p943Editing?'Редактирай разход':'Добави разход'}</h3><label>Сума (€)<input type="number" min="0.01" step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} onChange={e=>setP942Category(e.target.value)}>{[...new Set([...categories.filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт'),...(p942Data?.records?.categories||[]).map(r=>r.data?.category).filter(Boolean),...rows.map(r=>r.category).filter(Boolean).filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт')])].map(c=><option key={c}>{c}</option>)}</select></label><label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div><small className="muted">Тестовото пътуване записва директно в Neon. Гориво и депозити остават в отделните им форми.</small></form>}
+ {p942Test&&p942Form&&<form className="travel-card quick-demo-form" onSubmit={p942Add}><h3>{p943Editing?'Редактирай разход':'Добави разход'}</h3><label>Сума (€)<input type="number" min={p943Editing&&isFuelExpense(p943Editing)?'0':'0.01'} step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} disabled={!!p943Editing&&isFuelExpense(p943Editing)} onChange={e=>setP942Category(e.target.value)}>{[...new Set([...(p943Editing?[p943Editing.category]:[]),...categories.filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт'),...(p942Data?.records?.categories||[]).map(r=>r.data?.category).filter(Boolean),...rows.map(r=>r.category).filter(Boolean).filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт')])].map(c=><option key={c}>{c}</option>)}</select></label>{p943Editing&&isFuelExpense(p943Editing)&&<><label>Тип зареждане<select value={p943FuelKind} onChange={e=>setP943FuelKind(e.target.value)}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option>{p943FuelKind==='untagged'&&<option value="untagged">Без отбелязан тип (запази)</option>}</select></label><label>Литри<input type="number" min="0.01" max="200" step="0.01" inputMode="decimal" value={p943Liters} onChange={e=>setP943Liters(e.target.value)} required/></label><label>Километраж<input type="number" min="1" step="1" inputMode="numeric" value={p943Km} onChange={e=>setP943Km(e.target.value)} required={p943FuelKind!=='untagged'}/></label><small className="muted">При промяна на литри, километраж или тип всички показатели за разход се преизчисляват от историята. Проверявай внимателно показанията.</small></>}<label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div><small className="muted">Записът е в Neon и се синхронизира между двата профила. Пропуснатите литри остават в настройките на автомобила.</small></form>}
  <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving||p953Finished} onClick={()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP942Error('');setP942Form(true)}}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&!previewReadOnly&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
  <ExpenseHistory rows={rows} onExpenseAction={p942Test?(p953Finished?null:p943Action):!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
