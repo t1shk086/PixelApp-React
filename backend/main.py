@@ -4854,6 +4854,67 @@ def neon_prepare_remaining(background_tasks: BackgroundTasks):
             'note':'Drive остава активен. Преди превключване е нужна повторна проверка за нови Drive редакции и успешни архиви.'}
 
 
+# P95.4: read-only preflight for finishing the already migrated test trip.
+# This endpoint never updates a row, increments a revision or queues a backup.
+def _p954_finished(settings):
+    from decimal import Decimal, InvalidOperation
+    try:
+        end = Decimal(str(settings.get('end_km') or '0').replace(',', '.'))
+        return str(settings.get('trip_finished', '')).strip().casefold() == 'да' or end > 0
+    except (ValueError, InvalidOperation, TypeError):
+        # Malformed lifecycle state must never grant write permission.
+        return True
+
+
+@app.get('/safe/neon/finish-safety/{trip_id}', dependencies=[Depends(authorize)])
+def p954_finish_safety(trip_id: str):
+    _p941_write_allowed(trip_id)
+    # Strict scope: a read-only diagnostic for the existing P95.3 canary only.
+    if trip_id != _P932_TRIP:
+        raise HTTPException(403, 'Проверката е само за ТЕСТ НОВО.')
+    from decimal import Decimal, InvalidOperation
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
+            meta = cur.fetchone()
+            if not meta:
+                raise HTTPException(404, 'Няма Neon работно копие.')
+            cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'", (trip_id,))
+            settings_rows = cur.fetchall()
+            if len(settings_rows) != 1:
+                raise HTTPException(409, 'Настройките не са еднозначни.')
+            settings = settings_rows[0][0]
+            cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'", (trip_id,))
+            expense_rows = [item[0] for item in cur.fetchall()]
+    def km_value(value):
+        try:
+            d = Decimal(str(value or '0').replace(',', '.'))
+            if not d.is_finite() or d < 0 or d > 100000000 or d != d.to_integral_value():
+                return None
+            return int(d)
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+    start = km_value(settings.get('start_km'))
+    readings = [km_value(r.get('current_km')) for r in expense_rows if str(r.get('current_km') or '').strip()]
+    valid = start is not None and all(v is not None for v in readings)
+    last = max([start, *readings]) if valid else None
+    finished = _p954_finished(settings)
+    is_car = str(settings.get('car_trip', '')).casefold() == 'да'
+    can_finish = bool(valid and is_car and not finished)
+    # Same lifecycle predicate used for the actual writers. These results
+    # simulate the state AFTER finish; they do not execute actual writes.
+    simulated = dict(settings, trip_finished='Да', end_km=str((last or 0) + 1))
+    locks = {key:_p954_finished(simulated) for key in
+             ('разходи', 'задачи и категории', 'бюджет', 'маршрут и любими', 'гориво и настройки')}
+    return {'ok':True,'readonly':True,'trip_id':trip_id,'revision':int(meta[0]),
+            'finished_now':finished,'can_finish':can_finish,'car_trip':is_car,
+            'start_km':start,'last_recorded_km':last,
+            'minimum_end_km':max(start+1,last) if can_finish else None,
+            'odometer_valid':valid,'simulated_locked':locks,
+            'all_simulated_locked':all(locks.values()),'records_changed':False,
+            'note':'Само проверка на правилото за заключване. Не изпраща заявки за запис и не доказва реален отказ след приключване.'}
+
+
 # P95.2 — normal car and fuel writes in the pre-existing Neon workspace.
 # Only the explicit test trip is enabled by the P94.1 allowlist; live Drive CSVs
 # remain unchanged. No initial-tank-fuel field, and no trip completion here.
