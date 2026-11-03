@@ -691,6 +691,9 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
  const [migrationBusy,setMigrationBusy]=useState(false);
  const [migrationReport,setMigrationReport]=useState(null);
  const [migrationError,setMigrationError]=useState('');
+ const [fullAuditBusy,setFullAuditBusy]=useState(false);
+ const [fullAudit,setFullAudit]=useState(null);
+ const [fullAuditError,setFullAuditError]=useState('');
  const locked=!workspace||String(settings.trip_finished).toLowerCase()==='да'||Number(settings.end_km)>0;
  async function save(operation,e){e.preventDefault();if(locked||busy)return;
   setBusy(true);setNotice('');
@@ -731,6 +734,60 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
    setMigrationReport(report);
   }catch(err){setMigrationError(String(err.message||err));}
   finally{setMigrationBusy(false)}
+ }
+ // P96.0: read-only composite of existing authenticated APIs. Never POST, never switch storage.
+ async function runFullAudit(){
+  if(fullAuditBusy||busy)return;
+  setFullAuditBusy(true);setFullAudit(null);setFullAuditError('');
+  const checks=[];
+  const add=(title,status,details)=>checks.push({title,status,details});
+  const numeric=v=>{const n=Number(String(v??'').replace(',','.'));return Number.isFinite(n)?n:null};
+  try{
+   // Run independently, so a failed optional gallery read cannot hide Neon/Drive results.
+   const paths=[
+    '/safe/neon/migration-readiness',
+    '/safe/neon/workspace/'+encodeURIComponent(tripId),
+    '/safe/neon/finish-safety/'+encodeURIComponent(tripId),
+    '/gallery/'+encodeURIComponent(tripId)
+   ];
+   const results=await Promise.allSettled(paths.map(path=>request(path)));
+   const outcome=i=>results[i].status==='fulfilled'?results[i].value:null;
+   const error=i=>results[i].status==='rejected'?String(results[i].reason?.message||results[i].reason):'Непълен отговор';
+   const migration=outcome(0), neon=outcome(1), safety=outcome(2), gallery=outcome(3);
+   const readOnly=!!(migration?.read_only===true&&migration?.production_switched===false&&migration?.ok===true);
+   const trips=Array.isArray(migration?.trips)?migration.trips:[];
+   const stagesOk=readOnly&&trips.length===9&&trips.every(t=>t.stage_matches_live_drive===true&&t.staged_copy_exists===true);
+   add('Копия в Drive и Neon',stagesOk?'pass':'fail',stagesOk?'9/9 проверени първоначални копия, съвпадащи с текущия Drive.':`Неуспешна сверка на източниците: ${migration?'поне едно копие не съвпада':error(0)}`);
+   const workspacesOk=readOnly&&trips.length===9&&trips.every(t=>t.workspace_exists===true);
+   const backupsOk=workspacesOk&&trips.every(t=>t.backup_current===true);
+   add('Работни копия и Drive архиви',backupsOk?'pass':'warn',backupsOk?'9/9 работни копия имат актуален регистриран архив. Не е изпълнявано възстановяване.':`Актуалните архиви са ${trips.filter(t=>t.backup_current).length}/9. ${!migration?error(0):'Провери изоставащите версии.'}`);
+   const records=neon?.records;
+   const shapeOk=neon?.ok===true&&Number.isInteger(neon.revision)&&neon.revision>0&&records&&['expenses','budgets','categories','tasks','points','settings'].every(k=>Array.isArray(records[k]));
+   const expenses=shapeOk?records.expenses.map(r=>r.data):[];
+   const budgets=shapeOk?records.budgets.map(r=>r.data):[];
+   const cats=shapeOk?records.categories.map(r=>r.data):[];
+   const tasks=shapeOk?records.tasks.map(r=>r.data):[];
+   const points=shapeOk?records.points.map(r=>r.data):[];
+   const config=shapeOk?records.settings[0]?.data:null;
+   const expenseValid=shapeOk&&expenses.every(r=>r&&typeof r.type==='string'&&(!['expense','deposit'].includes(r.type)||(numeric(r.amount)!==null&&numeric(r.amount)>=0)));
+   add('Разходи и бърз разход',expenseValid?'pass':'fail',expenseValid?`${expenses.length} Neon записа са прочетени; сумите са валидни. Бързият запис и изтриването изискват практическо потвърждение.`:neon?'Некоректен набор разходи в Neon.':error(1));
+   const categoryNames=cats.map(x=>x?.category).filter(Boolean);
+   const budgetValid=shapeOk&&budgets.every(r=>r&&typeof r.category==='string'&&numeric(r.budget)!==null&&numeric(r.budget)>=0)&&categoryNames.every(n=>typeof n==='string');
+   add('Бюджети и категории',budgetValid?'pass':'fail',budgetValid?`${budgets.length} бюджетни и ${cats.length} персонални категорийни записа са прочетени. Промени на бюджет не са тествани.`:'Грешка в бюджетните или категорийни записи.');
+   const fuel=expenses.filter(r=>r?.type==='expense'&&r?.category==='Транспорт'&&numeric(r?.liters)>0);
+   const fuelValid=!!config&&numeric(config.start_km)!==null&&numeric(config.start_km)>=0&&numeric(config.manual_fuel||0)!==null&&numeric(config.manual_fuel||0)>=0&&fuel.every(r=>numeric(r.liters)>0&&(String(r.current_km||'').trim()===''||numeric(r.current_km)>=0));
+   add('Гориво и километраж',fuelValid?'pass':'fail',fuelValid?`${fuel.length} зареждания с литри; настройки и километраж са прочетени. Формулите пълно–пълно и пропуснатото гориво още изискват реален контрол.`:'Липсват или са некоректни настройки/литри/километраж.');
+   const tasksValid=shapeOk&&tasks.every(t=>t&&typeof t.title==='string'&&String(t.item_id||'').length>0);
+   add('Задачи',tasksValid?'pass':'fail',tasksValid?`${tasks.length} задачи са прочетени от Neon; редактиране и конфликт от два профила не са тествани.`:'Невалидни данни за задачите или липсва Neon workspace.');
+   const mapValid=shapeOk&&points.every(p=>{const lat=numeric(p?.lat),lon=numeric(p?.lon);return lat!==null&&lon!==null&&Math.abs(lat)<=90&&Math.abs(lon)<=180});
+   add('Маршрут и любими места',mapValid?'pass':'fail',mapValid?`${points.length} точки с валидни координати в Neon. Добавяне, преместване и изтриване не са тествани.`:'Открити невалидни координати или липсващ набор от точки.');
+   add('Галерия',gallery&&Array.isArray(gallery.photos)?'warn':'warn',gallery&&Array.isArray(gallery.photos)?`${gallery.photos.length} снимки са достъпни през съществуващия API. Галерията още използва Drive; качване/изтриване не са проверени.`:`Галерията не е потвърдена (${error(3)}). Пътят към Drive остава за миграция.`);
+   const safeOk=safety?.ok===true&&safety.readonly===true&&safety.records_changed===false&&safety.all_simulated_locked===true;
+   add('Приключване и заключване',safeOk?'pass':'fail',safeOk?`Симулация без запис: всички 5 правила за заключване са активни след хипотетично приключване; Neon v${safety.revision}.`:`Проверката за заключване не е потвърдена: ${safety? 'непълен или неуспешен резултат':error(2)}`);
+   add('Реални записи, два профила и конкуренция','manual','Без POST не могат да се докажат запис, изтриване, едновременни редакции или автоматичен архив след нов запис. Изисква се един общ практически тест. Осемте реални пътувания НЕ са превключени.');
+   setFullAudit({checks,revision:neon?.revision??null,at:new Date().toLocaleString('bg-BG')});
+  }catch(err){setFullAuditError(String(err?.message||err));}
+  finally{setFullAuditBusy(false)}
  }
  async function finishTrip(e){
    e.preventDefault();if(locked||busy||!validEnd)return;
@@ -781,6 +838,18 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
     </table></div>
     <small>⚠️ Това не включва нормалните записи към Neon. Дори всички отметки да са зелени, окончателното превключване изисква отделна проверка на всички записващи функции. „ТЕСТ НОВО“ не се включва в таблицата.</small>
     <small>Не са създадени нови копия или архиви и не е променен източникът на данните.</small>
+   </div>}
+  </div>
+  <div className="p21-section"><h4>🔎 P96.0 · Диагностика на PixelApp</h4>
+   <p className="muted">Един общ тест на данните: Neon, Drive, архиви и заключване. Използва само GET заявки; не променя записи. Не замества проверката на действителни операции от два профила.</p>
+   <button type="button" className="ghost" disabled={fullAuditBusy||busy} onClick={()=>void runFullAudit()}>{fullAuditBusy?'Проверявам…':'🔎 Провери цялото приложение'}</button>
+   {fullAuditError&&<p role="alert" className="error">⚠️ {fullAuditError}</p>}
+   {fullAudit&&<div style={{display:'grid',gap:9,marginTop:12}} role="status">
+    <strong>Резултат: {fullAudit.checks.filter(x=>x.status==='pass').length} проверени · {fullAudit.checks.filter(x=>x.status==='warn').length} с ограничения · {fullAudit.checks.filter(x=>x.status==='fail').length} проблема · {fullAudit.checks.filter(x=>x.status==='manual').length} за практически тест</strong>
+    <small>Проверено: {fullAudit.at} · ТЕСТ НОВО Neon v{fullAudit.revision??'—'}</small>
+    {fullAudit.checks.map((item,i)=><div key={i} style={{padding:'8px 0',borderBottom:'1px solid rgba(140,160,180,.24)'}}><div style={{fontWeight:650}}>{item.status==='pass'?'✅':item.status==='fail'?'❌':item.status==='manual'?'🧪':'⚠️'} {i+1}. {item.title}</div><small>{item.details}</small></div>)}
+    <small>Зеленото удостоверява само извършената проверка на прочетените данни, не работа на всички бутони. Жълтото е непълно или изисква миграция. Нищо не е записано, изтрито или превключено.</small>
+    <button className="ghost" type="button" onClick={()=>{const lines=['PixelApp P96.0 · '+fullAudit.at,...fullAudit.checks.map((c,i)=>`${i+1}. ${c.status.toUpperCase()} · ${c.title} · ${c.details}`)];navigator.clipboard?.writeText(lines.join('\n')).catch(()=>{})}}>📋 Копирай отчета</button>
    </div>}
   </div>
   <div className="p21-section"><h4>🏁 Приключване на пътуването</h4>
