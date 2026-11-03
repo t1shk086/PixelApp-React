@@ -685,6 +685,9 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
  const [liters,setLiters]=useState('');const [amount,setAmount]=useState('');
  const [paid,setPaid]=useState(false);const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');
   const [endKm,setEndKm]=useState('');
+ const [safetyBusy,setSafetyBusy]=useState(false);
+ const [safetyReport,setSafetyReport]=useState(null);
+ const [safetyError,setSafetyError]=useState('');
  const locked=!workspace||String(settings.trip_finished).toLowerCase()==='да'||Number(settings.end_km)>0;
  async function save(operation,e){e.preventDefault();if(locked||busy)return;
   setBusy(true);setNotice('');
@@ -702,7 +705,17 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   const latestKm=Math.max(startKm,...(workspace?.records?.expenses||[]).map(r=>Number(r.data?.current_km)||0));
   const desiredKm=Number(endKm);
   const validEnd=/^\d+$/.test(endKm)&&Number.isSafeInteger(desiredKm)&&desiredKm>startKm&&desiredKm>=latestKm;
-  async function finishTrip(e){
+  async function inspectSafety(){
+  if(busy||safetyBusy)return;
+  setSafetyBusy(true);setSafetyError('');setSafetyReport(null);
+  try{
+   const result=await request('/safe/neon/finish-safety/'+encodeURIComponent(tripId));
+   if(!result?.readonly||result.records_changed!==false)throw Error('Невалиден отговор за проверката.');
+   setSafetyReport(result);
+  }catch(err){setSafetyError(String(err.message||err));}
+  finally{setSafetyBusy(false)}
+ }
+ async function finishTrip(e){
    e.preventDefault();if(locked||busy||!validEnd)return;
    if(!window.confirm(`Приключване на ТЕСТ НОВО с ${desiredKm.toLocaleString('bg-BG')} км? След това пътуването се заключва за редакции в Neon.`))return;
    if(!window.confirm('ПОСЛЕДНО ПОТВЪРЖДЕНИЕ: приключването е окончателно за това Neon копие. Продължи?'))return;
@@ -722,6 +735,17 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   <form onSubmit={e=>save('missed',e)} className="p22-form"><label>Литри<input inputMode="decimal" value={liters} onChange={e=>setLiters(e.target.value)} disabled={busy||locked}/></label><label className="p22-check"><input type="checkbox" checked={paid} onChange={e=>setPaid(e.target.checked)} disabled={busy||locked}/> Помня и платената сума</label>
   {paid&&<label>Сума (€)<input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||locked}/></label>}
   <button type="submit" disabled={busy||locked||!validPositive(liters)||Number(String(liters).replace(',','.'))>500||(paid&&!validPositive(amount))}>{busy?'Записвам…':'Добави пропуснатото гориво'}</button></form></div>
+  <div className="p21-section"><h4>🔐 Проверка на заключването · P95.4</h4>
+   <p className="muted">Безопасна проверка на правилата за заключване. Чете Neon, но не приключва пътуването и не записва нищо.</p>
+   <button type="button" className="ghost" disabled={busy||safetyBusy} onClick={()=>void inspectSafety()}>{safetyBusy?'Проверявам…':'🔎 Провери без запис'}</button>
+   {safetyError&&<p role="alert" className="error">⚠️ {safetyError}</p>}
+   {safetyReport&&<div role="status" style={{display:'grid',gap:6,marginTop:8}}>
+    <strong>{safetyReport.all_simulated_locked&&safetyReport.can_finish?'✅ Симулираното заключване е наред':'⚠️ Необходима е проверка преди приключване'}</strong>
+    <small>Сега: {safetyReport.finished_now?'Приключено':'Активно'} · Neon версия {safetyReport.revision} · Най-малко {safetyReport.minimum_end_km??'—'} крайни км</small>
+    {Object.entries(safetyReport.simulated_locked||{}).map(([key,value])=><small key={key}>{value?'✓':'⚠'} {key}</small>)}
+    <small>Не е изпълнен истински запис. Не са променени данни или статус.</small>
+   </div>}
+  </div>
   <div className="p21-section"><h4>🏁 Приключване на пътуването</h4>
    <p className="muted">Проверка без запис: начални {startKm.toLocaleString('bg-BG')} км · последни записани {latestKm.toLocaleString('bg-BG')} км. Реалният разход между две пълни зареждания не се променя при приключване.</p>
    {locked?<p role="status">🔒 Пътуването е приключено. Крайни километри: {Number(settings.end_km||0).toLocaleString('bg-BG')} км.</p>:<form onSubmit={finishTrip}>
