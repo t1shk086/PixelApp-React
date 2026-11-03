@@ -4937,6 +4937,50 @@ def p962_real_trip_preview(trip_id: str):
         'records': records,
     }
 
+# P96.8: A single Neon source contract before and after future primary migration.
+# No write permissions are granted by this endpoint. Before cutover it retains
+# the strict Drive equality gate. After a separately authorized cutover, reads
+# must NOT compare mutable Neon data to the original Drive CSVs.
+@app.get('/safe/neon/real-trip-source/{trip_id}', dependencies=[Depends(authorize)])
+def p968_real_trip_source(trip_id: str):
+    if trip_id != _P966_PROTECTED_TRIP:
+        raise HTTPException(403, 'Този източник е разрешен само за Livigno.')
+    # Zero activation by default. This is a READ contract, not permission to
+    # flip the switch; P96.8 does not enable the primary mode in production.
+    primary = trip_id in {
+        v.strip() for v in os.environ.get('PIXELAPP_NEON_PRIMARY_READ_TRIPS', '').split(';') if v.strip()
+    }
+    if not primary:
+        preview = p962_real_trip_preview(trip_id)
+        return {**preview, 'source_mode': 'verified_pre_cutover'}
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision,source_digest FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
+            meta=cur.fetchone()
+            cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s',(trip_id,))
+            source=cur.fetchone()
+            if not meta or not source or meta[1] != source[0]:
+                raise HTTPException(409, 'Neon няма потвърден миграционен произход.')
+            cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s',(trip_id,))
+            backup=cur.fetchone()
+            if not backup or not backup[1]:
+                raise HTTPException(409, 'Липсва регистриран резервен архив.')
+            cur.execute('SELECT dataset,payload FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
+            records={kind:[] for kind in _P930_KINDS}
+            for kind,payload in cur.fetchall():
+                if kind not in records:
+                    raise HTTPException(409, 'Неочакван вид Neon записи.')
+                records[kind].append(payload)
+    if len(records['settings']) != 1:
+        raise HTTPException(409, 'Настройките на пътуването са невалидни.')
+    return {'ok':True,'trip_id':trip_id,'read_only':True,
+            'source_mode':'neon_primary_read_only', 'production_switched':False,
+            'exact_match_live_drive':False, 'revision':meta[0],
+            'archive_revision':backup[0],
+            'archive_current':bool(backup[0]>=meta[0] and not backup[2]),
+            'records':records}
+
+
 # P95.4: read-only preflight for finishing the already migrated test trip.
 # This endpoint never updates a row, increments a revision or queues a backup.
 def _p954_finished(settings):
