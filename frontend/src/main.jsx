@@ -676,6 +676,41 @@ function NeonExpenseWorkspace({tripId,request,onWorkspaceChange,compact=false,p9
  </div>;
 }
 
+
+// P95.2: regular car settings for the already-enabled test trip.
+function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
+ const settings=workspace?.records?.settings?.[0]?.data||{};
+ const [track,setTrack]=useState(String(settings.track_fuel||'Да'));
+ const [liters,setLiters]=useState('');const [amount,setAmount]=useState('');
+ const [paid,setPaid]=useState(false);const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');
+ const locked=!workspace||String(settings.trip_finished).toLowerCase()==='да'||Number(settings.end_km)>0;
+ async function save(operation,e){e.preventDefault();if(locked||busy)return;
+  setBusy(true);setNotice('');
+  try{
+   const payload={trip_id:tripId,operation,expected_revision:workspace.revision};
+   if(operation==='track_fuel')payload.track_fuel=track;
+   else {payload.liters=String(liters).replace(',','.');payload.amount=paid?String(amount).replace(',','.'):'0';}
+   await request('/safe/neon/car-action','POST',payload);
+   await onReload();setLiters('');setAmount('');setPaid(false);
+   setNotice('✅ Запазено в Neon. Резервното копие в Drive е заявено.');
+  }catch(err){await onReload();setNotice('⚠️ '+String(err.message||err)+' Провери данните преди повторен запис.')}
+  finally{setBusy(false)}
+ }
+ const validPositive=v=>Number.isFinite(Number(String(v).replace(',','.')))&&Number(String(v).replace(',','.'))>0;
+ return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Настройки на автомобила">
+  <div className="dialoghead"><h3>⚙️ Настройки на пътуването</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
+  <button type="button" className="p26-return" onClick={onClose}>← Назад към пътуването</button>
+  <div className="p21-section"><h4>🚗 Автомобил</h4><p>Начални километри: <b>{Number(settings.start_km||0).toLocaleString('bg-BG')} км</b></p>
+  <form onSubmit={e=>save('track_fuel',e)}><label>Проследяване на гориво<select value={track} onChange={e=>setTrack(e.target.value)} disabled={busy||locked}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label><button type="submit" disabled={busy||locked||track===settings.track_fuel}>Запази настройката</button></form></div>
+  <div className="p21-section"><h4>⛽ Пропуснато гориво</h4><p className="muted">Добавяне само на забравени литри, без километраж. Ако помниш сумата, тя се отчита като транспортен разход.</p>
+  <form onSubmit={e=>save('missed',e)} className="p22-form"><label>Литри<input inputMode="decimal" value={liters} onChange={e=>setLiters(e.target.value)} disabled={busy||locked}/></label><label className="p22-check"><input type="checkbox" checked={paid} onChange={e=>setPaid(e.target.checked)} disabled={busy||locked}/> Помня и платената сума</label>
+  {paid&&<label>Сума (€)<input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||locked}/></label>}
+  <button type="submit" disabled={busy||locked||!validPositive(liters)||Number(String(liters).replace(',','.'))>500||(paid&&!validPositive(amount))}>{busy?'Записвам…':'Добави пропуснатото гориво'}</button></form></div>
+  <p className="muted">Приключването на пътуването остава заключено до отделната проверка. Няма поле за начално гориво.</p>
+  {notice&&<p role="status">{notice}</p>}
+ </div></div>;
+}
+
 function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders,onNeonRequest,neonTripId}) {
  const [section,setSection]=useState('summary');
  const [neonExpenseView,setNeonExpenseView]=useState(false);
@@ -693,6 +728,29 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const [p942Description,setP942Description]=useState('');
  const [p943Editing,setP943Editing]=useState(null);
  const [p950BudgetOpen,setP950BudgetOpen]=useState(false);
+ const [p952CarOpen,setP952CarOpen]=useState(false);
+ const [p952FuelAmount,setP952FuelAmount]=useState('');
+ const [p952FuelLiters,setP952FuelLiters]=useState('');
+ const [p952FuelKm,setP952FuelKm]=useState('');
+ const [p952FuelFull,setP952FuelFull]=useState(true);
+ const [p952FuelDesc,setP952FuelDesc]=useState('Гориво');
+ const [p952Busy,setP952Busy]=useState(false);
+ const [p952Message,setP952Message]=useState('');
+ async function p952SaveFuel(e){
+  e.preventDefault();if(p952Busy||!p942Data)return;
+  setP952Busy(true);setP952Message('');
+  try{
+   await onNeonRequest('/safe/neon/car-action','POST',{
+    trip_id:neonTripId,operation:'refuel',expected_revision:p942Data.revision,
+    amount:String(p952FuelAmount).replace(',','.'),liters:String(p952FuelLiters).replace(',','.'),
+    current_km:p952FuelKm,full:p952FuelFull,description:p952FuelDesc.trim()
+   });
+   setP952FuelAmount('');setP952FuelLiters('');setP952FuelKm('');
+   await p942Reload();setP952Message('✅ Зареждането е записано в Neon. Архивът в Drive е заявен.');
+  }catch(err){await p942Reload();setP952Message('⚠️ '+String(err.message||err)+' Провери историята преди нов опит.');}
+  finally{setP952Busy(false)}
+ }
+
  const p942Reload=async()=>{
   if(!p942Test||!onNeonRequest)return;
   try{const result=await onNeonRequest('/safe/neon/workspace/'+encodeURIComponent(neonTripId));
@@ -704,6 +762,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  useEffect(()=>{if(!p942Test)return;const refresh=()=>{if(document.visibilityState==='visible')void p942Reload()};window.addEventListener('focus',refresh);return()=>window.removeEventListener('focus',refresh)},[neonTripId]);
  const p943Action=async(action,record)=>{
   if(!p942Test||!p942Data||p942Saving||!record?._neonRowId)return;
+  if(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ|ПРОПУСНАТО\s+ГОРИВО\]/i.test(String(record.description||''))){setP942Error('Горивото е защитено. Редакцията му ще бъде добавена към автомобилния модул.');return;}
   if(action==='edit'){
    setP943Editing(record);setP942Amount(String(record.amount||''));setP942Category(String(record.category||'Други'));
    setP942Description(String(record.description||''));setP942Error('');setP942Form(true);return;
@@ -952,7 +1011,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const neonActive=!p932Active&&!p931Active&&isNeonExpenseTest&&neonExpenseView&&Boolean(neonExpenseWorkspace?.records);
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
- const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p942Test?(p942Data?.records?.budgets||[]).map(x=>x.data):p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=p942Test?(p942Data?.records?.tasks||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.tasks||[], points=p942Test?(p942Data?.records?.points||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.points||[];
+ const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p942Test?(p942Data?.records?.settings?.[0]?.data||detail?.settings||trip?.settings||{}):p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p942Test?(p942Data?.records?.budgets||[]).map(x=>x.data):p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=p942Test?(p942Data?.records?.tasks||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.tasks||[], points=p942Test?(p942Data?.records?.points||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.points||[];
  const p936DriveRows=detail?.expenses||[];
  const p936DriveBudgets=detail?.budgets||[];
  const p936DriveSettings=detail?.settings||trip?.settings||{};
@@ -1155,7 +1214,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['gallery','Галерия'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
  return <div className="travel-detail">
- <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon" type="button" onClick={()=>onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването">⚙️</button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
+ <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon" type="button" onClick={()=>p942Test?setP952CarOpen(true):onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването">⚙️</button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
  
  {p934Active&&<div className="travel-card" role="status">⚡ P93.4.1 · Данни от Neon (само преглед). Drive остава основният източник. За редакция се върни към Drive.</div>}
  {p932Active&&<div className="travel-card" role="status">⚡ P93.5 · Редакции през провереното P93.2 Neon копие. Само тестовото пътуване; Drive и оригиналното P93.0 копие не се променят.</div>}
@@ -1196,6 +1255,20 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving} onClick={()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP942Error('');setP942Form(true)}}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
  <ExpenseHistory rows={rows} onExpenseAction={p942Test?p943Action:!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
+ {p942Test&&p952CarOpen&&<NeonCarSettings tripId={neonTripId} workspace={p942Data} request={onNeonRequest} onReload={p942Reload} onClose={()=>setP952CarOpen(false)}/>}
+ {section==='fuel'&&p942Test&&<div className="travel-card"><h3>⛽ Добави зареждане</h3>
+  <p className="muted">Нормален запис в Neon. Частичните зареждания участват при следващото пълно; първото пълно само задава отправна точка.</p>
+  <form className="quick-demo-form" onSubmit={p952SaveFuel}>
+   <label>Тип зареждане<select value={p952FuelFull?'full':'partial'} onChange={e=>setP952FuelFull(e.target.value==='full')} disabled={p952Busy}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option></select></label>
+   <label>Платена сума (€)<input type="number" step="0.01" min="0" required value={p952FuelAmount} onChange={e=>setP952FuelAmount(e.target.value)} disabled={p952Busy}/></label>
+   <label>Литри<input type="number" step="0.01" min="0.01" max="200" required value={p952FuelLiters} onChange={e=>setP952FuelLiters(e.target.value)} disabled={p952Busy}/></label>
+   <label>Километраж<input type="number" min="1" step="1" required value={p952FuelKm} onChange={e=>setP952FuelKm(e.target.value)} disabled={p952Busy}/></label>
+   <label>Описание<input maxLength="250" value={p952FuelDesc} onChange={e=>setP952FuelDesc(e.target.value)} disabled={p952Busy}/></label>
+   <button type="submit" disabled={p952Busy||!p942Data||String(settings.car_trip).toLowerCase()!=='да'||Number(settings.end_km)>0||String(settings.trip_finished).toLowerCase()==='да'||!p952FuelLiters||!p952FuelKm}>{p952Busy?'Записвам…':'Запази зареждането'}</button>
+  </form>
+  {p952Message&&<p role="status">{p952Message}</p>}
+  <p className="muted">Пропуснатите литри са в ⚙️ Настройки на пътуването → Пропуснато гориво.</p>
+ </div>}
  {section==='fuel'&&p936Reconciliation}
  {section==='fuel'&&<>
 
