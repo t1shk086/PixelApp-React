@@ -4981,6 +4981,36 @@ def p968_real_trip_source(trip_id: str):
             'records':records}
 
 
+# P96.9: explicit, read-only cutover blocker audit for Livigno.
+# This never grants write access, toggles flags, writes rows or creates backups.
+@app.get('/safe/neon/real-trip-write-readiness/{trip_id}', dependencies=[Depends(authorize)])
+def p969_real_trip_write_readiness(trip_id: str):
+    if trip_id != _P966_PROTECTED_TRIP:
+        raise HTTPException(403, 'Проверката е разрешена само за Livigno.')
+    # The existing strict source verification is our pre-cutover baseline.
+    checked = p962_real_trip_preview(trip_id)
+    if not checked.get('exact_match_live_drive'):
+        raise HTTPException(409, 'Липсва проверено първоначално съвпадение.')
+    read_primary = trip_id in {v.strip() for v in os.environ.get('PIXELAPP_NEON_PRIMARY_READ_TRIPS', '').split(';') if v.strip()}
+    write_allowlist = {v.strip() for v in os.environ.get('PIXELAPP_NEON_WRITE_TRIPS', _P932_TRIP).split(';') if v.strip()}
+    # Safely report actual deployed wiring rather than attempting a POST.
+    checks = [
+        {'name':'Проверено Neon копие и архив','ready':True,'detail':'Neon v%s / архив v%s' % (checked['revision'],checked['archive_revision'])},
+        {'name':'Единен източник след първата редакция','ready':False,'detail':'Четенето още използва предмиграционната проверка Drive == Neon.' if not read_primary else 'Само read-only режим; липсва атомарно превключване на целия интерфейс.'},
+        {'name':'Разходи и бърз разход','ready':False,'detail':'Нормалните форми на Livigno още нямат Neon записващи handlers.'},
+        {'name':'Бюджети и категории','ready':False,'detail':'Формите в Livigno остават заключени, независимо от наличния общ API.'},
+        {'name':'Задачи, маршрут и любими','ready':False,'detail':'Нормалните handlers още сочат към Drive и са защитно блокирани.'},
+        {'name':'Гориво, настройки и приключване','ready':False,'detail':'Няма завършен общ Neon write flow за това пътуване.'},
+        {'name':'Сървърно разрешение за Neon записи','ready':False,'detail':'Разрешаването само чрез PIXELAPP_NEON_WRITE_TRIPS не е достатъчно за безопасен cutover.'},
+        {'name':'Галерия','ready':True,'detail':'Работи през отделния Drive API и може да остане там.'},
+    ]
+    return {'ok':True,'trip_id':trip_id,'revision':checked['revision'],
+            'archive_revision':checked['archive_revision'],
+            'ready_for_cutover':False,'write_allowlisted':trip_id in write_allowlist,
+            'primary_read_flag':read_primary,'checks':checks,
+            'changed_data':False,'write_test_performed':False}
+
+
 # P95.4: read-only preflight for finishing the already migrated test trip.
 # This endpoint never updates a row, increments a revision or queues a backup.
 def _p954_finished(settings):
