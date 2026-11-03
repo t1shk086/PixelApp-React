@@ -4867,11 +4867,13 @@ class P952FuelAction(BaseModel):
     full: bool = True
     description: str = ''
     track_fuel: str = ''
+    end_km: str = ''
+    confirmation: str = ''
 
 @app.post('/safe/neon/car-action', dependencies=[Depends(authorize)])
 def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
     _p941_write_allowed(change.trip_id)
-    if change.operation not in ('refuel', 'missed', 'track_fuel') or change.expected_revision < 1:
+    if change.operation not in ('refuel', 'missed', 'track_fuel', 'finish') or change.expected_revision < 1:
         raise HTTPException(422, 'Невалидна автомобилна операция или версия.')
     from psycopg.types.json import Jsonb
     from decimal import Decimal, InvalidOperation
@@ -4883,7 +4885,7 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
             return result
         except (ValueError, InvalidOperation, TypeError):
             raise HTTPException(422, 'Невалидна сума или количество.')
-    if change.operation != 'track_fuel':
+    if change.operation in ('refuel', 'missed'):
         liters = numeric(change.liters, 200 if change.operation == 'refuel' else 500)
         amount = numeric(change.amount, 100000, True)
     if change.operation == 'refuel':
@@ -4896,6 +4898,14 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
             raise HTTPException(422, 'Описанието е твърде дълго.')
     if change.operation == 'track_fuel' and change.track_fuel not in ('Да', 'Не', 'Добави впоследствие'):
         raise HTTPException(422, 'Невалидна настройка за проследяване на гориво.')
+    if change.operation == 'finish':
+        if change.confirmation != 'ПРИКЛЮЧИ ПЪТУВАНЕТО':
+            raise HTTPException(422, 'Липсва изрично потвърждение за приключване.')
+        if not re.fullmatch(r'[0-9]{1,9}', str(change.end_km)):
+            raise HTTPException(422, 'Крайният километраж трябва да е цяло число.')
+        finish_km = int(change.end_km)
+        if finish_km <= 0 or finish_km > 99999999:
+            raise HTTPException(422, 'Невалиден краен километраж.')
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE', (change.trip_id,))
@@ -4911,7 +4921,24 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
                 raise HTTPException(409, 'Пътуването не е с автомобил.')
             if str(settings.get('trip_finished', '')).lower() == 'да' or numeric(settings.get('end_km') or '0', 100000000, True) > 0:
                 raise HTTPException(409, 'Пътуването е приключено.')
-            if change.operation == 'track_fuel':
+            if change.operation == 'finish':
+                start = numeric(settings.get('start_km') or '0', 100000000, True)
+                cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'", (change.trip_id,))
+                last_km = start
+                for (row,) in cur.fetchall():
+                    # All actual odometer readings, not manual/missed litres.
+                    raw = str(row.get('current_km') or '').strip()
+                    if not raw: continue
+                    reading = numeric(raw, 100000000, True)
+                    if reading != reading.to_integral_value():
+                        raise HTTPException(409, 'Невалиден километраж в историята.')
+                    last_km = max(last_km, reading)
+                if Decimal(finish_km) <= start or Decimal(finish_km) < last_km:
+                    raise HTTPException(422, f'Крайните километри трябва да са над началните и поне {int(last_km)} км.')
+                settings['end_km'] = str(finish_km)
+                settings['trip_finished'] = 'Да'
+                cur.execute("UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset='settings' AND row_id=%s", (Jsonb(settings), change.trip_id, settings_id))
+            elif change.operation == 'track_fuel':
                 settings['track_fuel'] = change.track_fuel
                 cur.execute("UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset='settings' AND row_id=%s", (Jsonb(settings), change.trip_id, settings_id))
             else:
