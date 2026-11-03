@@ -2675,6 +2675,8 @@ function App(){
  const [testWriteArmed,setTestWriteArmed]=useState(false);
  const [archiveReveal,setArchiveReveal]=useState(''); const [archiveBusy,setArchiveBusy]=useState(''); const [archivePending,setArchivePending]=useState(null); const [trips,setTrips]=useState([]);const [current,setCurrent]=useState(null);
  const [p962Preview,setP962Preview]=useState(null); const [p962Busy,setP962Busy]=useState(false); const [p962Error,setP962Error]=useState('');
+ // P96.5: fail-closed home summary for the first Neon-read canary. No write cutover.
+ const [p965Home,setP965Home]=useState({status:'checking',data:null,message:''});
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
  const [dataFreshness,setDataFreshness]=useState('none');const [cachedAt,setCachedAt]=useState(null);
  const [expenseDrafts,setExpenseDrafts]=useState({});
@@ -2704,6 +2706,29 @@ function App(){
   throw lastError;
  }
  async function req(path,method='GET',body){const r=await fetch(`${apiBase}${path}`,{method,headers:{...(authMode==='accounts'?{'Authorization':`Bearer ${key}`}:{'X-API-Key':key}),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json()}
+ // P96.5: the homepage must not silently present Drive figures as Neon-primary
+ // for Livigno. Verify exactly the same read-only Neon workspace used by its detail.
+ // This does not authorize any writes and intentionally does not change /trips.
+ useEffect(()=>{
+  if(!key||!trips.some(t=>t.id===p963CanaryId)){
+   setP965Home({status:'checking',data:null,message:''});return;
+  }
+  let live=true;
+  setP965Home({status:'checking',data:null,message:''});
+  req('/safe/neon/real-trip-preview/'+encodeURIComponent(p963CanaryId)).then(result=>{
+   if(!live)return;
+   if(!result?.ok||!result?.read_only||!result?.exact_match_live_drive||result?.production_switched!==false||result?.trip_id!==p963CanaryId||result?.records?.settings?.length!==1||!Array.isArray(result?.records?.expenses)||!Array.isArray(result?.records?.budgets))
+    throw Error('Провереният Neon източник не е потвърден.');
+   const rows=result.records.expenses;
+   const limits=result.records.budgets;
+   const spent=rows.filter(r=>r.type==='expense'||r.type==='deposit').reduce((sum,r)=>sum+(Number(r.amount)||0),0);
+   const global=limits.filter(r=>r.category==='__GLOBAL__').reduce((sum,r)=>sum+(Number(r.budget)||0),0);
+   const budget=global>0?global:limits.filter(r=>r.category!=='__GLOBAL__').reduce((sum,r)=>sum+(Number(r.budget)||0),0);
+   if(!Number.isFinite(spent)||!Number.isFinite(budget))throw Error('Невалидни финансови стойности.');
+   setP965Home({status:'verified',data:{spent,budget,settings:result.records.settings[0],revision:result.revision,archive:result.archive_revision},message:''});
+  }).catch(err=>{if(live)setP965Home({status:'blocked',data:null,message:String(err.message||err)})});
+  return()=>{live=false};
+ },[key,trips]);
  // P91.8.6: After a verified write, refresh the open trip first. The full index
  // is secondary and must not keep the action spinner running. Server-side
  // Drive conflict detection, backup and verification remain unchanged.
@@ -2914,9 +2939,10 @@ function App(){
 
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
  {(() => {const ranked=[...trips].sort((a,b)=>{const rank={active:0,upcoming:1,finished:2},sa=tripState(a),sb=tripState(b);if(rank[sa]!==rank[sb])return rank[sa]-rank[sb];const da=asDate(sa==='finished'?a.settings?.end_date:sa==='upcoming'?a.settings?.start_date:a.settings?.end_date);const db=asDate(sb==='finished'?b.settings?.end_date:sb==='upcoming'?b.settings?.start_date:b.settings?.end_date);return sa==='finished'?(db?.getTime()||0)-(da?.getTime()||0):(da?.getTime()||Infinity)-(db?.getTime()||Infinity)});const ended=ranked.filter(t=>tripState(t)==='finished');const visible=ranked.filter(t=>tripState(t)!=='finished').concat(showFinished?ended:ended.slice(0,1));return <>
- {visible.map(t=>{const state=tripState(t),previewSpent=Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]),pct=t.budget>0?Math.min(100,Math.max(0,previewSpent/t.budget*100)):0;return <div key={t.id} className={'p915-swipe'+(archiveReveal===t.id?' is-open':'')} onContextMenu={e=>{e.preventDefault();setArchiveReveal(v=>v===t.id?'':t.id)}} onTouchStart={e=>{e.currentTarget.dataset.startX=String(e.touches[0]?.clientX??0)}} onTouchEnd={e=>{const delta=(e.changedTouches[0]?.clientX??0)-Number(e.currentTarget.dataset.startX||0);if(delta< -65)setArchiveReveal(t.id);else if(delta>65)setArchiveReveal('')}}><button className={'trip home-trip state-'+state} onClick={()=>void p963OpenTrip(t)}><div className="triptitle"><span className="p9162-trip-icon" aria-hidden="true">🚙</span><span className="p9162-trip-name">{t.name}</span></div><div className="tripstatus">{statusDot[state]} {statusText[state]} <span>{t.settings.start_date||''}{t.settings.end_date&&t.settings.end_date!==t.settings.start_date?' → '+t.settings.end_date:''}</span></div>{state==='finished'?<div className="numbers">💰 Общо изхарчено: <strong>{money(Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]))}</strong>{hasExpenseChanges(expenseDrafts[t.id])&&<small className="p27-draft-label"> · временно</small>}</div>:t.budget>0?<><div className="numbers"><strong>{money(previewSpent)}</strong> / {money(t.budget)} <strong> · {Math.round(pct)}%</strong></div><div className="remaining">💳 Остават <strong>{money(Math.max(0,t.budget-previewSpent))}</strong></div><div className="track"><div style={{width:`${pct}%`}}/></div></>:<div className="numbers">💳 Разходи: <strong>{money(previewSpent)}</strong><small className="muted"> · Без зададен бюджет</small></div>}</button><button type="button" className="p915-archive-btn" disabled={archiveBusy===t.id} onClick={()=>setArchivePending(t)} title="Архивирай пътуване">{archiveBusy===t.id?'…':'🗃️ Архивирай'}</button></div>})}
+ {visible.map(raw=>{const canary=raw.id===p963CanaryId;const t=canary&&p965Home.status==='verified'?{...raw,...p965Home.data}:raw;const state=tripState(t),previewSpent=Number(t.spent||0)+(canary?0:expenseDraftDelta(expenseDrafts[t.id])),pct=t.budget>0?Math.min(100,Math.max(0,previewSpent/t.budget*100)):0;return <div key={t.id} className={'p915-swipe'+(archiveReveal===t.id?' is-open':'')} onContextMenu={e=>{e.preventDefault();setArchiveReveal(v=>v===t.id?'':t.id)}} onTouchStart={e=>{e.currentTarget.dataset.startX=String(e.touches[0]?.clientX??0)}} onTouchEnd={e=>{const delta=(e.changedTouches[0]?.clientX??0)-Number(e.currentTarget.dataset.startX||0);if(delta< -65)setArchiveReveal(t.id);else if(delta>65)setArchiveReveal('')}}><button className={'trip home-trip state-'+state} onClick={()=>void p963OpenTrip(t)} disabled={canary&&p965Home.status!=='verified'}><div className="triptitle"><span className="p9162-trip-icon" aria-hidden="true">🚙</span><span className="p9162-trip-name">{t.name}{canary&&p965Home.status==='verified'?' · ⚡ Neon':''}</span></div>{canary&&p965Home.status!=='verified'&&<small role="status" className="muted">{p965Home.status==='checking'?'Проверявам Neon и Drive архива…':'⚠️ Neon не е потвърден; отварянето и операциите са блокирани.'}</small>}<div className="tripstatus">{statusDot[state]} {statusText[state]} <span>{t.settings.start_date||''}{t.settings.end_date&&t.settings.end_date!==t.settings.start_date?' → '+t.settings.end_date:''}</span></div>{state==='finished'?<div className="numbers">💰 Общо изхарчено: <strong>{money(Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]))}</strong>{hasExpenseChanges(expenseDrafts[t.id])&&<small className="p27-draft-label"> · временно</small>}</div>:t.budget>0?<><div className="numbers"><strong>{money(previewSpent)}</strong> / {money(t.budget)} <strong> · {Math.round(pct)}%</strong></div><div className="remaining">💳 Остават <strong>{money(Math.max(0,t.budget-previewSpent))}</strong></div><div className="track"><div style={{width:`${pct}%`}}/></div></>:<div className="numbers">💳 Разходи: <strong>{money(previewSpent)}</strong><small className="muted"> · Без зададен бюджет</small></div>}</button><button type="button" className="p915-archive-btn" disabled={archiveBusy===t.id||canary} onClick={()=>{if(!canary)setArchivePending(t)}} title={canary?"Архивирането е блокирано до завършване на Neon миграцията":"Архивирай пътуване"}>{archiveBusy===t.id?'…':'🗃️ Архивирай'}</button></div>})}
  {ended.length>1&&<button className="show-completed" onClick={()=>setShowFinished(x=>!x)}>{showFinished?'Скрий старите приключения':'Виж всички приключени'} · {ended.length}</button>}
  </>})()}
+ {p965Home.status==='blocked'&&trips.some(t=>t.id===p963CanaryId)&&<p role="alert" className="error">🔒 Livigno: проверката на Neon и Drive архива не успя. Старите Drive стойности не се представят като текущи данни от Neon. {p965Home.message}</p>}
  {!trips.length&&loading&&<p role="status" className="muted">⏳ Зареждам пътуванията от сървъра. При първо отваряне Render може да се събужда…</p>}
  {!trips.length&&!loading&&dataFreshness==='none'&&<p role="alert" className="muted">⚠️ Пътуванията още не са заредени. Това не означава, че са изтрити. Натисни „Обнови“ за повторен опит.</p>}
  {!trips.length&&!loading&&dataFreshness==='fresh'&&<p className="muted">Сървърът върна празен списък с пътувания. Провери синхронизацията с Google Drive преди нов запис.</p>}
