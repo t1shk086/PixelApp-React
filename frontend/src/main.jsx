@@ -992,9 +992,10 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
 
  const p942Reload=async()=>{
   if(!p942Test||!onNeonRequest)return;
-  try{const result=neonPrimaryWritable?await onNeonRequest('/safe/neon/managed-source/'+encodeURIComponent(neonTripId)):await onNeonRequest('/safe/neon/workspace/'+encodeURIComponent(neonTripId));
-   if(!result?.ok||!result?.records)throw Error('Neon не върна данните.');
-   setP942Data(neonPrimaryWritable?{...result,records:result.workspace}:result);setP942Error('');
+  try{const result=await onNeonRequest('/safe/neon/managed-source/'+encodeURIComponent(neonTripId));
+   if(!result?.ok||result?.write_enabled!==true||!result?.workspace||!Number.isInteger(Number(result.revision)))throw Error('Neon не потвърди работно копие с разрешени записи.');
+   if(!Array.isArray(result.workspace.expenses)||!Array.isArray(result.workspace.settings)||!Array.isArray(result.workspace.tasks))throw Error('Neon върна непълен списък със записи.');
+   setP942Data({...result,records:result.workspace});setP942Error('');
   }catch(e){setP942Data(null);setP942Error(String(e.message||e));}
  };
  useEffect(()=>{setP942Data(null);setP942Error('');setP942Form(false);setP943Editing(null);if(p942Test)void p942Reload();},[neonTripId,neonPrimaryWritable]);
@@ -2959,37 +2960,7 @@ function App(){
  <strong>{current===p963CanaryId?(p962Preview?.writeEnabled?'⚡ Livigno · Neon':'⚡ P96.3 · Livigno от Neon'):'⚡ P96.2 · Проверен Neon преглед'}</strong>
  <p className="muted">{current===p963CanaryId?'Livigno се отваря директно от провереното Neon копие. Редакциите на пътуването са временно блокирани по време на миграцията; това НЕ означава, че пътуването е приключено. Галерията работи отделно през Google Drive. При несъответствие няма автоматично връщане към старите Drive данни.':'За това реално пътуване можеш да видиш действителното Neon работно копие, само за четене. Нормалният изглед и всички нормални записи остават в Drive. Прегледът се разрешава само ако двете копия съвпадат и архивът е актуален.'}</p>
  {current===p963CanaryId?<div className="p9043-expense-actions"><button type="button" disabled={p962Busy} onClick={()=>void p963OpenTrip(chosen)}>{p962Busy?'Проверявам…':'↻ Провери отново Neon'}</button><small className="muted">Предстоящо пътуване · временно заключени само мигрираните записи · снимките остават в Drive</small></div>:<div className="p9043-expense-actions"><button type="button" disabled={p962Busy||!(p962Preview&&p962Preview.tripId===current)} onClick={()=>{setP962Preview(null);setP962Error('')}}>☁️ Нормален изглед (Drive)</button><button type="button" disabled={p962Busy} onClick={()=>void openP962Preview()}>{p962Busy?'Проверявам…':'⚡ Отвори Neon (само преглед)'}</button></div>}
- {current===p963CanaryId&&p962Preview?.tripId===current&&!p962Preview?.writeEnabled&&<div className="travel-card" style={{marginTop:10,padding:12}}>
-  <strong>⚡ P97.1 · Включване на Livigno към Neon</strong>
-  <p className="muted">Livigno е предстоящо пътуване. Превключването е еднократно и разрешава нормалните редакции в Neon. Старите Drive CSV остават непроменени, а снимките — в Drive. Не го използвай за пробни записи.</p>
-  <button type="button" disabled={p962Busy||p971Busy||Number(p962Preview?.revision)!==1||Number(p962Preview?.archiveRevision)!==1} onClick={()=>{setP971Error('');setP971ConfirmOpen(true);setP971Typed('');setP971Acknowledged(false)}}>{p971Busy?'Потвърждавам…':'🔐 Включи нормални Neon записи за Livigno'}</button>
-  {(Number(p962Preview?.revision)!==1||Number(p962Preview?.archiveRevision)!==1)&&<p role="status" className="muted">Активирането изисква Neon v1 и архив v1. Текущо: Neon v{String(p962Preview?.revision)} / архив v{String(p962Preview?.archiveRevision)}.</p>}
-  {p971ConfirmOpen&&<div style={{marginTop:12,padding:12,border:'1px solid #63839b',borderRadius:10,display:'grid',gap:10}} role="group" aria-label="Потвърждение за миграция на Livigno">
-    <strong>Потвърждение за реалното Livigno Italy</strong>
-    <p className="muted">Това сменя основния източник на данни на предстоящото пътуване. Няма автоматично връщане към старите Drive CSV. Не въвеждай тестови разходи в Livigno.</p>
-    <label htmlFor="p971-confirm-text">Напиши точно ВКЛЮЧИ NEON ЗА LIVIGNO</label>
-    <input id="p971-confirm-text" autoComplete="off" spellCheck={false} value={p971Typed} onChange={e=>setP971Typed(e.target.value)} placeholder="ВКЛЮЧИ NEON ЗА LIVIGNO" disabled={p971Busy}/>
-    <label style={{display:'flex',alignItems:'flex-start',gap:8}}><input type="checkbox" checked={p971Acknowledged} onChange={e=>setP971Acknowledged(e.target.checked)} disabled={p971Busy}/><span>Разбирам, че това е реално превключване без автоматично връщане към Drive.</span></label>
-    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <button type="button" disabled={p971Busy||p971Typed!=='ВКЛЮЧИ NEON ЗА LIVIGNO'||!p971Acknowledged} onClick={async()=>{
-        setP971Busy(true);setP971Error('');
-        try{
-          await req('/safe/neon/activate-livigno','POST',{trip_id:p963CanaryId,expected_revision:Number(p962Preview.revision),confirmation:'ВКЛЮЧИ NEON ЗА LIVIGNO'});
-          setP971ConfirmOpen(false);setP971Typed('');setP971Acknowledged(false);
-          await p963OpenTrip(chosen);
-        }catch(err){setP971Error(String(err?.message||err));}
-        finally{setP971Busy(false)}
-      }}>{p971Busy?'Превключвам…':'Потвърди окончателно'}</button>
-      <button type="button" className="ghost" disabled={p971Busy} onClick={()=>{setP971ConfirmOpen(false);setP971Typed('');setP971Acknowledged(false)}}>Отказ</button>
-    </div>
-  </div>}
-  {p971Error&&<p role="alert" className="error">⚠️ {p971Error}</p>}
- </div>}
- {current===p963CanaryId&&<div style={{marginTop:10,display:'grid',gap:8}}>
-  <button type="button" className="ghost" disabled={p969Busy} onClick={async()=>{setP969Busy(true);setP969Error('');setP969Report(null);try{const r=await req('/safe/neon/real-trip-write-readiness/'+encodeURIComponent(p963CanaryId));setP969Report(r)}catch(e){setP969Error(String(e.message||e))}finally{setP969Busy(false)}}}>{p969Busy?'Проверявам…':'🔎 P96.9 · Провери готовността за Neon записи'}</button>
-  {p969Error&&<p role="alert" className="error">⚠️ {p969Error}</p>}
-  {p969Report&&<div style={{display:'grid',gap:6}}><strong>Neon v{p969Report.revision} · архив v{p969Report.archive_revision} · {p969Report.ready_for_cutover?'Готово':'Още не е готово за записи'}</strong>{p969Report.checks.map((x,i)=><div key={i} style={{fontSize:13}}>{x.ready?'✅':'🔒'} <b>{x.name}</b><div className="muted">{x.detail}</div></div>)}<small className="muted">Проверката е само за четене; не включва миграцията.</small></div>}
- </div>}
+ {current===p963CanaryId&&p962Preview?.tripId===current&&!p962Preview?.writeEnabled&&<p className="muted" role="status">🔒 Neon е проверен. Редакциите на Livigno остават временно изключени, докато се завърши общият записващ режим. Снимките работят нормално в Drive.</p>}
  {p962Preview?.tripId===current&&<p role="status">✅ Neon v{p962Preview.revision} · архив v{p962Preview.archiveRevision} · {p962Preview.writeEnabled?'основен източник Neon · нормални записи включени':p962Preview.sourceMode==='neon_primary_read_only'?'Neon данни · Drive е архив · редакциите са изключени':'проверено съвпадение с Drive · редакциите са изключени'}</p>}
  {p962Busy&&current===p963CanaryId&&<p role="status">Проверявам Neon и актуалния архив…</p>}{p962Error&&<p role="alert" className="error">⚠️ {p962Error}</p>}</div>
  <TripDetails key={current+'-'+(p962Preview?.tripId===current?(p962Preview.writeEnabled?'neon-active':'neon-preview'):'drive')} trip={chosen} detail={p962Preview?.tripId===current?p962Preview.detail:detail} readOnly={readOnly} previewReadOnly={p962Preview?.tripId===current&&!p962Preview?.writeEnabled} neonPrimaryWritable={p962Preview?.tripId===current&&p962Preview?.writeEnabled===true} financeOwned={p962Preview?.tripId===current?Boolean(p962Preview?.writeEnabled):reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onExpenseAction={(action,expense)=>{setSelectedExpenseAction({action,expense});setModal('owned-expenses')}} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>refreshAfterWrite(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>refreshAfterWrite(current)} galleryAuthHeaders={authMode==='accounts'?{Authorization:`Bearer ${key}`}:{'X-API-Key':key}} onNeonRequest={req} neonTripId={current} onFavoritesLoad={()=>req(`/safe/trip-places/${encodeURIComponent(current)}`)} onFavoriteChange={payload=>req(`/safe/trip-places/${encodeURIComponent(current)}`,'POST',payload)} onOpenPreview={m=>{if(p962Preview?.tripId===current)return;setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}}/></>}</>}
