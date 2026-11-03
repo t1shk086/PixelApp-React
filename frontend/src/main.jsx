@@ -685,7 +685,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  useEffect(()=>{
   let live=true;
   const id=String(neonTripId||'');
-  if(!onNeonRequest||!/(тест|test)/i.test(id)){
+  if(p942Test||!onNeonRequest||!/(тест|test)/i.test(id)){
    setNeonTaskMode(false);setSharedMode(null);setSharedModeError('');return;
   }
   setSharedMode(null);setSharedModeError('');
@@ -886,7 +886,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const neonActive=!p932Active&&!p931Active&&isNeonExpenseTest&&neonExpenseView&&Boolean(neonExpenseWorkspace?.records);
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
- const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=detail?.tasks||[], points=detail?.points||[];
+ const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=p942Test?(p942Data?.records?.tasks||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.tasks||[], points=detail?.points||[];
  const p936DriveRows=detail?.expenses||[];
  const p936DriveBudgets=detail?.budgets||[];
  const p936DriveSettings=detail?.settings||trip?.settings||{};
@@ -962,14 +962,37 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const taskIsDone=t=>['true','1','да','yes'].includes(String(t.done??'').toLowerCase());
  const previewTasks=tasks.map((t,i)=>({...t,_previewKey:String(t.item_id??`old-${i}`)}));
  const done=previewTasks.filter(taskIsDone).length;
- const taskEditable=financeOwned && !trip?.settings?.trip_finished?.toLowerCase?.().includes('да');
+ const taskEditable=financeOwned && !trip?.settings?.trip_finished?.toLowerCase?.().includes('да') && (!p942Test || Boolean(p942Data?.records?.tasks));
+ // P94.9: normal tasks of the isolated test trip use the same verified workspace as expenses.
+ // Other trips retain their existing Drive-backed task handlers unchanged.
  const changeTask=async(operation,t=null,title='')=>{
   if(!taskEditable||taskBusy)return;
+  if(p942Test){
+   setTaskBusy(true);setTaskMessage('');
+   try{
+    const data=t?{trip_id:neonTripId,item_id:String(t.item_id),title:operation==='edit'?title:String(t.title||''),
+     done:operation==='toggle'?(taskIsDone(t)?'False':'True'):String(t.done??'False'),created:String(t.created||'')}
+     :{trip_id:neonTripId,item_id:'P949_'+crypto.randomUUID(),title,done:'False',created:new Date().toLocaleString('bg-BG')};
+    const requestOperation=operation==='toggle'?'edit':operation;
+    if(requestOperation!=='add'&&(!t?._neonRowId||!Number.isInteger(t._neonVersion)))
+     throw Error('Липсва версия на задачата. Обнови списъка.');
+    // Preserve the version captured when editing started; never use a freshly loaded version to overwrite another profile.
+    const expectedVersion=operation==='edit'?Number(taskEditRevision):t?._neonVersion;
+    if(requestOperation!=='add'&&(!Number.isInteger(expectedVersion)||expectedVersion<1))
+     throw Error('Невалидна версия. Отвори задачата отново.');
+    await onNeonRequest('/safe/neon/collection','POST',{trip_id:neonTripId,dataset:'tasks',operation:requestOperation,
+     ...(requestOperation!=='add'?{row_id:t._neonRowId,expected_version:expectedVersion}:{}),
+     ...(requestOperation!=='delete'?{row:data}:{})});
+    await p942Reload();
+    setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);
+    setTaskMessage('✅ Записано в Neon. Архивът в Drive се създава автоматично.');
+   }catch(err){await p942Reload();setTaskMessage('⚠️ '+String(err.message||err));}
+   finally{setTaskBusy(false);}
+   return;
+  }
   setTaskBusy(true);setTaskMessage('');
   const perfStart=performance.now();let perfPre=0,perfWrite=0,perfRefresh=0;
   try{
-   // An edit must use the revision captured when the editor was opened.
-   // Fetching a fresh revision at save time silently overwrites another user's edit.
    if(operation==='edit'&&(!taskEditRevision||!taskEditOriginal||String(taskEditOriginal.item_id)!==String(t?.item_id)))
     throw Error('Редакцията няма валидна начална версия. Отвори задачата отново.');
    const pre=operation==='edit'
@@ -995,9 +1018,14 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   if(!taskEditable||taskBusy)return;
   setTaskBusy(true);setTaskMessage('');
   try{
+   if(p942Test){
+    if(!t._neonRowId||!Number.isInteger(t._neonVersion))throw Error('Липсва версия на задачата.');
+    setTaskEditRevision(String(t._neonVersion));
+    setTaskEditOriginal({item_id:String(t.item_id),title:String(t.title||''),done:String(t.done||'')});
+    setTaskEditing(t._previewKey);setTaskEditText(t.title||'');return;
+   }
    const pre=await onTaskPreflight();
    if(!pre.can_write)throw Error('Задачите са променени. Обнови списъка преди редакция.');
-   // Don't open the editor against a different version of the task itself.
    const remote=(pre.tasks||[]).find(x=>String(x.item_id)===String(t.item_id));
    if(!remote||String(remote.title||'')!==String(t.title||'')||String(remote.done||'').toLowerCase()!==String(t.done||'').toLowerCase())
     throw Error('Тази задача е променена на друго устройство. Обнови списъка.');
@@ -1118,7 +1146,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  </>}
  {section==='tasks'&&<>
   {!neonTaskMode&&<div className="travel-card task-showcase"><h3>✅ План и задачи</h3><div className="task-progress-head"><div><small>ИЗПЪЛНЕНИ ЗАДАЧИ</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><span>{previewTasks.length?Math.round(done/previewTasks.length*100):0}%</span></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>}
- {(onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}>
+ {(!p942Test&&onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}>
   <strong>⚙️ Източник на задачи</strong>
   <p className="muted" style={{fontSize:12}}>Общ избор за двата профила · само за тестовото пътуване. Drive не се синхронизира автоматично.</p>
   {sharedModeError?<p role="alert">⚠️ {sharedModeError}</p>:!sharedMode?<p className="muted">Проверявам общия режим…</p>:<>
@@ -1128,11 +1156,12 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   </>}
   {neonPrimaryMessage&&<p role="status" className="muted">{neonPrimaryMessage}</p>}
  </div>}
- {onNeonRequest&&/(тест|test)/i.test(String(neonTripId||''))&&!sharedMode?<p role="status" className="muted">Не редактирай задачи, докато общият режим не е зареден.</p>:neonTaskMode&&onNeonRequest?<NeonTripTaskLab tripId={neonTripId} request={onNeonRequest}/>:<>
+ {!p942Test&&onNeonRequest&&/(тест|test)/i.test(String(neonTripId||''))&&!sharedMode?<p role="status" className="muted">Не редактирай задачи, докато общият режим не е зареден.</p>:neonTaskMode&&onNeonRequest?<NeonTripTaskLab tripId={neonTripId} request={onNeonRequest}/>:<>
  <div className="travel-card task-preview-panel">
   <div className="task-preview-heading"><h3>📋 Списък със задачи</h3></div>
   
-   {taskEditable?<p className="muted">🔐 Запис в Google Drive с проверка за промени и резервно копие.</p>:<p className="muted">🔒 Старите и приключените пътувания са само за преглед.</p>}
+   {taskEditable?<p className="muted">{p942Test?'⚡ Автоматичен запис в Neon · резервно копие в Drive.':'🔐 Запис в Google Drive с проверка за промени и резервно копие.'}</p>:<p className="muted">🔒 Старите и приключените пътувания са само за преглед.</p>}
+  {p942Test&&!p942Data&&<p role="alert" className="muted">⚠️ Neon данните не са заредени. Записите са блокирани.</p>}
   <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова задача" value={taskName} maxLength={200} disabled={!taskEditable||taskBusy} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" disabled={!taskEditable||taskBusy||!taskName.trim()}>➕ Добави</button></form>
   {previewTasks.length?previewTasks.map(t=>{const complete=taskIsDone(t);const isEditing=taskEditing===t._previewKey;return <div key={t._previewKey} className={'task-visual-item task-preview-item'+(complete?' task-visual-done':'')}>
    <button type="button" className="task-preview-check" disabled={!taskEditable||taskBusy} aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>changeTask('toggle',t)}>{complete?'✓':'○'}</button>
