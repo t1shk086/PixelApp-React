@@ -688,6 +688,9 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
  const [safetyBusy,setSafetyBusy]=useState(false);
  const [safetyReport,setSafetyReport]=useState(null);
  const [safetyError,setSafetyError]=useState('');
+ const [migrationBusy,setMigrationBusy]=useState(false);
+ const [migrationReport,setMigrationReport]=useState(null);
+ const [migrationError,setMigrationError]=useState('');
  const locked=!workspace||String(settings.trip_finished).toLowerCase()==='да'||Number(settings.end_km)>0;
  async function save(operation,e){e.preventDefault();if(locked||busy)return;
   setBusy(true);setNotice('');
@@ -714,6 +717,20 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
    setSafetyReport(result);
   }catch(err){setSafetyError(String(err.message||err));}
   finally{setSafetyBusy(false)}
+ }
+ async function checkMigrationReadiness(){
+  if(migrationBusy||busy)return;
+  setMigrationBusy(true);setMigrationError('');setMigrationReport(null);
+  try{
+   const report=await request('/safe/neon/migration-readiness');
+   if(report?.ok!==true||report?.read_only!==true||report?.production_switched!==false||!Array.isArray(report.trips))
+    throw Error('Отчетът не потвърждава безопасна проверка само за четене.');
+   if(report.trips.length!==9)throw Error('Очакват се точно девет пътувания. Няма промяна.');
+   if(report.trips.some(t=>typeof t.trip_id!=='string'||typeof t.stage_matches_live_drive!=='boolean'||typeof t.backup_current!=='boolean'))
+    throw Error('Непълен отговор от Neon.');
+   setMigrationReport(report);
+  }catch(err){setMigrationError(String(err.message||err));}
+  finally{setMigrationBusy(false)}
  }
  async function finishTrip(e){
    e.preventDefault();if(locked||busy||!validEnd)return;
@@ -744,6 +761,26 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
     <small>Сега: {safetyReport.finished_now?'Приключено':'Активно'} · Neon версия {safetyReport.revision} · Най-малко {safetyReport.minimum_end_km??'—'} крайни км</small>
     {Object.entries(safetyReport.simulated_locked||{}).map(([key,value])=><small key={key}>{value?'✓':'⚠'} {key}</small>)}
     <small>Не е изпълнен истински запис. Не са променени данни или статус.</small>
+   </div>}
+  </div>
+  <div className="p21-section"><h4>🗃️ P95.5 · Проверка преди миграция</h4>
+   <p className="muted">Сверява оригиналите в Drive, подготвените Neon копия и текущите резервни архиви. Само четене — без превключване на пътувания и без промяна на данни.</p>
+   <button type="button" className="ghost" disabled={migrationBusy||busy} onClick={()=>void checkMigrationReadiness()}>{migrationBusy?'Проверявам 9 пътувания…':'🔎 Провери 8-те реални пътувания'}</button>
+   {migrationError&&<p role="alert" className="error">⚠️ {migrationError}</p>}
+   {migrationReport&&<div role="status" style={{display:'grid',gap:9,marginTop:10}}>
+    <strong>{migrationReport.trips.filter(t=>t.trip_id!==tripId).every(t=>t.stage_matches_live_drive&&t.workspace_exists&&t.backup_current)?'✅ Осемте копия и архиви са актуални':'⚠️ Има разлики или липсващи актуални архиви'}</strong>
+    <small>От {migrationReport.trip_count} пътувания: {migrationReport.stage_matches_drive_count} копия съвпадат с Drive · {migrationReport.workspace_count} Neon работни копия · {migrationReport.backed_up_workspace_count} актуални архиви.</small>
+    <div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:'0.82rem',borderCollapse:'collapse'}}>
+     <thead><tr><th style={{textAlign:'left',padding:'6px 4px'}}>Пътуване</th><th>Drive</th><th>Neon</th><th>Архив</th></tr></thead>
+     <tbody>{migrationReport.trips.filter(t=>t.trip_id!==tripId).map(t=><tr key={t.trip_id}>
+      <td style={{padding:'7px 4px',overflowWrap:'anywhere',maxWidth:170}}>{t.trip_id.replace(/_/g,' ')}</td>
+      <td style={{textAlign:'center'}} title={t.stage_matches_live_drive?'Съвпада с Drive':'Разлика спрямо Drive'}>{t.stage_matches_live_drive?'✓':'⚠'}</td>
+      <td style={{textAlign:'center'}} title={t.workspace_exists?'Налично работно копие':'Липсва копие'}>{t.workspace_exists?'✓':'⚠'}</td>
+      <td style={{textAlign:'center'}} title={t.backup_current?'Актуален архив':'Архивът не е актуален или липсва'}>{t.backup_current?'✓':'⚠'}</td>
+     </tr>)}</tbody>
+    </table></div>
+    <small>⚠️ Това не включва нормалните записи към Neon. Дори всички отметки да са зелени, окончателното превключване изисква отделна проверка на всички записващи функции. „ТЕСТ НОВО“ не се включва в таблицата.</small>
+    <small>Не са създадени нови копия или архиви и не е променен източникът на данните.</small>
    </div>}
   </div>
   <div className="p21-section"><h4>🏁 Приключване на пътуването</h4>
