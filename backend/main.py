@@ -87,6 +87,41 @@ app = FastAPI(title='PixelApp API', version='0.1.0')
 origins = [x.strip() for x in os.getenv('ALLOWED_ORIGINS','http://localhost:5173').split(',') if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=['GET','POST','PUT','DELETE'], allow_headers=['X-API-Key','Content-Type','Authorization'])
 
+# P96.6: Server-side boundary while Livigno is Neon READ-only.
+# The front end already disables Drive editors, but an old browser tab or a
+# separately cached client must not silently mutate the original Drive CSVs.
+# Only the legacy routes listed here are blocked; photographs deliberately
+# remain in Drive and use the independent /gallery API.
+from fastapi.responses import JSONResponse
+_P966_PROTECTED_TRIP = 'Livigno_Italy'
+_P966_LEGACY_TRIP_WRITE_PATHS = frozenset((
+    '/trips/{id}/expenses', '/trips/{id}/budget', '/trips/{id}/tasks',
+    '/safe/trip-finance/{id}', '/safe/fuel/{id}',
+    '/safe/missed-fuel/{id}', '/safe/finish/{id}',
+    '/safe/tasks/{id}', '/safe/route/{id}',
+    '/safe/favorites/{id}', '/safe/trip-places/{id}',
+    '/safe/basic/{id}', '/safe/adopt-legacy-trip/{id}',
+))
+_P966_LEGACY_BLOCKED_PATHS = frozenset(
+    template.format(id=_P966_PROTECTED_TRIP)
+    for template in _P966_LEGACY_TRIP_WRITE_PATHS
+)
+
+@app.middleware('http')
+async def p966_protect_legacy_drive_writes(request: Request, call_next):
+    # Legacy task IDs include their trip ID; protect those direct handlers too.
+    path = request.url.path
+    method = request.method.upper()
+    legacy_task_write = (path.startswith('/tasks/' + _P966_PROTECTED_TRIP + '_')
+                         and method in ('PUT', 'DELETE', 'PATCH', 'POST'))
+    if method in ('POST', 'PUT', 'PATCH', 'DELETE') and (
+        path in _P966_LEGACY_BLOCKED_PATHS or legacy_task_write
+    ):
+        return JSONResponse(status_code=409, content={'detail':
+            'Livigno се чете от Neon. Старите Drive записи са блокирани до завършване на миграцията.'})
+    return await call_next(request)
+
+
 
 # P87: Optional two-account authentication. Shared-key login remains supported only
 # until PIXELAPP_AUTH_MODE=accounts is explicitly configured on Render.
@@ -725,6 +760,8 @@ def trip_archive_preflight(trip_id: str):
 
 @app.post('/safe/trip-archive', dependencies=[Depends(authorize)])
 def trip_archive(payload: TripArchiveRequest):
+    if payload.trip_id == _P966_PROTECTED_TRIP:
+        raise HTTPException(409, 'Архивирането на Livigno е блокирано по време на Neon миграцията.')
     import time
     if payload.confirmation != payload.trip_id:
         raise HTTPException(422, 'Потвърждението не съвпада с името на пътуването.')
