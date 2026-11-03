@@ -2715,9 +2715,9 @@ function App(){
   }
   let live=true;
   setP965Home({status:'checking',data:null,message:''});
-  req('/safe/neon/real-trip-preview/'+encodeURIComponent(p963CanaryId)).then(result=>{
+  req('/safe/neon/real-trip-source/'+encodeURIComponent(p963CanaryId)).then(result=>{
    if(!live)return;
-   if(!result?.ok||!result?.read_only||!result?.exact_match_live_drive||result?.production_switched!==false||result?.trip_id!==p963CanaryId||result?.records?.settings?.length!==1||!Array.isArray(result?.records?.expenses)||!Array.isArray(result?.records?.budgets))
+   if(!result?.ok||!result?.read_only||!(['verified_pre_cutover','neon_primary_read_only'].includes(result?.source_mode))||result?.production_switched!==false||result?.trip_id!==p963CanaryId||result?.records?.settings?.length!==1||!Array.isArray(result?.records?.expenses)||!Array.isArray(result?.records?.budgets))
     throw Error('Провереният Neon източник не е потвърден.');
    const rows=result.records.expenses;
    const limits=result.records.budgets;
@@ -2725,7 +2725,7 @@ function App(){
    const global=limits.filter(r=>r.category==='__GLOBAL__').reduce((sum,r)=>sum+(Number(r.budget)||0),0);
    const budget=global>0?global:limits.filter(r=>r.category!=='__GLOBAL__').reduce((sum,r)=>sum+(Number(r.budget)||0),0);
    if(!Number.isFinite(spent)||!Number.isFinite(budget))throw Error('Невалидни финансови стойности.');
-   setP965Home({status:'verified',data:{spent,budget,settings:result.records.settings[0],revision:result.revision,archive:result.archive_revision},message:''});
+   setP965Home({status:'verified',data:{spent,budget,settings:result.records.settings[0],revision:result.revision,archive:result.archive_revision,sourceMode:result.source_mode},message:''});
   }).catch(err=>{if(live)setP965Home({status:'blocked',data:null,message:String(err.message||err)})});
   return()=>{live=false};
  },[key,trips]);
@@ -2754,12 +2754,12 @@ function App(){
   try{
    // The backend verifies same live Drive digest, Neon data and current archive.
    // Failure means NO automatic fallback to Drive and NO legacy writers.
-   const d=await req('/safe/neon/real-trip-preview/'+encodeURIComponent(t.id));
-   if(!d.ok||!d.read_only||!d.exact_match_live_drive||d.production_switched!==false||d.trip_id!==t.id||!d.records||d.records.settings?.length!==1)
+   const d=await req('/safe/neon/real-trip-source/'+encodeURIComponent(t.id));
+   if(!d.ok||!d.read_only||!(['verified_pre_cutover','neon_primary_read_only'].includes(d.source_mode))||d.production_switched!==false||d.trip_id!==t.id||!d.records||d.records.settings?.length!==1)
     throw Error('Сървърът не потвърди провереното Neon копие.');
    const r=d.records;
    const verified={settings:r.settings[0],expenses:r.expenses||[],budgets:r.budgets||[],tasks:r.tasks||[],points:r.points||[],categories:r.categories||[]};
-   setP962Preview({tripId:t.id,revision:d.revision,archiveRevision:d.archive_revision,detail:verified});
+   setP962Preview({tripId:t.id,revision:d.revision,archiveRevision:d.archive_revision,sourceMode:d.source_mode,detail:verified});
    setDetail(verified);
   }catch(e){
    setP962Preview(null);setDetail(null);setP962Error('Neon прегледът е блокиран: '+String(e.message||e));
@@ -2774,13 +2774,13 @@ function App(){
    if(document.visibilityState!=='visible'||!live)return;
    setP962Busy(true);setP962Preview(null);setDetail(null);setP962Error('');
    try{
-    const d=await req('/safe/neon/real-trip-preview/'+encodeURIComponent(p963CanaryId));
-    if(!d.ok||!d.read_only||!d.exact_match_live_drive||d.production_switched!==false||d.trip_id!==p963CanaryId||!d.records||d.records.settings?.length!==1)
+    const d=await req('/safe/neon/real-trip-source/'+encodeURIComponent(p963CanaryId));
+    if(!d.ok||!d.read_only||!(['verified_pre_cutover','neon_primary_read_only'].includes(d.source_mode))||d.production_switched!==false||d.trip_id!==p963CanaryId||!d.records||d.records.settings?.length!==1)
      throw Error('Сървърът не потвърди актуалното Neon копие.');
     if(!live)return;
     const r=d.records;
     const verified={settings:r.settings[0],expenses:r.expenses||[],budgets:r.budgets||[],tasks:r.tasks||[],points:r.points||[],categories:r.categories||[]};
-    setP962Preview({tripId:p963CanaryId,revision:d.revision,archiveRevision:d.archive_revision,detail:verified});
+    setP962Preview({tripId:p963CanaryId,revision:d.revision,archiveRevision:d.archive_revision,sourceMode:d.source_mode,detail:verified});
     setDetail(verified);
    }catch(e){if(live){setP962Error('Neon проверката при връщане е блокирана: '+String(e.message||e));setP962Preview(null);setDetail(null)}}
    finally{if(live)setP962Busy(false)}
@@ -2957,7 +2957,7 @@ function App(){
  <strong>{current===p963CanaryId?'⚡ P96.3 · Livigno от Neon':'⚡ P96.2 · Проверен Neon преглед'}</strong>
  <p className="muted">{current===p963CanaryId?'Livigno се отваря директно от провереното Neon копие. Редакциите на пътуването са временно блокирани по време на миграцията; това НЕ означава, че пътуването е приключено. Галерията работи отделно през Google Drive. При несъответствие няма автоматично връщане към старите Drive данни.':'За това реално пътуване можеш да видиш действителното Neon работно копие, само за четене. Нормалният изглед и всички нормални записи остават в Drive. Прегледът се разрешава само ако двете копия съвпадат и архивът е актуален.'}</p>
  {current===p963CanaryId?<div className="p9043-expense-actions"><button type="button" disabled={p962Busy} onClick={()=>void p963OpenTrip(chosen)}>{p962Busy?'Проверявам…':'↻ Провери отново Neon'}</button><small className="muted">Предстоящо пътуване · временно заключени само мигрираните записи · снимките остават в Drive</small></div>:<div className="p9043-expense-actions"><button type="button" disabled={p962Busy||!(p962Preview&&p962Preview.tripId===current)} onClick={()=>{setP962Preview(null);setP962Error('')}}>☁️ Нормален изглед (Drive)</button><button type="button" disabled={p962Busy} onClick={()=>void openP962Preview()}>{p962Busy?'Проверявам…':'⚡ Отвори Neon (само преглед)'}</button></div>}
- {p962Preview?.tripId===current&&<p role="status">✅ Neon v{p962Preview.revision} · архив v{p962Preview.archiveRevision} · проверено съвпадение с Drive · всички редакции са изключени</p>}
+ {p962Preview?.tripId===current&&<p role="status">✅ Neon v{p962Preview.revision} · архив v{p962Preview.archiveRevision} · {p962Preview.sourceMode==='neon_primary_read_only'?'Neon данни · Drive е архив':'проверено съвпадение с Drive'} · всички редакции са изключени</p>}
  {p962Busy&&current===p963CanaryId&&<p role="status">Проверявам Neon и актуалния архив…</p>}{p962Error&&<p role="alert" className="error">⚠️ {p962Error}</p>}</div>
  <TripDetails key={current+'-'+(p962Preview?.tripId===current?'neon-preview':'drive')} trip={chosen} detail={p962Preview?.tripId===current?p962Preview.detail:detail} readOnly={readOnly} previewReadOnly={p962Preview?.tripId===current} financeOwned={p962Preview?.tripId===current?false:reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onExpenseAction={(action,expense)=>{setSelectedExpenseAction({action,expense});setModal('owned-expenses')}} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>refreshAfterWrite(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>refreshAfterWrite(current)} galleryAuthHeaders={authMode==='accounts'?{Authorization:`Bearer ${key}`}:{'X-API-Key':key}} onNeonRequest={req} neonTripId={current} onFavoritesLoad={()=>req(`/safe/trip-places/${encodeURIComponent(current)}`)} onFavoriteChange={payload=>req(`/safe/trip-places/${encodeURIComponent(current)}`,'POST',payload)} onOpenPreview={m=>{if(p962Preview?.tripId===current)return;setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}}/></>}</>}
  
