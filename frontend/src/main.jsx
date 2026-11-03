@@ -802,7 +802,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   const result=await onFavoritesLoad();
   setFavorites(result.places||[]);setFavoriteHash(result.sha256||'');
  };
- useEffect(()=>{if(section==='map')void refreshFavorites().catch(e=>setFavoriteMessage('⚠️ '+String(e.message||e)));},[section,trip?.id]);
+ useEffect(()=>{if(section==='map'){if(p942Test)void p942Reload();else void refreshFavorites().catch(e=>setFavoriteMessage('⚠️ '+String(e.message||e)));}},[section,trip?.id]);
  const saveFavorite=async(operation,index=-1)=>{
   if(!routeEditable||favoriteBusy)return;
   const title=favoriteName.trim(),lat=Number(favoriteLat),lon=Number(favoriteLon);
@@ -811,12 +811,19 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   }
   setFavoriteBusy(true);setFavoriteMessage('');
   try{
+   if(p942Test){
+    if(!p942Data?.records?.points)throw Error('Neon картата не е заредена.');
+    await onNeonRequest('/safe/neon/points-action','POST',{trip_id:neonTripId,kind:'favorite',operation,
+     expected_revision:p942Data.revision,index,title,lat,lon});
+    await p942Reload();setFavoriteEditing(-1);setFavoriteEditorOpen(false);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');
+    setFavoriteMessage('✅ Записано в Neon. Архивът в Drive е заявен.');return;
+   }
    const current=await onFavoritesLoad();
    if(!current.can_write)throw Error('Google Drive се е променил. Обнови страницата.');
    await onFavoriteChange({operation,index,title,lat,lon,expected_sha256:current.sha256});
    await refreshFavorites();setFavoriteEditing(-1);setFavoriteEditorOpen(false);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');
    setFavoriteMessage('✅ Записано и проверено в Google Drive.');
-  }catch(e){setFavoriteMessage('⚠️ '+String(e.message||e))}finally{setFavoriteBusy(false)}
+  }catch(e){if(p942Test)await p942Reload();setFavoriteMessage('⚠️ '+String(e.message||e))}finally{setFavoriteBusy(false)}
  };
  const [gpsBusy,setGpsBusy]=useState(false);
  const [gpsMessage,setGpsMessage]=useState('');
@@ -945,7 +952,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const neonActive=!p932Active&&!p931Active&&isNeonExpenseTest&&neonExpenseView&&Boolean(neonExpenseWorkspace?.records);
  const neonRows=neonExpenseWorkspace?.records?.expenses?.map(x=>x.data)||[];
  const neonBudgets=neonExpenseWorkspace?.records?.budgets?.map(x=>x.data)||[];
- const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p942Test?(p942Data?.records?.budgets||[]).map(x=>x.data):p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=p942Test?(p942Data?.records?.tasks||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.tasks||[], points=detail?.points||[];
+ const rows=p942Test?(p942Data?.records?.expenses||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):p934Active?(p934Data.records.expenses||[]):(p932Active?p932Workspace.records.expenses.map(x=>x.data):(p931Active?p931Stage.records.expenses:(neonActive?neonRows:applyExpenseDraft(detail?.expenses||[],expenseDraft)))), settings=p934Active?(p934Data.records.settings?.[0]||{}):(p932Active?(p932Workspace.records.settings?.[0]?.data||{}):(p931Active?(p931Stage.records.settings?.[0]||{}):(detail?.settings||trip?.settings||{}))), budgets=p942Test?(p942Data?.records?.budgets||[]).map(x=>x.data):p934Active?(p934Data.records.budgets||[]):(p932Active?p932Workspace.records.budgets.map(x=>x.data):(p931Active?p931Stage.records.budgets:(neonActive?neonBudgets:(detail?.budgets||[])))), tasks=p942Test?(p942Data?.records?.tasks||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.tasks||[], points=p942Test?(p942Data?.records?.points||[]).map(x=>({...x.data,_neonRowId:x.row_id,_neonVersion:x.version})):detail?.points||[];
  const p936DriveRows=detail?.expenses||[];
  const p936DriveBudgets=detail?.budgets||[];
  const p936DriveSettings=detail?.settings||trip?.settings||{};
@@ -1098,7 +1105,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const validPoints=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))&&Math.abs(Number(p.lat))<=90&&Math.abs(Number(p.lon))<=180);
  const routeStops=validPoints.filter(p=>String(p.title||'').startsWith('3b:')&&['purple','orange'].includes(p.color));
  const savedPlaces=validPoints.filter(p=>!routeStops.includes(p));
- const routeEditable=financeOwned && tripState(trip)!=='finished';
+ const shownFavorites=p942Test?validPoints.filter(p=>!String(p.title||'').startsWith('3b:')||!['purple','orange'].includes(p.color)).map((p,index)=>({...p,index})):favorites;
+ const routeEditable=financeOwned && tripState(trip)!=='finished' && (!p942Test || Boolean(p942Data?.records?.points));
  const routeSignature=routeStops.map(p=>`${Number(p.lat).toFixed(5)},${Number(p.lon).toFixed(5)}`).join(';');
  useEffect(()=>{
   const coords=routeSignature.split(';').filter(Boolean);
@@ -1131,11 +1139,18 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   if(!routeEditable||routeBusy)return;
   setRouteBusy(true);setRouteMessage('');
   try{
+   if(p942Test){
+    if(!p942Data?.records?.points)throw Error('Neon маршрутът не е зареден.');
+    await onNeonRequest('/safe/neon/points-action','POST',{trip_id:neonTripId,kind:'route',operation,
+     expected_revision:p942Data.revision,index,position,title:routeName.trim(),
+     lat:Number(routeLat),lon:Number(routeLon),stop_type:routeType});
+    await p942Reload();setRouteName('');setRouteLat('');setRouteLon('');setRouteMessage('✅ Записано в Neon. Архивът в Drive е заявен.');return;
+   }
    const pre=await onRoutePreflight();
    if(!pre.can_write)throw Error('Маршрутът не е готов за запис. Обнови данните от Google Drive.');
    await onRouteChange({operation,index,position,expected_sha256:pre.sha256,title:routeName.trim(),lat:Number(routeLat),lon:Number(routeLon),stop_type:routeType});
    await onRouteSaved();setRouteName('');setRouteLat('');setRouteLon('');setRouteMessage('✅ Записано и проверено в Google Drive.');
-  }catch(e){setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
+  }catch(e){if(p942Test)await p942Reload();setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
  };
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['gallery','Галерия'],['check','Проверка']];
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
@@ -1250,8 +1265,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  {roadRoute.status==='ready'&&<div className="route78-total">🚗 Ориентировъчен маршрут по пътищата: <b>{Math.round(roadRoute.total).toLocaleString('bg-BG')} км</b><small>OSRM · не влияе на действителния пробег и горивото</small></div>}
  {routeSegments.length>0&&<div className="route78-links"><b>🗺️ Навигация в Google Maps</b>{routeSegments.map((part,i)=><a key={i} href={makeGoogleRouteLink(part)} target="_blank" rel="noopener noreferrer" className="route76-nav">Етап {i+1}/{routeSegments.length} · точки {i*4+1}–{i*4+part.length}</a>)}{routeSegments.length>1&&<small>Всеки следващ етап започва от последната точка на предишния.</small>}</div>}
  </div></div>}{mapTab==='favorites'&&<div className="route82-panel route82-favorite-panel"><section className="route79-saved route81-favorites" aria-label="Любими места">
- <div className="route81-heading p83-heading"><h3>Любими места</h3><span className="p83-count">{favorites.length} {favorites.length===1?'място':'места'}</span></div>
- {favorites.length?<div className="route81-list p83-list">{favorites.map(p=><div key={p.index} className="p83-card">
+ <div className="route81-heading p83-heading"><h3>Любими места</h3><span className="p83-count">{shownFavorites.length} {shownFavorites.length===1?'място':'места'}</span></div>
+ {shownFavorites.length?<div className="route81-list p83-list">{shownFavorites.map(p=><div key={p.index} className="p83-card">
  <div className="p83-main"><button type="button" className="p83-place" title="Покажи на картата" onClick={()=>{setRouteFocus({lat:Number(p.lat),lon:Number(p.lon)});setMapTab('route')}}><span className="p83-pin" aria-hidden="true">♥</span><span className="p83-name">{p.title}</span></button>
  {routeEditable&&<details className="p83-menu"><summary aria-label={`Действия за ${p.title}`} title="Още действия">⋯</summary><div className="p83-dropdown"><button type="button" onClick={e=>{e.currentTarget.closest('details').open=false;setFavoriteEditing(p.index);setFavoriteName(p.title);setFavoriteLat(String(p.lat));setFavoriteLon(String(p.lon));setFavoriteEditorOpen(true);}}>✎ Редактирай</button><button type="button" className="p83-danger" disabled={favoriteBusy} onClick={()=>{if(window.confirm('Да изтрия любимото място?'))void saveFavorite('delete',p.index)}}>× Изтрий</button></div></details>}</div>
  <div className="p83-bottom"><span className="p83-desc">Запазена локация</span><div className="p83-quick"><button type="button" title="На картата" aria-label={`Покажи ${p.title} на картата`} onClick={()=>{setRouteFocus({lat:Number(p.lat),lon:Number(p.lon)});setMapTab('route')}}>⌖</button>{routeEditable&&<button type="button" title="Към маршрута" aria-label={`Избери ${p.title} за нова спирка`} onClick={()=>{setRouteName(p.title);setRouteLat(String(p.lat));setRouteLon(String(p.lon));setGpsMessage('Избрано любимо място — запиши като спирка.');setMapTab('add')}}>＋</button>}</div></div>
