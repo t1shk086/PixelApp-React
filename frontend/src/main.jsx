@@ -2676,7 +2676,7 @@ function App(){
  const [archiveReveal,setArchiveReveal]=useState(''); const [archiveBusy,setArchiveBusy]=useState(''); const [archivePending,setArchivePending]=useState(null); const [trips,setTrips]=useState([]);const [current,setCurrent]=useState(null);
  const [p962Preview,setP962Preview]=useState(null); const [p962Busy,setP962Busy]=useState(false); const [p962Error,setP962Error]=useState('');
  const [p969Report,setP969Report]=useState(null); const [p969Busy,setP969Busy]=useState(false);
- const [p971Busy,setP971Busy]=useState(false); const [p971Error,setP971Error]=useState(''); const [p969Error,setP969Error]=useState('');
+ const [p971Busy,setP971Busy]=useState(false); const [p971ConfirmOpen,setP971ConfirmOpen]=useState(false); const [p971Typed,setP971Typed]=useState(''); const [p971Acknowledged,setP971Acknowledged]=useState(false); const [p971Error,setP971Error]=useState(''); const [p969Error,setP969Error]=useState('');
  // P96.5: fail-closed home summary for the first Neon-read canary. No write cutover.
  const [p965Home,setP965Home]=useState({status:'checking',data:null,message:''});
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
@@ -2962,18 +2962,27 @@ function App(){
  {current===p963CanaryId&&p962Preview?.tripId===current&&!p962Preview?.writeEnabled&&<div className="travel-card" style={{marginTop:10,padding:12}}>
   <strong>⚡ P97.1 · Включване на Livigno към Neon</strong>
   <p className="muted">Livigno е предстоящо пътуване. Превключването е еднократно и разрешава нормалните редакции в Neon. Старите Drive CSV остават непроменени, а снимките — в Drive. Не го използвай за пробни записи.</p>
-  <button type="button" disabled={p962Busy||p971Busy||p962Preview?.revision!==1||p962Preview?.archiveRevision!==1} onClick={async()=>{
-    const expected='ВКЛЮЧИ NEON ЗА LIVIGNO';
-    const typed=window.prompt('Това ще направи Neon основен източник за реалното Livigno. За потвърждение напиши точно: '+expected,'');
-    if(typed!==expected)return;
-    if(!window.confirm('Последно потвърждение: включваме реалните записи за Livigno в Neon. Няма автоматично връщане към Drive. Продължи?'))return;
-    setP971Busy(true);setP971Error('');
-    try{
-      await req('/safe/neon/activate-livigno','POST',{trip_id:p963CanaryId,expected_revision:p962Preview.revision,confirmation:expected});
-      await p963OpenTrip(chosen);
-    }catch(err){setP971Error(String(err.message||err));}
-    finally{setP971Busy(false)}
-  }}>{p971Busy?'Потвърждавам…':'🔐 Включи нормални Neon записи за Livigno'}</button>
+  <button type="button" disabled={p962Busy||p971Busy||Number(p962Preview?.revision)!==1||Number(p962Preview?.archiveRevision)!==1} onClick={()=>{setP971Error('');setP971ConfirmOpen(true);setP971Typed('');setP971Acknowledged(false)}}>{p971Busy?'Потвърждавам…':'🔐 Включи нормални Neon записи за Livigno'}</button>
+  {(Number(p962Preview?.revision)!==1||Number(p962Preview?.archiveRevision)!==1)&&<p role="status" className="muted">Активирането изисква Neon v1 и архив v1. Текущо: Neon v{String(p962Preview?.revision)} / архив v{String(p962Preview?.archiveRevision)}.</p>}
+  {p971ConfirmOpen&&<div style={{marginTop:12,padding:12,border:'1px solid #63839b',borderRadius:10,display:'grid',gap:10}} role="group" aria-label="Потвърждение за миграция на Livigno">
+    <strong>Потвърждение за реалното Livigno Italy</strong>
+    <p className="muted">Това сменя основния източник на данни на предстоящото пътуване. Няма автоматично връщане към старите Drive CSV. Не въвеждай тестови разходи в Livigno.</p>
+    <label htmlFor="p971-confirm-text">Напиши точно ВКЛЮЧИ NEON ЗА LIVIGNO</label>
+    <input id="p971-confirm-text" autoComplete="off" spellCheck={false} value={p971Typed} onChange={e=>setP971Typed(e.target.value)} placeholder="ВКЛЮЧИ NEON ЗА LIVIGNO" disabled={p971Busy}/>
+    <label style={{display:'flex',alignItems:'flex-start',gap:8}}><input type="checkbox" checked={p971Acknowledged} onChange={e=>setP971Acknowledged(e.target.checked)} disabled={p971Busy}/><span>Разбирам, че това е реално превключване без автоматично връщане към Drive.</span></label>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <button type="button" disabled={p971Busy||p971Typed!=='ВКЛЮЧИ NEON ЗА LIVIGNO'||!p971Acknowledged} onClick={async()=>{
+        setP971Busy(true);setP971Error('');
+        try{
+          await req('/safe/neon/activate-livigno','POST',{trip_id:p963CanaryId,expected_revision:Number(p962Preview.revision),confirmation:'ВКЛЮЧИ NEON ЗА LIVIGNO'});
+          setP971ConfirmOpen(false);setP971Typed('');setP971Acknowledged(false);
+          await p963OpenTrip(chosen);
+        }catch(err){setP971Error(String(err?.message||err));}
+        finally{setP971Busy(false)}
+      }}>{p971Busy?'Превключвам…':'Потвърди окончателно'}</button>
+      <button type="button" className="ghost" disabled={p971Busy} onClick={()=>{setP971ConfirmOpen(false);setP971Typed('');setP971Acknowledged(false)}}>Отказ</button>
+    </div>
+  </div>}
   {p971Error&&<p role="alert" className="error">⚠️ {p971Error}</p>}
  </div>}
  {current===p963CanaryId&&<div style={{marginTop:10,display:'grid',gap:8}}>
