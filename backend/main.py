@@ -5008,6 +5008,23 @@ def _p970_cutover_schema(cur):
 
 @app.get('/safe/neon/managed-source/{trip_id}', dependencies=[Depends(authorize)])
 def p970_managed_source(trip_id: str):
+    # P97.3: test trip uses precisely the same read contract as the real canary.
+    # Test writes still use existing optimistic-locking endpoints; this read-only
+    # operation only adapts their tested workspace to the managed-source shape.
+    if trip_id == _P932_TRIP:
+        existing = neon_read_workspace(trip_id)
+        if not existing.get('ok') or not isinstance(existing.get('records'), dict):
+            raise HTTPException(409, 'Липсва работно Neon копие за теста.')
+        workspace = existing['records']
+        if any(not isinstance(workspace.get(kind), list) for kind in _P930_KINDS):
+            raise HTTPException(409, 'Тестовото Neon копие е непълно.')
+        records = {kind: [row['data'] for row in workspace[kind]] for kind in _P930_KINDS}
+        if len(records['settings']) != 1:
+            raise HTTPException(409, 'Невалидни тестови настройки.')
+        return {'ok': True, 'trip_id': trip_id, 'read_only': False,
+                'write_enabled': True, 'production_switched': False,
+                'source_mode': 'neon_test_active', 'revision': existing['revision'],
+                'records': records, 'workspace': workspace}
     if trip_id != _P966_PROTECTED_TRIP:
         raise HTTPException(403, 'Поддържа се само пилотното пътуване.')
     with _neon_demo_connection() as conn:
@@ -5063,6 +5080,9 @@ class P971ActivateLivigno(BaseModel):
 
 @app.post('/safe/neon/activate-livigno', dependencies=[Depends(authorize)])
 def p971_activate_livigno(payload: P971ActivateLivigno):
+    # P97.3: fail closed until every normal write path has passed a complete cutover test.
+    # A valid confirmation string or an old cached client must NOT activate real data.
+    raise HTTPException(423, 'Активирането на Livigno е временно спряно, докато нормалните Neon редакции не са проверени.')
     trip_id = payload.trip_id
     if trip_id != _P966_PROTECTED_TRIP:
         raise HTTPException(403, 'Превключването е ограничено само до Livigno.')
