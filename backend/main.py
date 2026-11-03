@@ -4179,7 +4179,7 @@ class P938BudgetChange(BaseModel):
 
 @app.post('/safe/p938-test-budget', dependencies=[Depends(authorize)])
 def p938_test_budget(change:P938BudgetChange, background_tasks:BackgroundTasks):
-    _p932_assert(change.trip_id)
+    _p941_write_allowed(change.trip_id)
     if change.mode not in ('global','category') or change.expected_revision < 1:
         raise HTTPException(422,'Невалиден режим или версия.')
     def checked(v):
@@ -4348,8 +4348,22 @@ def neon_trip_snapshot(trip_id: str):
 def _p941_write_allowed(trip_id):
     configured = os.environ.get('PIXELAPP_NEON_WRITE_TRIPS', _P932_TRIP)
     allowed = {v.strip() for v in configured.split(';') if v.strip()}
-    if trip_id not in allowed or len(trip_id) > 220 or '/' in trip_id:
-        raise HTTPException(403, 'Neon записът не е разрешен за това пътуване.')
+    if len(trip_id) > 220 or '/' in trip_id:
+        raise HTTPException(403, 'Невалиден идентификатор на пътуване.')
+    # P97.0: the test trip keeps its existing permission. Real trips require a
+    # persistent, transactionally recorded cutover; an environment variable
+    # cannot silently turn production writes on.
+    if trip_id == _P932_TRIP and trip_id in allowed:
+        return
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
+            if cur.fetchone()[0] is not None:
+                cur.execute('SELECT status FROM pixelapp_p970_cutovers WHERE trip_id=%s',(trip_id,))
+                state=cur.fetchone()
+                if state and state[0]=='active':
+                    return
+    raise HTTPException(403, 'Не е завършено безопасно превключване на това пътуване към Neon.')
 
 
 def _p941_stage_source(trip_id):
@@ -4980,6 +4994,63 @@ def p968_real_trip_source(trip_id: str):
             'archive_current':bool(backup[0]>=meta[0] and not backup[2]),
             'records':records}
 
+
+# P97.0: a persistent source-of-truth contract. No activation route is
+# published in this patch: enabling a real trip requires a later controlled
+# migration after the normal handlers have passed the shared tests.
+def _p970_cutover_schema(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p970_cutovers (
+        trip_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('active')),
+        source_revision BIGINT NOT NULL,
+        activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )""")
+
+@app.get('/safe/neon/managed-source/{trip_id}', dependencies=[Depends(authorize)])
+def p970_managed_source(trip_id: str):
+    if trip_id != _P966_PROTECTED_TRIP:
+        raise HTTPException(403, 'Поддържа се само пилотното пътуване.')
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            # SELECT does not create schema or change data.
+            cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
+            exists=cur.fetchone()[0] is not None
+            status=None
+            if exists:
+                cur.execute('SELECT status FROM pixelapp_p970_cutovers WHERE trip_id=%s',(trip_id,))
+                status=cur.fetchone()
+    if not status or status[0]!='active':
+        pre=p968_real_trip_source(trip_id)
+        return {**pre,'write_enabled':False}
+    # The immutable source digest and current registered archive are checked
+    # when reading the activated workspace. No comparison to mutable Drive CSV.
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision,source_digest FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s',(trip_id,))
+            baseline=cur.fetchone()
+            if not meta or not baseline or meta[1]!=baseline[0]:
+                raise HTTPException(409,'Липсва проверен произход на Neon данните.')
+            cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s',(trip_id,))
+            backup=cur.fetchone()
+            if not backup or not backup[1] or backup[2]:
+                raise HTTPException(409,'Няма регистриран валиден Drive архив.')
+            cur.execute('SELECT dataset,row_id,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
+            records={kind:[] for kind in _P930_KINDS}
+            workspace={kind:[] for kind in _P930_KINDS}
+            for dataset,row_id,payload,version in cur.fetchall():
+                if dataset not in records:
+                    raise HTTPException(409,'Непознати Neon данни.')
+                records[dataset].append(payload)
+                workspace[dataset].append({'row_id':row_id,'data':payload,'version':version})
+    if len(records['settings'])!=1:
+        raise HTTPException(409,'Липсват настройки на пътуването.')
+    return {'ok':True,'trip_id':trip_id,'read_only':False,'write_enabled':True,
+            'production_switched':True,'source_mode':'neon_primary_active',
+            'revision':meta[0],'archive_revision':backup[0],
+            'archive_current':bool(backup[0]>=meta[0]),
+            'records':records,'workspace':workspace}
 
 # P96.9: explicit, read-only cutover blocker audit for Livigno.
 # This never grants write access, toggles flags, writes rows or creates backups.
