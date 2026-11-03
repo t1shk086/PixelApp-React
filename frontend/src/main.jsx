@@ -694,6 +694,9 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
  const [fullAuditBusy,setFullAuditBusy]=useState(false);
  const [fullAudit,setFullAudit]=useState(null);
  const [fullAuditError,setFullAuditError]=useState('');
+ const [practicalBusy,setPracticalBusy]=useState(false);
+ const [practicalReport,setPracticalReport]=useState(null);
+ const [practicalError,setPracticalError]=useState('');
  const locked=!workspace||String(settings.trip_finished).toLowerCase()==='да'||Number(settings.end_km)>0;
  async function save(operation,e){e.preventDefault();if(locked||busy)return;
   setBusy(true);setNotice('');
@@ -789,6 +792,75 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   }catch(err){setFullAuditError(String(err?.message||err));}
   finally{setFullAuditBusy(false)}
  }
+ // P96.1: explicitly initiated non-production test, using the existing Neon expense writer.
+ // This test does make POST requests. It never touches the canonical Drive CSV.
+ async function runPracticalTest(){
+  if(practicalBusy||busy||locked||tripId!=='ТЕСТ_НОВО_–_PixelApp')return;
+  if(!window.confirm('P96.1 ще създаде, редактира и изтрие един тестов разход (0,37 €) САМО в Neon за „ТЕСТ НОВО“. Ще провери и блокиране на остаряла версия. Продължи?'))return;
+  setPracticalBusy(true);setPracticalReport(null);setPracticalError('');
+  const events=[],token='P961_'+crypto.randomUUID().slice(0,12),marker='P96.1 диагностика '+token;
+  const read=async()=>{const w=await request('/safe/neon/workspace/'+encodeURIComponent(tripId));if(w?.ok!==true||!Array.isArray(w?.records?.expenses))throw Error('Neon не върна валидни разходи.');return w};
+  let insertedId='',created=false,deleted=false;
+  const find=(w)=>w.records.expenses.find(x=>x.row_id===insertedId);
+  const values=(description)=>({trip_id:tripId,date:new Date().toLocaleDateString('bg-BG'),amount:'0.37',category:'Други',description,type:'expense',liters:'',current_km:''});
+  const action=(operation,extras={})=>request('/safe/neon/expense','POST',{trip_id:tripId,dataset:'expenses',operation,...extras});
+  try{
+   let w=await read();
+   const c=w.records.settings?.[0]?.data||{};
+   if(String(c.trip_finished||'').toLowerCase()==='да'||Number(c.end_km)>0)throw Error('Пътуването е приключено — тестът не записва.');
+   const baseline=w.revision;
+   const createdResult=await action('add',{row:values(marker)});
+   insertedId=createdResult.row_id||'';created=true;
+   if(!insertedId)throw Error('Добавянето не върна ID; необходимо е почистване по описанието: '+marker);
+   w=await read();let record=find(w);
+   if(!record||record.data.description!==marker||Number(record.data.amount)!==0.37||w.revision<=baseline)throw Error('Добавянето не е потвърдено чрез прочит от Neon.');
+   events.push('✅ Добавяне: тестовият разход е прочетен от Neon · v'+w.revision);
+   const versionBefore=record.version;
+   await action('edit',{row_id:insertedId,expected_version:versionBefore,row:values(marker+' · редактирано')});
+   w=await read();record=find(w);
+   if(!record||record.version<=versionBefore||record.data.description!==marker+' · редактирано')throw Error('Редакцията не е потвърдена в Neon.');
+   events.push('✅ Редактиране: новата версия и текстът са прочетени от Neon · v'+w.revision);
+   try{
+    await action('edit',{row_id:insertedId,expected_version:versionBefore,row:values(marker+' · конфликт')});
+    events.push('❌ Защита от конфликт: сървърът прие остаряла версия!');
+    throw Error('Проверката за конфликт е неуспешна.');
+   }catch(err){
+    if(String(err.message||err)==='Проверката за конфликт е неуспешна.')throw err;
+    const info=String(err.message||err);
+    // The request helper preserves HTTP errors; a rejection is expected, but the record
+    // is re-read below to make sure the stale attempt did not overwrite it.
+    w=await read();record=find(w);
+    if(!record||record.data.description!==marker+' · редактирано'||record.version<=versionBefore)throw Error('Остарялата редакция е променила данните.');
+    events.push('✅ Защита от конфликт: остарялата версия е отхвърлена; записът е непроменен ('+info.slice(0,100)+')');
+   }
+   await action('delete',{row_id:insertedId,expected_version:record.version});deleted=true;
+   w=await read();
+   if(find(w))throw Error('Разходът все още присъства след изтриване.');
+   events.push('✅ Изтриване: диагностичният разход вече липсва в Neon · v'+w.revision);
+   const backup=await request('/safe/p932-backup-status/'+encodeURIComponent(tripId));
+   const archiveOk=backup?.up_to_date===true&&Number(backup.archived_revision)>=w.revision;
+   events.push((archiveOk?'✅':'⏳')+' Drive архив: '+(archiveOk?'актуален':'изчаква проверка')+' · Neon v'+w.revision+' / архив v'+(backup?.archived_revision??'—'));
+   events.push('🧪 Два профила: изисква се отделна проверка от двата телефона. Този тест не доказва синхронизацията или истински едновременни редакции.');
+   setPracticalReport({at:new Date().toLocaleString('bg-BG'),events,revision:w.revision,archiveOk,marker,cleaned:true});
+  }catch(err){
+   let cleanup='';
+   if(created&&!deleted){
+    try{const w=await read(),r=insertedId?find(w):w.records.expenses.find(x=>x.data?.description===marker);if(r){await action('delete',{row_id:r.row_id,expected_version:r.version});const verify=await read();if(verify.records.expenses.some(x=>x.row_id===r.row_id))throw Error('остава в Neon');cleanup=' · ✅ Тестовият запис е почистен.';}else cleanup=' · ✅ Няма останал тестов запис.';}
+    catch(cleanErr){cleanup=' · ⚠️ Неуспешно почистване: '+String(cleanErr.message||cleanErr)+'; потърси описанието „'+marker+'“ в ТЕСТ НОВО → Разходи.';}
+   }
+   setPracticalError(String(err.message||err)+cleanup);
+   setPracticalReport({at:new Date().toLocaleString('bg-BG'),events,marker,cleaned:deleted||cleanup.includes('✅'),failed:true});
+  }finally{setPracticalBusy(false);await onReload();}
+ }
+ async function recheckPracticalBackup(){
+  if(practicalBusy||!practicalReport)return;
+  setPracticalBusy(true);setPracticalError('');
+  try{const w=await request('/safe/neon/workspace/'+encodeURIComponent(tripId));const b=await request('/safe/p932-backup-status/'+encodeURIComponent(tripId));
+   const ok=b?.up_to_date===true&&Number(b.archived_revision)>=w.revision;
+   setPracticalReport(prev=>({...prev,archiveOk:ok,revision:w.revision,backupCheck:'Drive архив: '+(ok?'✅ актуален':'⏳ все още изостава')+' · Neon v'+w.revision+' / архив v'+(b?.archived_revision??'—')}));
+  }catch(e){setPracticalError('Неуспешна проверка на архива: '+String(e.message||e))}
+  finally{setPracticalBusy(false)}
+ }
  async function finishTrip(e){
    e.preventDefault();if(locked||busy||!validEnd)return;
    if(!window.confirm(`Приключване на ТЕСТ НОВО с ${desiredKm.toLocaleString('bg-BG')} км? След това пътуването се заключва за редакции в Neon.`))return;
@@ -850,6 +922,18 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
     {fullAudit.checks.map((item,i)=><div key={i} style={{padding:'8px 0',borderBottom:'1px solid rgba(140,160,180,.24)'}}><div style={{fontWeight:650}}>{item.status==='pass'?'✅':item.status==='fail'?'❌':item.status==='manual'?'🧪':'⚠️'} {i+1}. {item.title}</div><small>{item.details}</small></div>)}
     <small>Зеленото удостоверява само извършената проверка на прочетените данни, не работа на всички бутони. Жълтото е непълно или изисква миграция. Нищо не е записано, изтрито или превключено.</small>
     <button className="ghost" type="button" onClick={()=>{const lines=['PixelApp P96.0 · '+fullAudit.at,...fullAudit.checks.map((c,i)=>`${i+1}. ${c.status.toUpperCase()} · ${c.title} · ${c.details}`)];navigator.clipboard?.writeText(lines.join('\n')).catch(()=>{})}}>📋 Копирай отчета</button>
+   </div>}
+  </div>
+  <div className="p21-section"><h4>🧪 P96.1 · Един практически Neon тест</h4>
+   <p className="muted">За разлика от P96.0, този тест <b>реално записва</b> един временен разход от 0,37 € в Neon за „ТЕСТ НОВО“, проверява редакция, конфликт на версия и изтриване. Не променя първоначалните CSV файлове в Drive и не превключва осемте други пътувания.</p>
+   <button type="button" disabled={practicalBusy||busy||locked} onClick={()=>void runPracticalTest()}>{practicalBusy?'Изпълнявам проверките…':'🧪 Стартирай общия практически тест'}</button>
+   {practicalError&&<p className="error" role="alert">⚠️ {practicalError}</p>}
+   {practicalReport&&<div style={{display:'grid',gap:7,marginTop:12}} role="status"><strong>{practicalReport.failed?'⚠️ Практическият тест не завърши':'✅ Практическият тест приключи'}</strong><small>{practicalReport.at}</small>
+     {practicalReport.events.map((line,i)=><small key={i}>{line}</small>)}
+     {practicalReport.backupCheck&&<small>{practicalReport.backupCheck}</small>}
+     <button type="button" className="ghost" disabled={practicalBusy} onClick={()=>void recheckPracticalBackup()}>☁️ Провери Drive архива отново</button>
+     <button type="button" className="ghost" onClick={()=>{const lines=['PixelApp P96.1 · '+practicalReport.at,...practicalReport.events,practicalReport.backupCheck||'',practicalError||''];navigator.clipboard?.writeText(lines.filter(Boolean).join('\n')).catch(()=>{})}}>📋 Копирай отчета</button>
+     <small>За двата профила и истинско едновременно редактиране остава отделен кратък тест. Галерията остава в Drive.</small>
    </div>}
   </div>
   <div className="p21-section"><h4>🏁 Приключване на пътуването</h4>
