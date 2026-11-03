@@ -4852,3 +4852,100 @@ def neon_prepare_remaining(background_tasks: BackgroundTasks):
             'backup_verified':False,'drive_modified':False,
             'normal_app_switched':False,
             'note':'Drive остава активен. Преди превключване е нужна повторна проверка за нови Drive редакции и успешни архиви.'}
+
+
+# P95.2 — normal car and fuel writes in the pre-existing Neon workspace.
+# Only the explicit test trip is enabled by the P94.1 allowlist; live Drive CSVs
+# remain unchanged. No initial-tank-fuel field, and no trip completion here.
+class P952FuelAction(BaseModel):
+    trip_id: str
+    operation: str  # refuel, missed, track_fuel
+    expected_revision: int
+    amount: str = '0'
+    liters: str = '0'
+    current_km: str = ''
+    full: bool = True
+    description: str = ''
+    track_fuel: str = ''
+
+@app.post('/safe/neon/car-action', dependencies=[Depends(authorize)])
+def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
+    _p941_write_allowed(change.trip_id)
+    if change.operation not in ('refuel', 'missed', 'track_fuel') or change.expected_revision < 1:
+        raise HTTPException(422, 'Невалидна автомобилна операция или версия.')
+    from psycopg.types.json import Jsonb
+    from decimal import Decimal, InvalidOperation
+    def numeric(value, maximum, allow_zero=False):
+        try:
+            result = Decimal(str(value).replace(',', '.'))
+            if not result.is_finite() or result < 0 or (result == 0 and not allow_zero) or result > maximum or result.as_tuple().exponent < -2:
+                raise ValueError()
+            return result
+        except (ValueError, InvalidOperation, TypeError):
+            raise HTTPException(422, 'Невалидна сума или количество.')
+    if change.operation != 'track_fuel':
+        liters = numeric(change.liters, 200 if change.operation == 'refuel' else 500)
+        amount = numeric(change.amount, 100000, True)
+    if change.operation == 'refuel':
+        if not str(change.current_km).isdigit() or len(str(change.current_km)) > 9:
+            raise HTTPException(422, 'Въведи валиден цял километраж.')
+        km = int(change.current_km)
+        if km <= 0:
+            raise HTTPException(422, 'Невалиден километраж.')
+        if len(change.description) > 250:
+            raise HTTPException(422, 'Описанието е твърде дълго.')
+    if change.operation == 'track_fuel' and change.track_fuel not in ('Да', 'Не', 'Добави впоследствие'):
+        raise HTTPException(422, 'Невалидна настройка за проследяване на гориво.')
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE', (change.trip_id,))
+            found = cur.fetchone()
+            if not found or int(found[0]) != change.expected_revision:
+                raise HTTPException(409, 'Другият профил е променил данните. Обнови пътуването.')
+            cur.execute("SELECT row_id,payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings' FOR UPDATE", (change.trip_id,))
+            settings_rows = cur.fetchall()
+            if len(settings_rows) != 1:
+                raise HTTPException(409, 'Настройките на пътуването не са еднозначни.')
+            settings_id, settings = settings_rows[0]
+            if str(settings.get('car_trip', '')).lower() != 'да':
+                raise HTTPException(409, 'Пътуването не е с автомобил.')
+            if str(settings.get('trip_finished', '')).lower() == 'да' or numeric(settings.get('end_km') or '0', 100000000, True) > 0:
+                raise HTTPException(409, 'Пътуването е приключено.')
+            if change.operation == 'track_fuel':
+                settings['track_fuel'] = change.track_fuel
+                cur.execute("UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset='settings' AND row_id=%s", (Jsonb(settings), change.trip_id, settings_id))
+            else:
+                cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'", (change.trip_id,))
+                existing = [r[0] for r in cur.fetchall()]
+                if change.operation == 'refuel':
+                    start = numeric(settings.get('start_km') or '0', 100000000, True)
+                    largest = start
+                    for row in existing:
+                        if row.get('current_km'):
+                            prior = numeric(row['current_km'], 100000000, True)
+                            largest = max(largest, prior)
+                    if Decimal(km) <= largest:
+                        raise HTTPException(409, 'Километражът трябва да е над последния запис. Обнови историята.')
+                    tag = '[ПЪЛНО ЗАРЕЖДАНЕ]' if change.full else '[ЧАСТИЧНО ЗАРЕЖДАНЕ]'
+                    description = tag + ' ' + (change.description.strip() or 'Гориво')
+                    odometer = str(km)
+                else:
+                    description = '[ПРОПУСНАТО ГОРИВО]'
+                    odometer = ''
+                row = {'trip_id':change.trip_id,'date':sofia_now().date().isoformat(),
+                       'amount':str(amount),'category':'Транспорт','description':description,
+                       'type':'expense','liters':str(liters),'current_km':odometer}
+                cur.execute("SELECT COALESCE(MAX(row_order),-1)+1 FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'", (change.trip_id,))
+                order = cur.fetchone()[0]
+                cur.execute('INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload) VALUES(%s,%s,%s,%s,%s)',
+                            (change.trip_id,'expenses',uuid.uuid4().hex,order,Jsonb(row)))
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision = cur.fetchone()[0]
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s)
+                ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",
+                (change.trip_id,revision))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'revision':revision,'operation':change.operation,
+            'backup_pending':True,'production_switched':False,'drive_modified':False}
