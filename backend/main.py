@@ -4854,6 +4854,52 @@ def neon_prepare_remaining(background_tasks: BackgroundTasks):
             'note':'Drive остава активен. Преди превключване е нужна повторна проверка за нови Drive редакции и успешни архиви.'}
 
 
+
+# P96.2 — verified, read-only REAL-trip Neon screen preview.
+# No writes, migrations, environment write allowances, or source switching.
+@app.get('/safe/neon/real-trip-preview/{trip_id}', dependencies=[Depends(authorize)])
+def p962_real_trip_preview(trip_id: str):
+    if not trip_id or trip_id == _P932_TRIP or len(trip_id) > 220 or '/' in trip_id:
+        raise HTTPException(400, 'Разрешен е преглед само на осемте съществуващи пътувания.')
+    live_trips = _p933_groups_from_drive()
+    if trip_id not in live_trips:
+        raise HTTPException(404, 'Пътуването не е в осемте проверени източника.')
+    live = live_trips[trip_id]
+    live_digest = _p930_digest(live)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            for table in ('pixelapp_p933_stage','pixelapp_p932_workspaces','pixelapp_p932_rows','pixelapp_p932_backup_state'):
+                cur.execute('SELECT to_regclass(%s)::text', ('public.' + table,))
+                if cur.fetchone()[0] is None:
+                    raise HTTPException(409, 'Липсва необходима миграционна таблица.')
+            cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s', (trip_id,))
+            stage = cur.fetchone()
+            if not stage or stage[0] != live_digest:
+                raise HTTPException(409, 'Текущият Google Drive не съвпада с първоначалното Neon копие.')
+            cur.execute('SELECT revision,source_digest FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
+            meta = cur.fetchone()
+            if not meta or meta[1] != live_digest:
+                raise HTTPException(409, 'Работното Neon копие не е от проверения източник.')
+            revision = meta[0]
+            cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s', (trip_id,))
+            backup = cur.fetchone()
+            if not backup or backup[0] < revision or not backup[1] or backup[2]:
+                raise HTTPException(409, 'Резервният архив не е актуален. Прегледът е блокиран.')
+            cur.execute('SELECT dataset,payload FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id', (trip_id,))
+            records = {kind: [] for kind in _P930_KINDS}
+            for kind, payload in cur.fetchall():
+                if kind not in records:
+                    raise HTTPException(409, 'Непознат вид Neon записи.')
+                records[kind].append(payload)
+    if len(records['settings']) != 1 or _p930_digest(records) != live_digest:
+        raise HTTPException(409, 'Neon и текущият Drive се различават. Прегледът е блокиран.')
+    return {
+        'ok': True, 'trip_id': trip_id, 'read_only': True, 'source': 'neon_verified_workspace',
+        'revision': revision, 'archive_revision': backup[0],
+        'exact_match_live_drive': True, 'production_switched': False,
+        'records': records,
+    }
+
 # P95.4: read-only preflight for finishing the already migrated test trip.
 # This endpoint never updates a row, increments a revision or queues a backup.
 def _p954_finished(settings):
