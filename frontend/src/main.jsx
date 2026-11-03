@@ -511,7 +511,7 @@ function NeonTripBudgetEditor({tripId,workspace,request,onReload,open,setOpen}){
  const validMoney=(val)=>/^\d+(?:[.,]\d{1,2})?$/.test(String(val).trim())&&Number(String(val).replace(',','.'))<=10000000;
  const normalized=(val)=>String(Number(String(val).replace(',','.')));
  async function save(e){
-  e.preventDefault();if(busy||!workspace)return;
+  e.preventDefault();if(busy||!workspace||!editable)return;
   if(mode==='global'&&!validMoney(total)){setMessage('⚠️ Въведи валидна обща сума.');return;}
   if(mode==='category'&&allNames.some(c=>!validMoney(limits[c]??'0'))){setMessage('⚠️ Провери сумите по категории.');return;}
   setBusy(true);setMessage('');
@@ -525,17 +525,18 @@ function NeonTripBudgetEditor({tripId,workspace,request,onReload,open,setOpen}){
  }
  async function addCategory(e){
   e.preventDefault();const name=newCategory.trim();
-  if(!workspace||busy||!name||name.length>50||name==='__GLOBAL__'||allNames.some(c=>c.toLocaleLowerCase('bg-BG')===name.toLocaleLowerCase('bg-BG'))){setMessage('⚠️ Невалидно или вече съществуващо име.');return;}
+  if(!editable||busy||!name||name.length>50||name==='__GLOBAL__'||allNames.some(c=>c.toLocaleLowerCase('bg-BG')===name.toLocaleLowerCase('bg-BG'))){setMessage('⚠️ Невалидно или вече съществуващо име.');return;}
   setBusy(true);setMessage('');
   try{
    await request('/safe/neon/collection','POST',{trip_id:tripId,dataset:'categories',operation:'add',row:{trip_id:tripId,category:name}});
    setNewCategory('');await onReload();setMessage('✅ Категорията е добавена само към това пътуване.');
   }catch(e){await onReload();setMessage('⚠️ '+String(e.message||e));}finally{setBusy(false)}
  }
- const editable=!!workspace;
+ const setting=workspace?.records?.settings?.[0]?.data||{};
+ const editable=!!workspace&&String(setting.trip_finished||'').toLowerCase()!=='да'&&!(Number(setting.end_km)>0);
  return <div className="travel-card" style={{display:'grid',gap:12}}>
   <div className="p9043-expense-actions"><button type="button" disabled={!editable||busy} onClick={()=>{setMessage('');setOpen(!open)}}>{open?'Откажи редакцията':'✏️ Редактирай бюджета'}</button></div>
-  {open&&<form onSubmit={save} style={{display:'grid',gap:10}}><label>Режим на бюджет<select value={mode} onChange={e=>setMode(e.target.value)} disabled={busy}><option value="global">Общ</option><option value="category">По категории</option></select></label>
+  {open&&editable&&<form onSubmit={save} style={{display:'grid',gap:10}}><label>Режим на бюджет<select value={mode} onChange={e=>setMode(e.target.value)} disabled={busy}><option value="global">Общ</option><option value="category">По категории</option></select></label>
   {mode==='global'?<label>Общ бюджет (€)<input inputMode="decimal" value={total} onChange={e=>setTotal(e.target.value)} disabled={busy}/></label>:<div style={{display:'grid',gap:8}}>{allNames.map(c=><label key={c}>{c} (€)<input inputMode="decimal" value={limits[c]??'0'} onChange={e=>setLimits(v=>({...v,[c]:e.target.value}))} disabled={busy}/></label>)}</div>}
   <button type="submit" disabled={busy||!editable}>{busy?'Записвам…':'💾 Запази бюджета'}</button></form>}
   <form onSubmit={addCategory} style={{display:'grid',gap:8}}><strong>🏷️ Категории на това пътуване</strong><p className="muted">Основните категории остават. Новите важат само за това пътуване и могат да се използват при разходи и бюджет.</p>
@@ -683,6 +684,7 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
  const [track,setTrack]=useState(String(settings.track_fuel||'Да'));
  const [liters,setLiters]=useState('');const [amount,setAmount]=useState('');
  const [paid,setPaid]=useState(false);const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');
+  const [endKm,setEndKm]=useState('');
  const locked=!workspace||String(settings.trip_finished).toLowerCase()==='да'||Number(settings.end_km)>0;
  async function save(operation,e){e.preventDefault();if(locked||busy)return;
   setBusy(true);setNotice('');
@@ -696,6 +698,20 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   }catch(err){await onReload();setNotice('⚠️ '+String(err.message||err)+' Провери данните преди повторен запис.')}
   finally{setBusy(false)}
  }
+  const startKm=Number(settings.start_km||0);
+  const latestKm=Math.max(startKm,...(workspace?.records?.expenses||[]).map(r=>Number(r.data?.current_km)||0));
+  const desiredKm=Number(endKm);
+  const validEnd=/^\d+$/.test(endKm)&&Number.isSafeInteger(desiredKm)&&desiredKm>startKm&&desiredKm>=latestKm;
+  async function finishTrip(e){
+   e.preventDefault();if(locked||busy||!validEnd)return;
+   if(!window.confirm(`Приключване на ТЕСТ НОВО с ${desiredKm.toLocaleString('bg-BG')} км? След това пътуването се заключва за редакции в Neon.`))return;
+   if(!window.confirm('ПОСЛЕДНО ПОТВЪРЖДЕНИЕ: приключването е окончателно за това Neon копие. Продължи?'))return;
+   setBusy(true);setNotice('');
+   try{await request('/safe/neon/car-action','POST',{trip_id:tripId,operation:'finish',end_km:String(desiredKm),expected_revision:workspace.revision,confirmation:'ПРИКЛЮЧИ ПЪТУВАНЕТО'});
+    await onReload();setNotice('✅ Пътуването е приключено в Neon. Архивът в Drive е заявен.');
+   }catch(err){await onReload();setNotice('⚠️ '+String(err.message||err)+' Провери състоянието, преди да опиташ пак.');}
+   finally{setBusy(false)}
+  }
  const validPositive=v=>Number.isFinite(Number(String(v).replace(',','.')))&&Number(String(v).replace(',','.'))>0;
  return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Настройки на автомобила">
   <div className="dialoghead"><h3>⚙️ Настройки на пътуването</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
@@ -706,7 +722,16 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   <form onSubmit={e=>save('missed',e)} className="p22-form"><label>Литри<input inputMode="decimal" value={liters} onChange={e=>setLiters(e.target.value)} disabled={busy||locked}/></label><label className="p22-check"><input type="checkbox" checked={paid} onChange={e=>setPaid(e.target.checked)} disabled={busy||locked}/> Помня и платената сума</label>
   {paid&&<label>Сума (€)<input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||locked}/></label>}
   <button type="submit" disabled={busy||locked||!validPositive(liters)||Number(String(liters).replace(',','.'))>500||(paid&&!validPositive(amount))}>{busy?'Записвам…':'Добави пропуснатото гориво'}</button></form></div>
-  <p className="muted">Приключването на пътуването остава заключено до отделната проверка. Няма поле за начално гориво.</p>
+  <div className="p21-section"><h4>🏁 Приключване на пътуването</h4>
+   <p className="muted">Проверка без запис: начални {startKm.toLocaleString('bg-BG')} км · последни записани {latestKm.toLocaleString('bg-BG')} км. Реалният разход между две пълни зареждания не се променя при приключване.</p>
+   {locked?<p role="status">🔒 Пътуването е приключено. Крайни километри: {Number(settings.end_km||0).toLocaleString('bg-BG')} км.</p>:<form onSubmit={finishTrip}>
+    <label>Краен километраж<input inputMode="numeric" type="number" min={Math.max(startKm+1,latestKm)} step="1" value={endKm} onChange={e=>setEndKm(e.target.value)} disabled={busy} placeholder="Крайни километри"/></label>
+    {endKm&&<p role="status" className="muted">{validEnd?`Пробег при приключване: ${(desiredKm-startKm).toLocaleString('bg-BG')} км. Нищо не е записано.`:`Крайният километраж трябва да е поне ${Math.max(startKm+1,latestKm).toLocaleString('bg-BG')} км.`}</p>}
+    <button type="submit" disabled={busy||!validEnd}>{busy?'Приключвам…':'🏁 Приключи пътуването'}</button>
+    <small>Две потвърждения преди реален запис. Не натискай в тестовото пътуване, ако искаш да го използваме за следващите проверки.</small>
+   </form>}
+  </div>
+  <p className="muted">Няма поле за начално количество гориво.</p>
   {notice&&<p role="status">{notice}</p>}
  </div></div>;
 }
@@ -761,7 +786,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  useEffect(()=>{setP942Data(null);setP942Error('');setP942Form(false);setP943Editing(null);if(p942Test)void p942Reload();},[neonTripId]);
  useEffect(()=>{if(!p942Test)return;const refresh=()=>{if(document.visibilityState==='visible')void p942Reload()};window.addEventListener('focus',refresh);return()=>window.removeEventListener('focus',refresh)},[neonTripId]);
  const p943Action=async(action,record)=>{
-  if(!p942Test||!p942Data||p942Saving||!record?._neonRowId)return;
+  if(p953Finished||!p942Test||!p942Data||p942Saving||!record?._neonRowId)return;
   if(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ|ПРОПУСНАТО\s+ГОРИВО\]/i.test(String(record.description||''))){setP942Error('Горивото е защитено. Редакцията му ще бъде добавена към автомобилния модул.');return;}
   if(action==='edit'){
    setP943Editing(record);setP942Amount(String(record.amount||''));setP942Category(String(record.category||'Други'));
@@ -774,7 +799,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
   finally{setP942Saving(false);}
  };
  const p942Add=async(e)=>{
-  e.preventDefault();if(!p942Data||p942Saving)return;
+  e.preventDefault();if(!p942Data||p942Saving||p953Finished)return;
   const amount=Number(String(p942Amount).replace(',','.'));
   if(!Number.isFinite(amount)||amount<=0){setP942Error('Въведи валидна сума.');return;}
   setP942Saving(true);setP942Error('');
@@ -1087,7 +1112,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const taskIsDone=t=>['true','1','да','yes'].includes(String(t.done??'').toLowerCase());
  const previewTasks=tasks.map((t,i)=>({...t,_previewKey:String(t.item_id??`old-${i}`)}));
  const done=previewTasks.filter(taskIsDone).length;
- const taskEditable=financeOwned && !trip?.settings?.trip_finished?.toLowerCase?.().includes('да') && (!p942Test || Boolean(p942Data?.records?.tasks));
+  const p953Finished=p942Test&&(String(settings.trip_finished||'').toLowerCase()==='да'||Number(settings.end_km||0)>0);
+  const taskEditable=financeOwned && !p953Finished && !trip?.settings?.trip_finished?.toLowerCase?.().includes('да') && (!p942Test || Boolean(p942Data?.records?.tasks));
  // P94.9: normal tasks of the isolated test trip use the same verified workspace as expenses.
  // Other trips retain their existing Drive-backed task handlers unchanged.
  const changeTask=async(operation,t=null,title='')=>{
@@ -1165,7 +1191,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  const routeStops=validPoints.filter(p=>String(p.title||'').startsWith('3b:')&&['purple','orange'].includes(p.color));
  const savedPlaces=validPoints.filter(p=>!routeStops.includes(p));
  const shownFavorites=p942Test?validPoints.filter(p=>!String(p.title||'').startsWith('3b:')||!['purple','orange'].includes(p.color)).map((p,index)=>({...p,index})):favorites;
- const routeEditable=financeOwned && tripState(trip)!=='finished' && (!p942Test || Boolean(p942Data?.records?.points));
+ const routeEditable=financeOwned && !p953Finished && tripState(trip)!=='finished' && (!p942Test || Boolean(p942Data?.records?.points));
  const routeSignature=routeStops.map(p=>`${Number(p.lat).toFixed(5)},${Number(p.lon).toFixed(5)}`).join(';');
  useEffect(()=>{
   const coords=routeSignature.split(';').filter(Boolean);
@@ -1252,8 +1278,8 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
  {isNeonExpenseTest&&!isP934Canary&&!p931Active&&!p932Mode&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
  {p942Test&&p942Error&&<p role="alert" className="error">⚠️ Не може да се работи с Neon: {p942Error}</p>}
  {p942Test&&p942Form&&<form className="travel-card quick-demo-form" onSubmit={p942Add}><h3>{p943Editing?'Редактирай разход':'Добави разход'}</h3><label>Сума (€)<input type="number" min="0.01" step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} onChange={e=>setP942Category(e.target.value)}>{[...new Set([...categories.filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт'),...(p942Data?.records?.categories||[]).map(r=>r.data?.category).filter(Boolean),...rows.map(r=>r.category).filter(Boolean).filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт')])].map(c=><option key={c}>{c}</option>)}</select></label><label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div><small className="muted">Тестовото пътуване записва директно в Neon. Гориво и депозити остават в отделните им форми.</small></form>}
- <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving} onClick={()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP942Error('');setP942Form(true)}}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
- <ExpenseHistory rows={rows} onExpenseAction={p942Test?p943Action:!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
+ <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving||p953Finished} onClick={()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP942Error('');setP942Form(true)}}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
+ <ExpenseHistory rows={rows} onExpenseAction={p942Test?(p953Finished?null:p943Action):!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
  {p942Test&&p952CarOpen&&<NeonCarSettings tripId={neonTripId} workspace={p942Data} request={onNeonRequest} onReload={p942Reload} onClose={()=>setP952CarOpen(false)}/>}
  {section==='fuel'&&p942Test&&<div className="travel-card"><h3>⛽ Добави зареждане</h3>
@@ -1264,7 +1290,7 @@ function TripDetails({trip,detail,readOnly,onOpenPreview,onExpenseAction,expense
    <label>Литри<input type="number" step="0.01" min="0.01" max="200" required value={p952FuelLiters} onChange={e=>setP952FuelLiters(e.target.value)} disabled={p952Busy}/></label>
    <label>Километраж<input type="number" min="1" step="1" required value={p952FuelKm} onChange={e=>setP952FuelKm(e.target.value)} disabled={p952Busy}/></label>
    <label>Описание<input maxLength="250" value={p952FuelDesc} onChange={e=>setP952FuelDesc(e.target.value)} disabled={p952Busy}/></label>
-   <button type="submit" disabled={p952Busy||!p942Data||String(settings.car_trip).toLowerCase()!=='да'||Number(settings.end_km)>0||String(settings.trip_finished).toLowerCase()==='да'||!p952FuelLiters||!p952FuelKm}>{p952Busy?'Записвам…':'Запази зареждането'}</button>
+   <button type="submit" disabled={p952Busy||!p942Data||p953Finished||String(settings.car_trip).toLowerCase()!=='да'||Number(settings.end_km)>0||String(settings.trip_finished).toLowerCase()==='да'||!p952FuelLiters||!p952FuelKm}>{p952Busy?'Записвам…':'Запази зареждането'}</button>
   </form>
   {p952Message&&<p role="status">{p952Message}</p>}
   <p className="muted">Пропуснатите литри са в ⚙️ Настройки на пътуването → Пропуснато гориво.</p>
