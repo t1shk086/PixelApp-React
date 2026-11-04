@@ -87,13 +87,18 @@ app = FastAPI(title='PixelApp API', version='0.1.0')
 origins = [x.strip() for x in os.getenv('ALLOWED_ORIGINS','http://localhost:5173').split(',') if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=['GET','POST','PUT','DELETE'], allow_headers=['X-API-Key','Content-Type','Authorization'])
 
-# P96.6: Server-side boundary while Livigno is Neon READ-only.
-# The front end already disables Drive editors, but an old browser tab or a
-# separately cached client must not silently mutate the original Drive CSVs.
-# Only the legacy routes listed here are blocked; photographs deliberately
-# remain in Drive and use the independent /gallery API.
+# P97.8: prohibit legacy Drive writes for EVERY active Neon-primary trip.
+# Previously only Livigno was protected. The other seven retain their normal
+# Drive forms while not cut over; once activated, they cannot split-brain via
+# an old cached browser tab. Gallery is deliberately NOT a legacy data writer.
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 _P966_PROTECTED_TRIP = 'Livigno_Italy'
+_P978_REAL_TRIPS = frozenset((
+    '7-те_Рилски_Езера', 'Livigno_Italy', 'Schladming_Austria',
+    'Бургас', 'Бургас__2', 'Бургас__3',
+    'ТЕСТ_-_PIxelAPP', 'ТЕСТ_67_PixelApp',
+))
 _P966_LEGACY_TRIP_WRITE_PATHS = frozenset((
     '/trips/{id}/expenses', '/trips/{id}/budget', '/trips/{id}/tasks',
     '/safe/trip-finance/{id}', '/safe/fuel/{id}',
@@ -102,23 +107,54 @@ _P966_LEGACY_TRIP_WRITE_PATHS = frozenset((
     '/safe/favorites/{id}', '/safe/trip-places/{id}',
     '/safe/basic/{id}', '/safe/adopt-legacy-trip/{id}',
 ))
-_P966_LEGACY_BLOCKED_PATHS = frozenset(
-    template.format(id=_P966_PROTECTED_TRIP)
+_P978_LEGACY_BY_PATH = {
+    template.format(id=trip_id): trip_id
+    for trip_id in _P978_REAL_TRIPS
     for template in _P966_LEGACY_TRIP_WRITE_PATHS
-)
+}
+
+def _p978_is_cutover_active(trip_id):
+    # Check the persisted source-of-truth within the request; never cache a
+    # negative result, since doing so creates a write window after cutover.
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
+            if cur.fetchone()[0] is None:
+                return False
+            cur.execute('SELECT status FROM pixelapp_p970_cutovers WHERE trip_id=%s', (trip_id,))
+            state=cur.fetchone()
+            return bool(state and state[0]=='active')
+
+def _p978_legacy_target(path,method):
+    if method not in ('POST','PUT','PATCH','DELETE'):
+        return None
+    direct=_P978_LEGACY_BY_PATH.get(path)
+    if direct:
+        return direct
+    if path.startswith('/tasks/') and method in ('PUT','PATCH','DELETE','POST'):
+        task_id=path.removeprefix('/tasks/')
+        for trip_id in sorted(_P978_REAL_TRIPS,key=len,reverse=True):
+            if task_id.startswith(trip_id+'_'):
+                return trip_id
+    return None
 
 @app.middleware('http')
 async def p966_protect_legacy_drive_writes(request: Request, call_next):
-    # Legacy task IDs include their trip ID; protect those direct handlers too.
-    path = request.url.path
-    method = request.method.upper()
-    legacy_task_write = (path.startswith('/tasks/' + _P966_PROTECTED_TRIP + '_')
-                         and method in ('PUT', 'DELETE', 'PATCH', 'POST'))
-    if method in ('POST', 'PUT', 'PATCH', 'DELETE') and (
-        path in _P966_LEGACY_BLOCKED_PATHS or legacy_task_write
-    ):
-        return JSONResponse(status_code=409, content={'detail':
-            'Livigno се чете от Neon. Старите Drive записи са блокирани до завършване на миграцията.'})
+    trip_id=_p978_legacy_target(request.url.path,request.method.upper())
+    if trip_id:
+        # Livigno has always been protected, even before activation.
+        if trip_id==_P966_PROTECTED_TRIP:
+            blocked=True
+        else:
+            try:
+                blocked=await run_in_threadpool(_p978_is_cutover_active,trip_id)
+            except Exception:
+                # Neon cannot confirm Drive is still authoritative: fail closed.
+                return JSONResponse(status_code=503,content={'detail':
+                    'Не може да се потвърди основният източник на пътуването. Старият запис е спрян.'})
+        if blocked:
+            return JSONResponse(status_code=409,content={'detail':
+                'Това пътуване използва Neon или е защитено за миграция. Старите Drive записи са блокирани.'})
     return await call_next(request)
 
 
@@ -762,6 +798,13 @@ def trip_archive_preflight(trip_id: str):
 def trip_archive(payload: TripArchiveRequest):
     if payload.trip_id == _P966_PROTECTED_TRIP:
         raise HTTPException(409, 'Архивирането на Livigno е блокирано по време на Neon миграцията.')
+    if payload.trip_id in _P978_REAL_TRIPS:
+        try:
+            cutover=_p978_is_cutover_active(payload.trip_id)
+        except Exception:
+            raise HTTPException(503, 'Не може да се потвърди източникът на данните; архивирането е спряно.')
+        if cutover:
+            raise HTTPException(409, 'Архивирането през Drive е блокирано за пътуване с Neon като основен източник.')
     import time
     if payload.confirmation != payload.trip_id:
         raise HTTPException(422, 'Потвърждението не съвпада с името на пътуването.')
@@ -4010,10 +4053,10 @@ def _p932_backup_worker(trip_id):
                 with conn.cursor() as cur:
                     _p932_backup_schema(cur)
                     # A late failure must not invalidate an already-current backup.
-                cur.execute("""UPDATE pixelapp_p932_backup_state
-                    SET last_error=%s,updated_at=now()
-                    WHERE trip_id=%s AND archived_revision<wanted_revision""",
-                    (str(e)[:240],trip_id))
+                    cur.execute("""UPDATE pixelapp_p932_backup_state
+                        SET last_error=%s,updated_at=now()
+                        WHERE trip_id=%s AND archived_revision<wanted_revision""",
+                        (str(e)[:240],trip_id))
                 conn.commit()
         except Exception:pass
 
