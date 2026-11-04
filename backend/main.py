@@ -3994,14 +3994,23 @@ def _p932_backup_worker(trip_id):
         with _neon_demo_connection() as conn:
             with conn.cursor() as cur:
                 _p932_backup_schema(cur)
-                cur.execute("""UPDATE pixelapp_p932_backup_state SET archived_revision=GREATEST(archived_revision,%s),archive_file=%s,last_error=NULL,updated_at=now() WHERE trip_id=%s""",(doc['revision'],name,trip_id))
+                # P97.6: backup workers can finish out of order. Never let an
+                # older upload replace the filename of a newer verified archive.
+                cur.execute("""UPDATE pixelapp_p932_backup_state
+                    SET archived_revision=%s, archive_file=%s, last_error=NULL, updated_at=now()
+                    WHERE trip_id=%s AND archived_revision<=%s""",
+                    (doc['revision'],name,trip_id,doc['revision']))
             conn.commit()
     except Exception as e:
         try:
             with _neon_demo_connection() as conn:
                 with conn.cursor() as cur:
                     _p932_backup_schema(cur)
-                    cur.execute('UPDATE pixelapp_p932_backup_state SET last_error=%s,updated_at=now() WHERE trip_id=%s',(str(e)[:240],trip_id))
+                    # A late failure must not invalidate an already-current backup.
+                cur.execute("""UPDATE pixelapp_p932_backup_state
+                    SET last_error=%s,updated_at=now()
+                    WHERE trip_id=%s AND archived_revision<wanted_revision""",
+                    (str(e)[:240],trip_id))
                 conn.commit()
         except Exception:pass
 
@@ -4019,7 +4028,8 @@ def p932_backup_status(trip_id:str):
     return {'revision':meta[0],'wanted_revision':row[0] if row else meta[0],
             'archived_revision':row[1] if row else 0,'archive_file':row[2] if row else None,
             'last_error':row[3] if row else None,
-            'up_to_date':bool(row and row[1]>=meta[0]),'scope':'p932-test-only'}
+            'up_to_date':bool(row and row[0]>=meta[0] and row[1]>=meta[0] and row[2] and not row[3]),
+            'scope':'p932-test-only'}
 
 @app.post('/safe/p932-backup-retry/{trip_id}',dependencies=[Depends(authorize)])
 def p932_backup_retry(trip_id:str,background_tasks:BackgroundTasks):
@@ -5021,9 +5031,12 @@ def p970_managed_source(trip_id: str):
         records = {kind: [row['data'] for row in workspace[kind]] for kind in _P930_KINDS}
         if len(records['settings']) != 1:
             raise HTTPException(409, 'Невалидни тестови настройки.')
+        backup_status = p932_backup_status(trip_id)
         return {'ok': True, 'trip_id': trip_id, 'read_only': False,
                 'write_enabled': True, 'production_switched': False,
                 'source_mode': 'neon_test_active', 'revision': existing['revision'],
+                'archive_revision': backup_status['archived_revision'],
+                'archive_current': backup_status['up_to_date'],
                 'records': records, 'workspace': workspace}
     if trip_id != _P966_PROTECTED_TRIP:
         raise HTTPException(403, 'Поддържа се само пилотното пътуване.')
