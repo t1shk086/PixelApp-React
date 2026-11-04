@@ -5171,9 +5171,9 @@ class P971ActivateLivigno(BaseModel):
 
 @app.post('/safe/neon/activate-livigno', dependencies=[Depends(authorize)])
 def p971_activate_livigno(payload: P971ActivateLivigno):
-    # P97.3: fail closed until every normal write path has passed a complete cutover test.
-    # A valid confirmation string or an old cached client must NOT activate real data.
-    raise HTTPException(423, 'Активирането на Livigno е временно спряно, докато нормалните Neon редакции не са проверени.')
+    # P98.4: one-time opt-in only. All following immutable-baseline, current
+    # Drive, revision and archive checks must succeed before recording cutover.
+    # No production data are altered merely by deploying this endpoint.
     trip_id = payload.trip_id
     if trip_id != _P966_PROTECTED_TRIP:
         raise HTTPException(403, 'Превключването е ограничено само до Livigno.')
@@ -5181,6 +5181,8 @@ def p971_activate_livigno(payload: P971ActivateLivigno):
         raise HTTPException(422, 'Липсва изрично потвърждение за включване.')
     if payload.expected_revision < 1:
         raise HTTPException(422, 'Невалидна версия на Neon.')
+    if trip_id not in _P978_REAL_TRIPS or trip_id != _P966_PROTECTED_TRIP:
+        raise HTTPException(403, 'Неразрешено пътуване за превключване.')
     # Verify the actual live Drive original, not just the historical stage.
     # Legacy Drive writers for this trip remain blocked by the P96.6 middleware.
     live_digest = _p930_digest(_p930_load_drive_trip(trip_id))
