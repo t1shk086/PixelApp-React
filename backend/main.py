@@ -5090,8 +5090,11 @@ def p970_managed_source(trip_id: str):
                 'archive_revision': backup_status['archived_revision'],
                 'archive_current': backup_status['up_to_date'],
                 'records': records, 'workspace': workspace}
-    if trip_id != _P966_PROTECTED_TRIP:
-        raise HTTPException(403, 'Поддържа се само пилотното пътуване.')
+    # P97.9: the verified managed-source contract is shared by ALL eight
+    # real-trip workspaces. This read endpoint never activates writes.
+    # No arbitrary trip ID is accepted and the separate test path stays above.
+    if trip_id not in _P978_REAL_TRIPS:
+        raise HTTPException(403, 'Няма разрешен проверен Neon източник за това пътуване.')
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
             # SELECT does not create schema or change data.
@@ -5102,7 +5105,13 @@ def p970_managed_source(trip_id: str):
                 cur.execute('SELECT status FROM pixelapp_p970_cutovers WHERE trip_id=%s',(trip_id,))
                 status=cur.fetchone()
     if not status or status[0]!='active':
-        pre=p968_real_trip_source(trip_id)
+        # Only Livigno retains its optional pre-cutover Neon-primary read flag.
+        # Other trips must pass the strong *current Drive == stage == workspace*
+        # verification before exposing the unactivated Neon preview.
+        if trip_id == _P966_PROTECTED_TRIP:
+            pre=p968_real_trip_source(trip_id)
+        else:
+            pre={**p962_real_trip_preview(trip_id), 'source_mode':'verified_pre_cutover'}
         return {**pre,'write_enabled':False}
     # The immutable source digest and current registered archive are checked
     # when reading the activated workspace. No comparison to mutable Drive CSV.
