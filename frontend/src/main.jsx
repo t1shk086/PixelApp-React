@@ -2783,7 +2783,10 @@ function App(){
    setP965Home({status:'verified',data:{spent,budget,settings:result.records.settings[0],revision:result.revision,archive:result.archive_revision,sourceMode:result.source_mode},message:''});
   }).catch(err=>{if(live)setP965Home({status:'blocked',data:null,message:String(err.message||err)})});
   return()=>{live=false};
- },[key,trips]);
+ // Refresh the verified Livigno home card only when the authenticated account
+ // or Livigno's presence changes. /trips is frequently refreshed with new
+ // array objects; that must not restart the expensive Drive/Neon comparison.
+ },[key,trips.some(t=>t.id===p963CanaryId)]);
  // P97.4: The test trip is Neon-only; never show legacy Drive financial totals.
  useEffect(()=>{
   if(!key||!trips.some(t=>t.id===newTestTripId)){setP974TestHome({status:'checking',data:null,message:''});return;}
@@ -3068,6 +3071,25 @@ function App(){
   document.addEventListener('visibilitychange',onVisibility);
   return()=>{disposed=true;window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility)};
  },[key,current,modal,authMode,p980Sources.active.join('|')]);
+ // P98.3: the total on Home must not come from a legacy Drive dashboard
+ // once the test trip or a real trip has an authoritative Neon snapshot.
+ // Unverified Neon sources render an indeterminate total, never stale Drive money.
+ const p983HomeSpent=(()=>{
+  let total=0;
+  for(const t of trips){
+   const isTest=t.id===newTestTripId;
+   const isCanary=t.id===p963CanaryId;
+   const isActive=p980Sources.active.includes(t.id);
+   const state=isTest?p974TestHome:isCanary?p965Home:isActive?p980Sources.homes[t.id]:null;
+   if(isTest||isCanary||isActive){
+    if(state?.status!=='verified'||!Number.isFinite(Number(state.data?.spent)))return null;
+    total+=Number(state.data.spent);
+   }else{
+    total+=Number(t.spent||0)+expenseDraftDelta(expenseDrafts[t.id]);
+   }
+  }
+  return Number.isFinite(total)?total:null;
+ })();
  const chosenRaw=trips.find(x=>x.id===current);
  const chosen=chosenRaw&&p962Preview?.tripId===current&&p962Preview.writeEnabled===true?{...chosenRaw,settings:p962Preview.detail?.settings||chosenRaw.settings}:chosenRaw;
  async function run(job){if(readOnly||dataFreshness!=='fresh'){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
@@ -3137,12 +3159,12 @@ function App(){
  {Object.values(expenseDrafts).some(hasExpenseChanges)&&<div className="p27-home-warning">● Сумите за пътуванията включват временни промени. Те ще изчезнат при презареждане. Google Drive не е променен.</div>}
  <div className="p9162-home-insights">
  {dashboard?.last_activity&&<LatestActivityCard activity={dashboard.last_activity}/>}
- <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{money((dashboard?.spent??trips.reduce((n,t)=>n+Number(t.spent||0),0))+Object.entries(expenseDrafts).reduce((n,[id,d])=>n+expenseDraftDelta(d),0))}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
+ <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{p983HomeSpent===null?'…':money(p983HomeSpent)}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  </div>
  <HomePlaces points={homePlaces}/>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
- </>: <>{chosen&&<>{current!==newTestTripId&&p962Preview?.tripId===current&&p962Preview.writeEnabled===true&&current!==p963CanaryId?<p className="muted" role="status">⚡ Neon · Drive архив v{p962Preview.archiveRevision} · нормални редакции</p>:null}
- {current!==newTestTripId&&!(p962Preview?.tripId===current&&p962Preview.writeEnabled===true&&current!==p963CanaryId)&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
+ </>: <>{chosen&&<>{current!==newTestTripId&&p962Preview?.tripId===current&&p962Preview.writeEnabled===true?<p className="muted" role="status">⚡ Neon · Drive архив v{p962Preview.archiveRevision} · нормални редакции</p>:null}
+ {current!==newTestTripId&&!(p962Preview?.tripId===current&&p962Preview.writeEnabled===true)&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
  <strong>{current===p963CanaryId?(p962Preview?.writeEnabled?'⚡ Livigno · Neon':'⚡ P96.3 · Livigno от Neon'):'⚡ P96.2 · Проверен Neon преглед'}</strong>
  <p className="muted">{current===p963CanaryId?'Livigno се отваря директно от провереното Neon копие. Редакциите на пътуването са временно блокирани по време на миграцията; това НЕ означава, че пътуването е приключено. Галерията работи отделно през Google Drive. При несъответствие няма автоматично връщане към старите Drive данни.':'За това реално пътуване можеш да видиш действителното Neon работно копие, само за четене. Нормалният изглед и всички нормални записи остават в Drive. Прегледът се разрешава само ако двете копия съвпадат и архивът е актуален.'}</p>
  {current===p963CanaryId?<div className="p9043-expense-actions"><button type="button" disabled={p962Busy} onClick={()=>void p963OpenTrip(chosen)}>{p962Busy?'Проверявам…':'↻ Провери отново Neon'}</button><small className="muted">Предстоящо пътуване · временно заключени само мигрираните записи · снимките остават в Drive</small></div>:<div className="p9043-expense-actions"><button type="button" disabled={p962Busy||!(p962Preview&&p962Preview.tripId===current)} onClick={()=>{setP962Preview(null);setP962Error('')}}>☁️ Нормален изглед (Drive)</button><button type="button" disabled={p962Busy} onClick={()=>void openP962Preview()}>{p962Busy?'Проверявам…':'⚡ Отвори Neon (само преглед)'}</button></div>}
