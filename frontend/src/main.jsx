@@ -2728,7 +2728,39 @@ function App(){
   }
   throw lastError;
  }
- async function req(path,method='GET',body){const r=await fetch(`${apiBase}${path}`,{method,headers:{...(authMode==='accounts'?{'Authorization':`Bearer ${key}`}:{'X-API-Key':key}),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json()}
+ // P98.1: share short-lived, verified Neon reads between Home and Trip Details.
+ // No persistent storage: a new login or foreground refresh always revalidates.
+ const managedReadCache=useRef(new Map());
+ const managedCacheIdentity=useRef(key);
+ if(managedCacheIdentity.current!==key){managedReadCache.current.clear();managedCacheIdentity.current=key;}
+ async function req(path,method='GET',body){
+  if(method!=='GET')managedReadCache.current.clear();
+  const r=await fetch(`${apiBase}${path}`,{method,headers:{...(authMode==='accounts'?{'Authorization':`Bearer ${key}`}:{'X-API-Key':key}),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+  if(!r.ok){let msg=await r.text();throw Error(`${r.status}: ${msg}`)}return r.json();
+ }
+ async function managedRead(id,force=false){
+  const cache=managedReadCache.current;
+  const now=Date.now();
+  const item=cache.get(id);
+  if(!force&&item&&(item.pending||now-item.at<30000))return item.promise;
+  // Cache only this authenticated session; failed checks are never cached.
+  const identity=key;
+  const promise=req('/safe/neon/managed-source/'+encodeURIComponent(id));
+  const entry={at:now,pending:true,promise};
+  cache.set(id,entry);
+  try{
+   const result=await promise;
+   if(identity===key&&cache.get(id)===entry){entry.pending=false;entry.at=Date.now();}
+   return result;
+  }catch(err){if(cache.get(id)===entry)cache.delete(id);throw err;}
+ }
+
+ useEffect(()=>{
+  const refresh=()=>{if(document.visibilityState==='visible')managedReadCache.current.clear()};
+  window.addEventListener('focus',refresh);
+  document.addEventListener('visibilitychange',refresh);
+  return()=>{window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh)};
+ },[key]);
  // P96.5: the homepage must not silently present Drive figures as Neon-primary
  // for Livigno. Verify exactly the same read-only Neon workspace used by its detail.
  // This does not authorize any writes and intentionally does not change /trips.
@@ -2738,7 +2770,7 @@ function App(){
   }
   let live=true;
   setP965Home({status:'checking',data:null,message:''});
-  req('/safe/neon/managed-source/'+encodeURIComponent(p963CanaryId)).then(result=>{
+  managedRead(p963CanaryId).then(result=>{
    if(!live)return;
    if(!result?.ok||!(['verified_pre_cutover','neon_primary_read_only','neon_primary_active'].includes(result?.source_mode))||result?.production_switched!==Boolean(result?.write_enabled)||result?.trip_id!==p963CanaryId||result?.records?.settings?.length!==1||!Array.isArray(result?.records?.expenses)||!Array.isArray(result?.records?.budgets))
     throw Error('Провереният Neon източник не е потвърден.');
@@ -2758,7 +2790,7 @@ function App(){
   let live=true;
   const read=async()=>{
    try{
-    const d=await req('/safe/neon/managed-source/'+encodeURIComponent(newTestTripId));
+    const d=await managedRead(newTestTripId);
     if(!d?.ok||d.trip_id!==newTestTripId||d.write_enabled!==true||!d.workspace||!Array.isArray(d.records?.expenses)||!Array.isArray(d.records?.budgets)||d.records?.settings?.length!==1)
      throw Error('Neon не потвърди активното тестово пътуване.');
     const spent=d.records.expenses.filter(r=>r.type==='expense'||r.type==='deposit').reduce((a,r)=>a+(Number(r.amount)||0),0);
@@ -2788,7 +2820,7 @@ function App(){
     const homes={};
     const responses=await Promise.all(active.map(async id=>{
      try{
-      const d=await req('/safe/neon/managed-source/'+encodeURIComponent(id));
+      const d=await managedRead(id);
       if(!d?.ok||d.production_switched!==true||d.write_enabled!==true||d.source_mode!=='neon_primary_active'||!Array.isArray(d.records?.settings)||d.records.settings.length!==1||!Array.isArray(d.records?.expenses)||!Array.isArray(d.records?.budgets))throw Error('Neon не потвърди активния източник.');
       const rows=d.records.expenses,limits=d.records.budgets;
       const spent=rows.filter(r=>r.type==='expense'||r.type==='deposit').reduce((sum,r)=>sum+(Number(r.amount)||0),0);
@@ -2806,11 +2838,11 @@ function App(){
   const focus=()=>{if(document.visibilityState==='visible')void read()};
   window.addEventListener('focus',focus);
   return()=>{live=false;window.removeEventListener('focus',focus)};
- },[key,current,trips.map(t=>t.id).join('|')]);
+ },[key,trips.map(t=>t.id).join('|')]);
  // Shared verified reader for refresh and comparison: never return Drive
  // records once the server has designated Neon as the primary source.
- async function p980ReadManagedTrip(id){
-  const d=await req('/safe/neon/managed-source/'+encodeURIComponent(id));
+ async function p980ReadManagedTrip(id,force=false){
+  const d=await managedRead(id,force);
   if(!d?.ok||d.trip_id!==id||d.records?.settings?.length!==1)throw Error('Липсват потвърдени Neon данни.');
   if(id===newTestTripId){
    if(d.write_enabled!==true||!d.workspace)throw Error('Работният Neon тест не е активен.');
@@ -2833,7 +2865,7 @@ function App(){
  async function refreshAfterWrite(selected=current){
   if(!key||!selected)return reload(selected);
   const detailPromise=(selected===newTestTripId||selected===p963CanaryId||p980Sources.active.includes(selected)
-   ?p980ReadManagedTrip(selected).then(result=>{p980SetCurrentManaged(selected,result);return result.detail})
+   ?p980ReadManagedTrip(selected,true).then(result=>{p980SetCurrentManaged(selected,result);return result.detail})
    :req(`/trips/${encodeURIComponent(selected)}`).then(d=>{setDetail(d);return d}));
   // Update the home summaries without delaying the currently open trip.
   void req('/trips').then(fresh=>{
@@ -2848,7 +2880,7 @@ function App(){
   if(t.id===newTestTripId){
    setP962Busy(true);
    try{
-    const d=await req('/safe/neon/managed-source/'+encodeURIComponent(t.id));
+    const d=await managedRead(t.id);
     if(!d?.ok||d.trip_id!==t.id||d.write_enabled!==true||!d.workspace||d.records?.settings?.length!==1)
      throw Error('Neon не потвърди работния тестов източник.');
     const r=d.records;
@@ -2864,10 +2896,12 @@ function App(){
    if(['7-те_Рилски_Езера','Schladming_Austria','Бургас','Бургас__2','Бургас__3','ТЕСТ_-_PIxelAPP','ТЕСТ_67_PixelApp'].includes(t.id)){
     setP962Busy(true);
     try{
-     const manifest=await req('/safe/neon/active-primary-trips');
+     const manifest=p980Sources.status==='ready'
+      ?{ok:true,active_trip_ids:p980Sources.active}
+      :await req('/safe/neon/active-primary-trips');
      if(!manifest?.ok||!Array.isArray(manifest.active_trip_ids))throw Error('Не може да се провери източникът на пътуването.');
      if(manifest.active_trip_ids.includes(t.id)){
-      const d=await req('/safe/neon/managed-source/'+encodeURIComponent(t.id));
+      const d=await managedRead(t.id);
       if(!d?.ok||d.production_switched!==true||d.write_enabled!==true||d.source_mode!=='neon_primary_active'||d.trip_id!==t.id||!d.workspace||d.records?.settings?.length!==1)throw Error('Активният Neon източник не е потвърден.');
       const r=d.records;
       const verified={settings:r.settings[0],expenses:r.expenses||[],budgets:r.budgets||[],tasks:r.tasks||[],points:r.points||[],categories:r.categories||[]};
@@ -2888,7 +2922,7 @@ function App(){
   try{
    // The backend verifies same live Drive digest, Neon data and current archive.
    // Failure means NO automatic fallback to Drive and NO legacy writers.
-   const d=await req('/safe/neon/managed-source/'+encodeURIComponent(t.id));
+   const d=await managedRead(t.id);
    if(!d.ok||!(['verified_pre_cutover','neon_primary_read_only','neon_primary_active'].includes(d.source_mode))||d.production_switched!==Boolean(d.write_enabled)||d.trip_id!==t.id||!d.records||d.records.settings?.length!==1)
     throw Error('Сървърът не потвърди провереното Neon копие.');
    const r=d.records;
@@ -2908,7 +2942,7 @@ function App(){
    if(document.visibilityState!=='visible'||!live)return;
    setP962Busy(true);setP962Preview(null);setDetail(null);setP962Error('');
    try{
-    const d=await req('/safe/neon/managed-source/'+encodeURIComponent(p963CanaryId));
+    const d=await managedRead(p963CanaryId);
     if(!d.ok||!(['verified_pre_cutover','neon_primary_read_only','neon_primary_active'].includes(d.source_mode))||d.production_switched!==Boolean(d.write_enabled)||d.trip_id!==p963CanaryId||!d.records||d.records.settings?.length!==1)
      throw Error('Сървърът не потвърди актуалното Neon копие.');
     if(!live)return;
@@ -2943,6 +2977,7 @@ function App(){
  }
  async function reload(selected=current){
   if(!key)return;
+  managedReadCache.current.clear();
   setLoading(true);setError('');
   try{
    // Fetch the trip index FIRST: optional widgets can trigger multiple Drive reads
@@ -2967,7 +3002,7 @@ function App(){
    });
    // Don't await optional extras for the initial loading indicator.
    void extras;
-   if(selected){if(selected===newTestTripId||selected===p963CanaryId||p980Sources.active.includes(selected)){p980SetCurrentManaged(selected,await p980ReadManagedTrip(selected))}else{const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}}
+   if(selected){if(selected===newTestTripId||selected===p963CanaryId||p980Sources.active.includes(selected)){p980SetCurrentManaged(selected,await p980ReadManagedTrip(selected,true))}else{const d=await req(`/trips/${encodeURIComponent(selected)}`);setDetail(d)}}
   }catch(e){if(authMode==='accounts'&&String(e.message||e).startsWith('401:')){sessionStorage.removeItem('pixel_auth_session');setKey('');return;}setError(`Неуспешно обновяване: ${String(e.message||e)}. ${dataFreshness==='cached'?'Показани са последно запазените данни.':''}`)}
   finally{setLoading(false)}
  }
@@ -3038,7 +3073,7 @@ function App(){
  async function run(job){if(readOnly||dataFreshness!=='fresh'){setError('Режим само за четене: промените са изключени, за да пазим данните.');return;}setError('');try{await job();await reload();setModal('')}catch(e){setError(String(e.message))}}
  const comparisonLoader=React.useCallback(async id=>{
   if(id===newTestTripId||id===p963CanaryId||p980Sources.active.includes(id)){
-   const d=await req('/safe/neon/managed-source/'+encodeURIComponent(id));
+   const d=await managedRead(id);
    if(!d?.ok||d.trip_id!==id||d.records?.settings?.length!==1||(id!==newTestTripId&&id!==p963CanaryId&&(d.source_mode!=='neon_primary_active'||d.write_enabled!==true)))throw Error('Neon не е потвърден за сравнение.');
    const r=d.records;return {settings:r.settings[0],expenses:r.expenses||[],budgets:r.budgets||[],tasks:r.tasks||[],points:r.points||[],categories:r.categories||[]};
   }
