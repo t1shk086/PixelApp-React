@@ -3965,6 +3965,9 @@ def _p932_backup_document(trip_id):
     # The external legacy P93.2 endpoints retain their strict test-only guard.
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
+            # P97.7: all SELECTs below observe the same committed Neon revision.
+            # A second profile may write concurrently without mixing row versions.
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             cur.execute('SELECT source_digest,revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
             meta=cur.fetchone()
             if meta is None:raise HTTPException(404,'Няма P93.2 копие.')
@@ -4434,6 +4437,9 @@ def neon_read_workspace(trip_id: str):
     _p941_write_allowed(trip_id)
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
+            # P97.7: all SELECTs below observe the same committed Neon revision.
+            # A second profile may write concurrently without mixing row versions.
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
             found = cur.fetchone()
             if not found:
@@ -4979,6 +4985,9 @@ def p968_real_trip_source(trip_id: str):
         return {**preview, 'source_mode': 'verified_pre_cutover'}
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
+            # P97.7: all SELECTs below observe the same committed Neon revision.
+            # A second profile may write concurrently without mixing row versions.
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             cur.execute('SELECT revision,source_digest FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
             meta=cur.fetchone()
             cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s',(trip_id,))
@@ -5056,6 +5065,9 @@ def p970_managed_source(trip_id: str):
     # when reading the activated workspace. No comparison to mutable Drive CSV.
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
+            # P97.7: all SELECTs below observe the same committed Neon revision.
+            # A second profile may write concurrently without mixing row versions.
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             cur.execute('SELECT revision,source_digest FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
             meta=cur.fetchone()
             cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s',(trip_id,))
