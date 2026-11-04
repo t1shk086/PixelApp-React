@@ -5068,6 +5068,20 @@ def _p970_cutover_schema(cur):
         activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )""")
 
+# P98.0: compact persisted cutover manifest. It does NOT activate a trip.
+# Clients must use this instead of assuming that any historical Neon copy is
+# writable; an unavailable Neon DB must not be mistaken for an empty manifest.
+@app.get('/safe/neon/active-primary-trips', dependencies=[Depends(authorize)])
+def p980_active_primary_trips():
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
+            if cur.fetchone()[0] is None:
+                return {'ok': True, 'active_trip_ids': []}
+            cur.execute("SELECT trip_id FROM pixelapp_p970_cutovers WHERE status='active'")
+            ids = sorted(x[0] for x in cur.fetchall() if x[0] in _P978_REAL_TRIPS)
+    return {'ok': True, 'active_trip_ids': ids}
+
 @app.get('/safe/neon/managed-source/{trip_id}', dependencies=[Depends(authorize)])
 def p970_managed_source(trip_id: str):
     # P97.3: test trip uses precisely the same read contract as the real canary.
