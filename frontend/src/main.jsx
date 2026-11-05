@@ -193,7 +193,7 @@ function FuelHistory({rows,expensiveFuelPrice=1.8}) {
     {opened&&<div className="fuel-history-analysis"><div className="fuel-analysis-grid">
      <div><small>Литри</small><b className="fuel-blue">{fmt(r._liters)} <em>л</em></b></div>
      <div><small>Стойност</small><b className="fuel-gold">{num(r.amount)>0?money(r.amount):'—'}</b></div>
-     <div><small>Цена / л</small><b className={r._price>expensiveFuelPrice?'fuel-red':'fuel-green'}>{r._price>0?`€${fmt(r._price)}`:'—'}</b></div>
+     <div><small>Цена / л</small><b style={{color:r._price>expensiveFuelPrice?'#fb7185':'#34d399'}}>{r._price>0?`€${fmt(r._price)}`:'—'}</b></div>
      <div><small>Километраж</small><b>{!r._manual&&num(r.current_km)>0?num(r.current_km).toLocaleString('bg-BG')+' км':'—'}</b></div>
     </div>
     {real&&<p className="fuel-analysis-stage">🚗 Реален разход за етапа: {real[1].replace(',','.')} л/100 км</p>}
