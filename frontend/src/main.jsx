@@ -1323,7 +1323,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
      ...(requestOperation!=='delete'?{row:data}:{})});
     await p942Reload();
     setTaskName('');setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null);
-    setTaskMessage('✅ Записано в Neon. Архивът в Drive се създава автоматично.');
+    setTaskMessage('');
    }catch(err){await p942Reload();setTaskMessage('⚠️ '+String(err.message||err));}
    finally{setTaskBusy(false);}
    return;
