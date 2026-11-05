@@ -496,6 +496,7 @@ function NeonTripBudgetEditor({tripId,workspace,request,onReload,open,setOpen}){
  const [total,setTotal]=useState('0');
  const [limits,setLimits]=useState({});
  const [newCategory,setNewCategory]=useState('');
+ const [categoriesOpen,setCategoriesOpen]=useState(false);
  const [busy,setBusy]=useState(false);
  const [message,setMessage]=useState('');
  const budgetRows=workspace?.records?.budgets||[];
@@ -519,7 +520,7 @@ function NeonTripBudgetEditor({tripId,workspace,request,onReload,open,setOpen}){
    await request('/safe/p938-test-budget','POST',{trip_id:tripId,expected_revision:workspace.revision,
     mode,amount:mode==='global'?normalized(total):'0',
     categories:mode==='category'?Object.fromEntries(allNames.map(c=>[c,normalized(limits[c]??'0')])):{}});
-   await onReload();setOpen(false);setMessage('✅ Бюджетът е записан в Neon.');
+   await onReload();setOpen(false);setMessage('✅ Бюджетът е запазен.');
   }catch(e){await onReload();setMessage('⚠️ '+String(e.message||e)+' Обнових данните; провери преди повторен запис.');}
   finally{setBusy(false)}
  }
@@ -534,17 +535,17 @@ function NeonTripBudgetEditor({tripId,workspace,request,onReload,open,setOpen}){
  }
  const setting=workspace?.records?.settings?.[0]?.data||{};
  const editable=!!workspace&&String(setting.trip_finished||'').toLowerCase()!=='да'&&!(Number(setting.end_km)>0);
- return <div className="travel-card" style={{display:'grid',gap:12}}>
-  <div className="p9043-expense-actions"><button type="button" disabled={!editable||busy} onClick={()=>{setMessage('');setOpen(!open)}}>{open?'Откажи редакцията':'✏️ Редактирай бюджета'}</button></div>
+ return <div className="travel-card" style={{display:'grid',gap:10}}>
+  <div className="p9043-expense-actions"><button type="button" className="ghost" onClick={()=>setCategoriesOpen(v=>!v)}>{categoriesOpen?'Скрий категориите':'🏷️ Управление на категории'}</button></div>
   {open&&editable&&<form onSubmit={save} style={{display:'grid',gap:10}}><label>Режим на бюджет<select value={mode} onChange={e=>setMode(e.target.value)} disabled={busy}><option value="global">Общ</option><option value="category">По категории</option></select></label>
   {mode==='global'?<label>Общ бюджет (€)<input inputMode="decimal" value={total} onChange={e=>setTotal(e.target.value)} disabled={busy}/></label>:<div style={{display:'grid',gap:8}}>{allNames.map(c=><label key={c}>{c} (€)<input inputMode="decimal" value={limits[c]??'0'} onChange={e=>setLimits(v=>({...v,[c]:e.target.value}))} disabled={busy}/></label>)}</div>}
-  <button type="submit" disabled={busy||!editable}>{busy?'Записвам…':'💾 Запази бюджета'}</button></form>}
-  <form onSubmit={addCategory} style={{display:'grid',gap:8}}><strong>🏷️ Категории на това пътуване</strong><p className="muted">Основните категории остават. Новите важат само за това пътуване и могат да се използват при разходи и бюджет.</p>
+  <div className="p9043-expense-actions"><button type="submit" disabled={busy||!editable}>{busy?'Записвам…':'💾 Запази бюджета'}</button><button type="button" className="ghost" onClick={()=>setOpen(false)}>Отказ</button></div></form>}
+  {categoriesOpen&&<form onSubmit={addCategory} style={{display:'grid',gap:8}}><strong>🏷️ Категории на това пътуване</strong><p className="muted">Основните категории остават. Новите важат само за това пътуване и могат да се използват при разходи и бюджет.</p>
   {customNames.length>0&&<p className="muted">Добавени: {customNames.join(' · ')}</p>}
   <label>Нова категория<input maxLength={50} value={newCategory} onChange={e=>setNewCategory(e.target.value)} placeholder="Например Ски карти" disabled={busy}/></label>
-  <button type="submit" disabled={busy||!editable||!newCategory.trim()}>＋ Добави категория</button></form>
+  <button type="submit" disabled={busy||!editable||!newCategory.trim()}>＋ Добави категория</button></form>}
   {message&&<p role="status" className="muted">{message}</p>}
-  {!editable&&<p role="alert" className="error">Neon данните не са заредени — записването е блокирано.</p>}
+  {!editable&&<p role="alert" className="error">Данните не са заредени — записването е блокирано.</p>}
  </div>;
 }
 
@@ -881,61 +882,6 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   <form onSubmit={e=>save('missed',e)} className="p22-form"><label>Литри<input inputMode="decimal" value={liters} onChange={e=>setLiters(e.target.value)} disabled={busy||locked}/></label><label className="p22-check"><input type="checkbox" checked={paid} onChange={e=>setPaid(e.target.checked)} disabled={busy||locked}/> Помня и платената сума</label>
   {paid&&<label>Сума (€)<input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||locked}/></label>}
   <button type="submit" disabled={busy||locked||!validPositive(liters)||Number(String(liters).replace(',','.'))>500||(paid&&!validPositive(amount))}>{busy?'Записвам…':'Добави пропуснатото гориво'}</button></form></div>
-  <div className="p21-section"><h4>🔐 Проверка на заключването · P95.4</h4>
-   <p className="muted">Безопасна проверка на правилата за заключване. Чете Neon, но не приключва пътуването и не записва нищо.</p>
-   <button type="button" className="ghost" disabled={busy||safetyBusy} onClick={()=>void inspectSafety()}>{safetyBusy?'Проверявам…':'🔎 Провери без запис'}</button>
-   {safetyError&&<p role="alert" className="error">⚠️ {safetyError}</p>}
-   {safetyReport&&<div role="status" style={{display:'grid',gap:6,marginTop:8}}>
-    <strong>{safetyReport.all_simulated_locked&&safetyReport.can_finish?'✅ Симулираното заключване е наред':'⚠️ Необходима е проверка преди приключване'}</strong>
-    <small>Сега: {safetyReport.finished_now?'Приключено':'Активно'} · Neon версия {safetyReport.revision} · Най-малко {safetyReport.minimum_end_km??'—'} крайни км</small>
-    {Object.entries(safetyReport.simulated_locked||{}).map(([key,value])=><small key={key}>{value?'✓':'⚠'} {key}</small>)}
-    <small>Не е изпълнен истински запис. Не са променени данни или статус.</small>
-   </div>}
-  </div>
-  <div className="p21-section"><h4>🗃️ P95.5 · Проверка преди миграция</h4>
-   <p className="muted">Сверява оригиналите в Drive, подготвените Neon копия и текущите резервни архиви. Само четене — без превключване на пътувания и без промяна на данни.</p>
-   <button type="button" className="ghost" disabled={migrationBusy||busy} onClick={()=>void checkMigrationReadiness()}>{migrationBusy?'Проверявам 9 пътувания…':'🔎 Провери 8-те реални пътувания'}</button>
-   {migrationError&&<p role="alert" className="error">⚠️ {migrationError}</p>}
-   {migrationReport&&<div role="status" style={{display:'grid',gap:9,marginTop:10}}>
-    <strong>{migrationReport.trips.filter(t=>t.trip_id!==tripId).every(t=>t.stage_matches_live_drive&&t.workspace_exists&&t.backup_current)?'✅ Осемте копия и архиви са актуални':'⚠️ Има разлики или липсващи актуални архиви'}</strong>
-    <small>От {migrationReport.trip_count} пътувания: {migrationReport.stage_matches_drive_count} копия съвпадат с Drive · {migrationReport.workspace_count} Neon работни копия · {migrationReport.backed_up_workspace_count} актуални архиви.</small>
-    <div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:'0.82rem',borderCollapse:'collapse'}}>
-     <thead><tr><th style={{textAlign:'left',padding:'6px 4px'}}>Пътуване</th><th>Drive</th><th>Neon</th><th>Архив</th></tr></thead>
-     <tbody>{migrationReport.trips.filter(t=>t.trip_id!==tripId).map(t=><tr key={t.trip_id}>
-      <td style={{padding:'7px 4px',overflowWrap:'anywhere',maxWidth:170}}>{t.trip_id.replace(/_/g,' ')}</td>
-      <td style={{textAlign:'center'}} title={t.stage_matches_live_drive?'Съвпада с Drive':'Разлика спрямо Drive'}>{t.stage_matches_live_drive?'✓':'⚠'}</td>
-      <td style={{textAlign:'center'}} title={t.workspace_exists?'Налично работно копие':'Липсва копие'}>{t.workspace_exists?'✓':'⚠'}</td>
-      <td style={{textAlign:'center'}} title={t.backup_current?'Актуален архив':'Архивът не е актуален или липсва'}>{t.backup_current?'✓':'⚠'}</td>
-     </tr>)}</tbody>
-    </table></div>
-    <small>⚠️ Това не включва нормалните записи към Neon. Дори всички отметки да са зелени, окончателното превключване изисква отделна проверка на всички записващи функции. „ТЕСТ НОВО“ не се включва в таблицата.</small>
-    <small>Не са създадени нови копия или архиви и не е променен източникът на данните.</small>
-   </div>}
-  </div>
-  <div className="p21-section"><h4>🔎 P96.0 · Диагностика на PixelApp</h4>
-   <p className="muted">Един общ тест на данните: Neon, Drive, архиви и заключване. Използва само GET заявки; не променя записи. Не замества проверката на действителни операции от два профила.</p>
-   <button type="button" className="ghost" disabled={fullAuditBusy||busy} onClick={()=>void runFullAudit()}>{fullAuditBusy?'Проверявам…':'🔎 Провери цялото приложение'}</button>
-   {fullAuditError&&<p role="alert" className="error">⚠️ {fullAuditError}</p>}
-   {fullAudit&&<div style={{display:'grid',gap:9,marginTop:12}} role="status">
-    <strong>Резултат: {fullAudit.checks.filter(x=>x.status==='pass').length} проверени · {fullAudit.checks.filter(x=>x.status==='warn').length} с ограничения · {fullAudit.checks.filter(x=>x.status==='fail').length} проблема · {fullAudit.checks.filter(x=>x.status==='manual').length} за практически тест</strong>
-    <small>Проверено: {fullAudit.at} · ТЕСТ НОВО Neon v{fullAudit.revision??'—'}</small>
-    {fullAudit.checks.map((item,i)=><div key={i} style={{padding:'8px 0',borderBottom:'1px solid rgba(140,160,180,.24)'}}><div style={{fontWeight:650}}>{item.status==='pass'?'✅':item.status==='fail'?'❌':item.status==='manual'?'🧪':'⚠️'} {i+1}. {item.title}</div><small>{item.details}</small></div>)}
-    <small>Зеленото удостоверява само извършената проверка на прочетените данни, не работа на всички бутони. Жълтото е непълно или изисква миграция. Нищо не е записано, изтрито или превключено.</small>
-    <button className="ghost" type="button" onClick={()=>{const lines=['PixelApp P96.0 · '+fullAudit.at,...fullAudit.checks.map((c,i)=>`${i+1}. ${c.status.toUpperCase()} · ${c.title} · ${c.details}`)];navigator.clipboard?.writeText(lines.join('\n')).catch(()=>{})}}>📋 Копирай отчета</button>
-   </div>}
-  </div>
-  <div className="p21-section"><h4>🧪 P96.1 · Един практически Neon тест</h4>
-   <p className="muted">За разлика от P96.0, този тест <b>реално записва</b> един временен разход от 0,37 € в Neon за „ТЕСТ НОВО“, проверява редакция, конфликт на версия и изтриване. Не променя първоначалните CSV файлове в Drive и не превключва осемте други пътувания.</p>
-   <button type="button" disabled={practicalBusy||busy||locked} onClick={()=>void runPracticalTest()}>{practicalBusy?'Изпълнявам проверките…':'🧪 Стартирай общия практически тест'}</button>
-   {practicalError&&<p className="error" role="alert">⚠️ {practicalError}</p>}
-   {practicalReport&&<div style={{display:'grid',gap:7,marginTop:12}} role="status"><strong>{practicalReport.failed?'⚠️ Практическият тест не завърши':'✅ Практическият тест приключи'}</strong><small>{practicalReport.at}</small>
-     {practicalReport.events.map((line,i)=><small key={i}>{line}</small>)}
-     {practicalReport.backupCheck&&<small>{practicalReport.backupCheck}</small>}
-     <button type="button" className="ghost" disabled={practicalBusy} onClick={()=>void recheckPracticalBackup()}>☁️ Провери Drive архива отново</button>
-     <button type="button" className="ghost" onClick={()=>{const lines=['PixelApp P96.1 · '+practicalReport.at,...practicalReport.events,practicalReport.backupCheck||'',practicalError||''];navigator.clipboard?.writeText(lines.filter(Boolean).join('\n')).catch(()=>{})}}>📋 Копирай отчета</button>
-     <small>За двата профила и истинско едновременно редактиране остава отделен кратък тест. Галерията остава в Drive.</small>
-   </div>}
-  </div>
   <div className="p21-section"><h4>🏁 Приключване на пътуването</h4>
    <p className="muted">Проверка без запис: начални {startKm.toLocaleString('bg-BG')} км · последни записани {latestKm.toLocaleString('bg-BG')} км. Реалният разход между две пълни зареждания не се променя при приключване.</p>
    {locked?<p role="status">🔒 Пътуването е приключено. Крайни километри: {Number(settings.end_km||0).toLocaleString('bg-BG')} км.</p>:<form onSubmit={finishTrip}>
@@ -945,7 +891,6 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
     <small>Две потвърждения преди реален запис. Не натискай в тестовото пътуване, ако искаш да го използваме за следващите проверки.</small>
    </form>}
   </div>
-  <p className="muted">Няма поле за начално количество гориво.</p>
   {notice&&<p role="status">{notice}</p>}
  </div></div>;
 }
@@ -990,7 +935,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
     current_km:p952FuelKm,full:p952FuelFull,description:p952FuelDesc.trim()
    });
    setP952FuelAmount('');setP952FuelLiters('');setP952FuelKm('');
-   await p942Reload();setP952Message('✅ Зареждането е записано в Neon. Архивът в Drive е заявен.');
+   await p942Reload();setP952Message('✅ Зареждането е записано.');
   }catch(err){await p942Reload();setP952Message('⚠️ '+String(err.message||err)+' Провери историята преди нов опит.');}
   finally{setP952Busy(false)}
  }
@@ -1516,7 +1461,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  </>}
  {p942Test&&p952CarOpen&&<NeonCarSettings tripId={neonTripId} workspace={p942Data} request={onNeonRequest} onReload={p942Reload} onClose={()=>setP952CarOpen(false)}/>}
  {section==='fuel'&&p942Test&&<div className="travel-card"><h3>⛽ Добави зареждане</h3>
-  <p className="muted">Нормален запис в Neon. Частичните зареждания участват при следващото пълно; първото пълно само задава отправна точка.</p>
+  <p className="muted">Частичните зареждания участват при следващото пълно. Първото пълно задава начална точка за изчислението.</p>
   <form className="quick-demo-form" onSubmit={p952SaveFuel}>
    <label>Тип зареждане<select value={p952FuelFull?'full':'partial'} onChange={e=>setP952FuelFull(e.target.value==='full')} disabled={p952Busy}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option></select></label>
    <label>Платена сума (€)<input type="number" step="0.01" min="0" required value={p952FuelAmount} onChange={e=>setP952FuelAmount(e.target.value)} disabled={p952Busy}/></label>
