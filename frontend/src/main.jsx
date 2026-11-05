@@ -2660,6 +2660,14 @@ function App(){
    .catch(()=>{});
   return()=>{active=false};
  },[authMode,key]);
+ // P99.16: home favorites library preview — on-demand and strictly read-only.
+ const [favoriteLibraryOpen,setFavoriteLibraryOpen]=useState(false);
+ const [favoriteLibraryLoading,setFavoriteLibraryLoading]=useState(false);
+ const [favoriteLibraryError,setFavoriteLibraryError]=useState('');
+ const [favoriteLibraryItems,setFavoriteLibraryItems]=useState([]);
+ const [favoriteLibraryMissing,setFavoriteLibraryMissing]=useState([]);
+ const [favoriteLibrarySearch,setFavoriteLibrarySearch]=useState('');
+ const [favoriteLibraryTrip,setFavoriteLibraryTrip]=useState('all');
  const [comparisonOpen,setComparisonOpen]=useState(false);
  const [readOnly,setReadOnly]=useState(true);
  const [testWriteArmed,setTestWriteArmed]=useState(false);
@@ -3163,7 +3171,48 @@ function App(){
   }catch(e){setP990Message('⚠️ '+String(e.message||e)+' Не повтаряй операцията при неизвестно състояние; обнови приложението.');setP990Verified(null);}
   finally{setP990Busy(false)}
  }
- function logout(){setP962Preview(null);setProfileOpen(false);setProfileUser('');sessionStorage.removeItem('pixel_account_name');sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
+ // Read ONLY the authoritative Neon workspaces, after explicit opening.
+ // A failed trip is named explicitly instead of silently showing a partial library as complete.
+ async function loadFavoriteLibrary(){
+  if(favoriteLibraryLoading)return;
+  setFavoriteLibraryLoading(true);setFavoriteLibraryError('');setFavoriteLibraryMissing([]);
+  try{
+   if(p980Sources.status!=='ready')throw Error('Проверката на Neon още не е завършила. Опитай отново.');
+   const ids=trips.filter(t=>p980Sources.active.includes(t.id)||t.id===newTestTripId).map(t=>t.id);
+   if(!ids.length){setFavoriteLibraryItems([]);return;}
+   const all=[];const missing=[];
+   // Limit concurrency so the shared Render server is not flooded with requests.
+   for(let i=0;i<ids.length;i+=3){
+    const group=await Promise.all(ids.slice(i,i+3).map(async id=>{
+     try{
+      const d=await p980ReadManagedTrip(id,true);
+      return {id,points:d.detail.points};
+     }catch(e){return {id,error:String(e.message||e)}};
+    }));
+    for(const x of group){
+     if(x.error){missing.push(x.id);continue;}
+     const trip=trips.find(t=>t.id===x.id);
+     (x.points||[]).forEach((raw,index)=>{
+      const point=raw?.data||raw;
+      const lat=Number(point?.lat),lon=Number(point?.lon);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;
+      const title=String(point?.title||'').trim();
+      if(!title||title.startsWith('3b:')&&['purple','orange'].includes(String(point.color||'').toLowerCase()))return;
+      // Neon favorites use blue / favorite; exclude route markers.
+      if(!(String(point.stop_type||'').toLowerCase()==='favorite'||String(point.color||'').toLowerCase()==='blue'))return;
+      all.push({tripId:x.id,tripName:trip?.name||x.id,title,lat,lon,index});
+     });
+    }
+   }
+   setFavoriteLibraryItems(all);setFavoriteLibraryMissing(missing);
+  }catch(e){setFavoriteLibraryError(String(e.message||e))}
+  finally{setFavoriteLibraryLoading(false)}
+ }
+ const favoriteLibraryTrips=[...new Map(favoriteLibraryItems.map(x=>[x.tripId,x.tripName])).entries()];
+ const favoriteLibraryFiltered=favoriteLibraryItems.filter(x=>
+  (favoriteLibraryTrip==='all'||favoriteLibraryTrip===x.tripId)&&
+  (!favoriteLibrarySearch.trim()||[x.title,x.tripName].join(' ').toLocaleLowerCase('bg').includes(favoriteLibrarySearch.trim().toLocaleLowerCase('bg'))));
+ function logout(){setFavoriteLibraryOpen(false);setFavoriteLibraryItems([]);setFavoriteLibraryMissing([]);setP962Preview(null);setProfileOpen(false);setProfileUser('');sessionStorage.removeItem('pixel_account_name');sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
  if(authMode==='checking'||authMode==='error'||!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager</p><section className="panel"><h3>{authMode==='accounts'?'Вход в профила':authMode==='legacy'?'Личен достъп':'Проверка на връзката'}</h3>{authMode==='error'?<><p role="alert" className="error">{authConfigError}</p><p>Опитай отново. Ако проблемът продължи, провери дали Render е Live и дали адресът на API е правилен.</p><button type="button" onClick={()=>setAuthRetry(n=>n+1)}>Провери отново</button></>:authMode==='checking'?<p>Проверявам какъв вход използва сървърът…</p>:<form onSubmit={connect}>{authMode==='accounts'?<><input autoComplete="username" value={authUser} onChange={e=>setAuthUser(e.target.value)} placeholder="Потребителско име" required/><input type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Парола" required/></>:<><p>Въведи личния API ключ. Google токените не се въвеждат тук.</p><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ" required/></>}<button>Влез</button></form>}{authError&&authMode!=='error'&&<p className="error" role="alert">{authError}</p>}</section></main>;
  return <main className="app"><header className={'p999-app-header'+((current||comparisonOpen)?' p9911-compact-trip-header':'')}>
  {(current||comparisonOpen)&&<button type="button" className="p9911-home-link" title="Към началния екран" aria-label="Начало" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{setComparisonOpen(false)}}}><ArrowLeft size={18}/><span>Начало</span></button>}
@@ -3182,6 +3231,7 @@ function App(){
  <div className="p9910-countdown-space"><NextTripCountdown trips={trips}/></div>
 
   <style>{`.p9912-home-actions>button{display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;gap:10px!important}.p9912-home-actions>button>span{display:inline-flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;margin:0!important;width:auto!important;flex:none!important}.p9912-home-actions>button b{text-align:center!important}`}</style>
+ <style>{`.p9916-library{margin:16px 0 20px}.p9916-launch{width:100%;display:flex;align-items:center;gap:13px;text-align:left;padding:16px;border-radius:17px;border:1px solid var(--line,#415466);background:var(--panel,#25323e);color:inherit;cursor:pointer}.p9916-launch-icon{font-size:25px}.p9916-launch-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}.p9916-launch-copy strong{font-size:16px}.p9916-launch-copy small{font-size:12px;opacity:.73}.p9916-chevron{font-size:25px;opacity:.8}.p9916-panel{background:var(--panel,#25323e);border:1px solid var(--line,#415466);border-radius:18px;padding:15px;margin-top:9px}.p9916-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.p9916-head h3{font-size:17px;margin:0 0 5px}.p9916-head small{opacity:.75}.p9916-refresh{width:38px;height:38px;min-width:38px;display:grid;place-items:center;border-radius:50%;padding:0}.p9916-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin:15px 0}.p9916-filters input,.p9916-filters select{width:100%;min-width:0;box-sizing:border-box;font-size:13px}.p9916-results{display:grid;gap:9px;max-height:500px;overflow-y:auto}.p9916-place{display:flex;align-items:center;gap:11px;border:1px solid var(--line,#415466);background:rgba(120,145,160,.09);padding:10px 11px;border-radius:14px}.p9916-place-icon{display:grid;place-items:center;width:38px;height:38px;flex:none;border-radius:12px;background:rgba(101,201,237,.16);color:#65c9ed}.p9916-place-body{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}.p9916-place-body strong{font-size:14px;overflow-wrap:anywhere}.p9916-place-body small{font-size:12px;opacity:.72;overflow-wrap:anywhere}.p9916-map-action{display:grid;place-items:center;width:37px;height:37px;border-radius:11px;color:#65c9ed;border:1px solid var(--line,#415466);flex:none}.p9916-footnote{font-size:11px;opacity:.65;margin:15px 0 0}@media(max-width:430px){.p9916-filters{grid-template-columns:1fr}}`}</style>
  <div className="actions home-actions p28-home-actions p9912-home-actions"><button onClick={()=>setModal('regular-new-trip')}>✈️ <span><b>Ново пътуване</b></span></button><button onClick={()=>setModal('normal-expenses')}>💳 <span><b>Бърз разход</b></span></button></div>
 
  <h4 className="home-heading">Моите пътувания <span>{trips.length} пътувания</span></h4>
@@ -3196,6 +3246,20 @@ function App(){
  {!trips.length&&!loading&&dataFreshness==='none'&&<p role="alert" className="muted">⚠️ Пътуванията още не са заредени. Това не означава, че са изтрити. Натисни „Обнови“ за повторен опит.</p>}
  {!trips.length&&!loading&&dataFreshness==='fresh'&&<p className="muted">Сървърът върна празен списък с пътувания. Провери синхронизацията с Google Drive преди нов запис.</p>}
  {Object.values(expenseDrafts).some(hasExpenseChanges)&&<div className="p27-home-warning">● Сумите за пътуванията включват временни промени. Те ще изчезнат при презареждане. Google Drive не е променен.</div>}
+ <section className="p9916-library" aria-label="Обща библиотека с любими места">
+  <button type="button" className="p9916-launch" aria-expanded={favoriteLibraryOpen} onClick={()=>{if(favoriteLibraryOpen){setFavoriteLibraryOpen(false)}else{setFavoriteLibraryOpen(true);void loadFavoriteLibrary()}}}>
+   <span className="p9916-launch-icon">❤️</span><span className="p9916-launch-copy"><strong>Любими места</strong><small>Всички любими локации от пътуванията</small></span><span aria-hidden="true" className="p9916-chevron">{favoriteLibraryOpen?'⌃':'›'}</span>
+  </button>
+  {favoriteLibraryOpen&&<div className="p9916-panel">
+   <div className="p9916-head"><div><h3>❤️ Моите любими места</h3><small>{favoriteLibraryItems.length} запазени места · само преглед</small></div><button type="button" disabled={favoriteLibraryLoading} className="p9916-refresh" title="Обнови библиотеката" onClick={()=>void loadFavoriteLibrary()}><RefreshCcw size={17}/></button></div>
+   <div className="p9916-filters"><input type="search" aria-label="Търси любимо място" placeholder="🔎 Търси място или пътуване" value={favoriteLibrarySearch} onChange={e=>setFavoriteLibrarySearch(e.target.value)}/><select aria-label="Филтър по пътуване" value={favoriteLibraryTrip} onChange={e=>setFavoriteLibraryTrip(e.target.value)}><option value="all">Всички пътувания</option>{favoriteLibraryTrips.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></div>
+   {favoriteLibraryLoading&&<p className="muted" role="status">Зареждам любимите места от Neon…</p>}
+   {favoriteLibraryError&&<p className="error" role="alert">⚠️ {favoriteLibraryError}</p>}
+   {!favoriteLibraryLoading&&favoriteLibraryMissing.length>0&&<p className="muted" role="status">⚠️ Няма потвърдени данни за {favoriteLibraryMissing.length} пътувания: {favoriteLibraryMissing.join(', ')}. Показан е само провереният списък.</p>}
+   {!favoriteLibraryLoading&&!favoriteLibraryError&&(favoriteLibraryFiltered.length?<div className="p9916-results">{favoriteLibraryFiltered.map(p=><div className="p9916-place" key={`${p.tripId}:${p.index}`}><div className="p9916-place-icon"><MapPin size={21}/></div><div className="p9916-place-body"><strong>{p.title}</strong><small>🚙 {p.tripName}</small></div><a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.lat+','+p.lon)}`} target="_blank" rel="noopener noreferrer" title="Отвори локацията в Google Maps" aria-label={`Покажи ${p.title} на картата`} className="p9916-map-action"><MapPin size={18}/></a></div>)}</div>:<p className="muted">{favoriteLibraryItems.length?'Няма места по избраните филтри.':'Все още няма любими места в потвърдените пътувания.'}</p>)}
+   <p className="p9916-footnote">Пробна библиотека: без преместване, редактиране или изтриване. Не променя любимите места в пътуванията.</p>
+  </div>}
+ </section>
  <div className="p9162-home-insights">
  {dashboard?.last_activity&&<LatestActivityCard activity={dashboard.last_activity}/>}
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{p983HomeSpent===null?'…':money(p983HomeSpent)}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
