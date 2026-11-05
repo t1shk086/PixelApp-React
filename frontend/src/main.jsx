@@ -2508,43 +2508,91 @@ function NeonQuickExpense({trip,request,onClose,onSaved}){
  const [amount,setAmount]=useState('');
  const [category,setCategory]=useState('Други');
  const [description,setDescription]=useState('');
+ const [fuelKind,setFuelKind]=useState('full');
+ const [fuelLiters,setFuelLiters]=useState('');
+ const [fuelKm,setFuelKm]=useState('');
+ const [workspace,setWorkspace]=useState(null);
+ const [loading,setLoading]=useState(true);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
+ const fuelRecognized=category==='Транспорт'&&/гориво|зареждане|дизел|бензин|газ|lpg|cng/i.test(description);
+ const settings=workspace?.records?.settings?.[0]?.data||{};
+ const isCar=String(settings.car_trip||trip.settings?.car_trip||'').toLowerCase()==='да';
+ const customCategories=(workspace?.records?.categories||[]).map(x=>x.data?.category).filter(Boolean);
+ const categoryChoices=[...new Set([...categories.filter(c=>c!=='Депозит/Резервация'),...customCategories,category])];
+ useEffect(()=>{
+  let cancelled=false;
+  setLoading(true);setWorkspace(null);setError('');
+  request('/safe/neon/workspace/'+encodeURIComponent(trip.id)).then(data=>{
+   if(cancelled)return;
+   if(!data?.ok||!data?.records?.settings?.length)throw Error('Neon не върна настройките на пътуването.');
+   setWorkspace(data);
+  }).catch(err=>{if(!cancelled)setError('⚠️ '+String(err.message||err))}).finally(()=>{if(!cancelled)setLoading(false)});
+  return()=>{cancelled=true};
+ },[trip.id]);
  async function submit(e){
-  e.preventDefault();if(busy)return;
+  e.preventDefault();if(busy||loading)return;
   const value=Number(String(amount).replace(',','.'));
-  if(!Number.isFinite(value)||value<=0||value>10000000){setError('Въведи валидна сума.');return;}
+  if(!Number.isFinite(value)||value<=0||value>100000){setError('Въведи валидна сума.');return;}
+  if(fuelRecognized){
+   const liters=String(fuelLiters).trim().replace(',','.');
+   const km=String(fuelKm).trim();
+   if(!isCar){setError('Пътуването не е отбелязано като пътуване с автомобил.');return;}
+   if(!/^\d+(?:\.\d{1,2})?$/.test(liters)||Number(liters)<=0||Number(liters)>200){setError('Литрите трябва да са над 0 и до 200, с максимум 2 знака след запетаята.');return;}
+   if(!/^\d{1,9}$/.test(km)||Number(km)<=0){setError('Въведи валиден цял километраж.');return;}
+  }
   setBusy(true);setError('');
   try{
-   const workspace=await request('/safe/neon/workspace/'+encodeURIComponent(trip.id));
-   const settings=workspace?.records?.settings?.[0]?.data;
-   if(!workspace?.ok||!settings)throw Error('Neon не е достъпен. Не е извършен запис.');
-   if(String(settings.trip_finished||'').toLowerCase()==='да'||Number(settings.end_km||0)>0)
+   // Read a fresh revision immediately before the write; the server locks the
+   // workspace and rejects stale versions for car operations.
+   const latest=await request('/safe/neon/workspace/'+encodeURIComponent(trip.id));
+   const latestSettings=latest?.records?.settings?.[0]?.data;
+   if(!latest?.ok||!latestSettings)throw Error('Neon не е достъпен. Не е извършен запис.');
+   if(String(latestSettings.trip_finished||'').toLowerCase()==='да'||Number(latestSettings.end_km||0)>0)
     throw Error('Пътуването е приключено и не допуска разходи.');
-   const row={trip_id:trip.id,date:new Date().toLocaleDateString('bg-BG'),amount:String(value),
-    category,description:description.trim(),type:'expense',liters:'',current_km:''};
-   const result=await request('/safe/neon/expense','POST',{
-    trip_id:trip.id,dataset:'expenses',operation:'add',row});
-   if(!result?.ok||result?.drive_modified!==false)throw Error('Сървърът не потвърди Neon запис без промяна на Drive. Провери историята преди нов опит.');
-   // Verify that the new record is visible in the shared workspace before leaving.
+   let result;
+   if(fuelRecognized){
+    if(String(latestSettings.car_trip||'').toLowerCase()!=='да')throw Error('Пътуването не е с автомобил.');
+    result=await request('/safe/neon/car-action','POST',{
+     trip_id:trip.id,operation:'refuel',expected_revision:latest.revision,
+     amount:String(value),liters:String(fuelLiters).trim().replace(',','.'),
+     current_km:String(fuelKm).trim(),full:fuelKind==='full',description:description.trim()
+    });
+   }else{
+    const row={trip_id:trip.id,date:new Date().toLocaleDateString('bg-BG'),amount:String(value),
+     category,description:description.trim(),type:'expense',liters:'',current_km:''};
+    result=await request('/safe/neon/expense','POST',{
+     trip_id:trip.id,dataset:'expenses',operation:'add',row
+    });
+   }
+   if(!result?.ok||result?.drive_modified!==false)throw Error('Сървърът не потвърди Neon запис. Провери историята преди нов опит.');
+   // Verify a completed write by revision. For refuels the car endpoint does
+   // not return row_id, so use the workspace revision and reloaded trip.
    const verified=await request('/safe/neon/workspace/'+encodeURIComponent(trip.id));
-   if(!verified?.records?.expenses?.some(x=>x.row_id===result.row_id))
-    throw Error('Записът може да е успешен, но проверката не го намери. Провери в пътуването преди повторен опит.');
+   if(!verified?.ok||Number(verified.revision)<Number(result.revision)||
+      (!fuelRecognized&&!verified?.records?.expenses?.some(x=>x.row_id===result.row_id)))
+    throw Error('Записът може да е успешен, но проверката не го намери. Провери разходите преди повторен опит.');
    await onSaved();
   }catch(err){setError('⚠️ '+String(err.message||err)+' Не повтаряй, преди да провериш записите.');}
   finally{setBusy(false)}
  }
- return <div className="overlay" onClick={()=>{if(!busy)onClose()}}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Бърз разход в Neon">
+ return <div className="overlay" onClick={()=>{if(!busy)onClose()}}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Бърз разход">
   <div className="dialoghead"><h3>💳 Бърз разход</h3><button className="ghost" type="button" disabled={busy} onClick={onClose}>✕</button></div>
-  <p className="muted">{trip.name} · Запис в Neon, Drive остава архив. След записа се отваря пътуването, за да видиш новия разход.</p>
+  <p className="muted">{trip.name}</p>
   <form className="quick-demo-form" onSubmit={submit}>
-   <label>Сума (€)<input type="number" min="0.01" max="10000000" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy} required/></label>
-   <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)} disabled={busy}>{categories.filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт').map(c=><option key={c} value={c}>{c}</option>)}</select></label>
-   <label>Описание<input maxLength="250" value={description} onChange={e=>setDescription(e.target.value)} disabled={busy}/></label>
-   <button type="submit" disabled={busy||!amount}>{busy?'Записвам и проверявам…':'Запази разхода'}</button>
+   <label>Сума (€)<input type="number" min="0.01" max="100000" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||loading} required/></label>
+   <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)} disabled={busy||loading}>{categoryChoices.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
+   <label>Описание<input maxLength="250" value={description} onChange={e=>setDescription(e.target.value)} disabled={busy||loading}/></label>
+   {fuelRecognized&&<><p className="muted">⛽ Разпознато зареждане — попълни литри и километраж.</p>
+    <label>Тип зареждане<select value={fuelKind} onChange={e=>setFuelKind(e.target.value)} disabled={busy||loading}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option></select></label>
+    <label>Литри<input type="number" min="0.01" max="200" step="0.01" inputMode="decimal" value={fuelLiters} onChange={e=>setFuelLiters(e.target.value)} disabled={busy||loading} required/></label>
+    <label>Километраж<input type="number" min="1" step="1" inputMode="numeric" value={fuelKm} onChange={e=>setFuelKm(e.target.value)} disabled={busy||loading} required/></label>
+    {!isCar&&!loading&&<p role="alert" className="error">Това пътуване не е отбелязано като пътуване с автомобил.</p>}
+   </>}
+   <button type="submit" disabled={busy||loading||!workspace||!amount||(fuelRecognized&&!isCar)}>{loading?'Зареждам пътуването…':busy?'Записвам и проверявам…':fuelRecognized?'Запази зареждането':'Запази разхода'}</button>
   </form>
   {error&&<p role="alert" className="error">{error}</p>}
-  <small className="muted">За гориво използвай „Автомобил“, за депозит — съответната форма в пътуването.</small>
+  <small className="muted">При категория „Транспорт“ описания като „дизел“, „гориво“, „бензин“, „газ“ или „зареждане“ отварят полетата за гориво. Пропуснатите литри остават в настройките на автомобила.</small>
  </div></div>;
 }
 
