@@ -139,10 +139,10 @@ function ExpenseHistory({rows,onExpenseAction}) {
   </div>
   <div className="p29-view-tabs"><button type="button" className={view==='categories'?'selected':''} onClick={()=>setView('categories')}>◫ По категории</button><button type="button" className={view==='timeline'?'selected':''} onClick={()=>setView('timeline')}>☷ Хронология</button></div>
   {visible.length?view==='categories'?<div className="p29-category-stack">{groups.map((g,i)=>{
-   const opened=expanded[g.name]??true;
+   const opened=expanded[g.name]??false;
    const subtotal=g.items.reduce((n,r)=>n+amount(r),0);
    return <section className="p29-category-card" key={g.name}>
-    <button type="button" className="p29-category-head" onClick={()=>setExpanded(prev=>({...prev,[g.name]:!(prev[g.name]??true)}))} aria-expanded={opened}>
+    <button type="button" className="p29-category-head" onClick={()=>setExpanded(prev=>({...prev,[g.name]:!(prev[g.name]??false)}))} aria-expanded={opened}>
      <span className="p29-category-icon" style={{background:colors[options.indexOf(g.name)%colors.length]+'22'}}>{categoryIcon(g.name)}</span>
      <span className="p29-category-title"><strong>{g.name}</strong><small>{g.items.length} {g.items.length===1?'разход':'разхода'}</small></span>
      <span className="p29-category-value"><b>{money(subtotal)}</b><small>{opened?'⌃':'⌄'}</small></span>
@@ -166,7 +166,7 @@ function FuelHistory({rows,expensiveFuelPrice=1.8}) {
  const normalCount=all.filter(r=>!r._manual).length;
  const manualCount=all.length-normalCount;
  const fmt=n=>num(n).toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2});
- return <div className="travel-card fuel-history-card"><h3 className="p35-history-heading">🧾 История на горивото</h3><div className="p35-history-counters"><span>⛽ Зареждания: <b>{normalCount}</b></span><span>✍️ Ръчно: <b>{manualCount}</b></span></div>
+ return <div className="travel-card fuel-history-card"><style>{`.fuel-history-card .fuel-analysis-grid b.p998-price-high{color:#fb7185!important;-webkit-text-fill-color:#fb7185!important}.fuel-history-card .fuel-analysis-grid b.p998-price-ok{color:#34d399!important;-webkit-text-fill-color:#34d399!important}.fuel-history-card .fuel-analysis-grid b.p998-price-unknown{color:inherit!important}`}</style><h3 className="p35-history-heading">🧾 История на горивото</h3><div className="p35-history-counters"><span>⛽ Зареждания: <b>{normalCount}</b></span><span>✍️ Ръчно: <b>{manualCount}</b></span></div>
  {all.length?<>{all.slice(selected,selected+1).map((r,offset)=>{
   const i=selected+offset;
   const prev=all[i+1],prevPrice=prev?prev._price:0,delta=r._price-prevPrice;
@@ -193,7 +193,7 @@ function FuelHistory({rows,expensiveFuelPrice=1.8}) {
     {opened&&<div className="fuel-history-analysis"><div className="fuel-analysis-grid">
      <div><small>Литри</small><b className="fuel-blue">{fmt(r._liters)} <em>л</em></b></div>
      <div><small>Стойност</small><b className="fuel-gold">{num(r.amount)>0?money(r.amount):'—'}</b></div>
-     <div><small>Цена / л</small><b style={{color:r._price>expensiveFuelPrice?'#fb7185':'#34d399'}}>{r._price>0?`€${fmt(r._price)}`:'—'}</b></div>
+     <div><small>Цена / л</small><b className={r._price>0?(r._price>Number(expensiveFuelPrice)?'p998-price-high':'p998-price-ok'):'p998-price-unknown'}>{r._price>0?`€${fmt(r._price)}`:'—'}</b></div>
      <div><small>Километраж</small><b>{!r._manual&&num(r.current_km)>0?num(r.current_km).toLocaleString('bg-BG')+' км':'—'}</b></div>
     </div>
     {real&&<p className="fuel-analysis-stage">🚗 Реален разход за етапа: {real[1].replace(',','.')} л/100 км</p>}
@@ -879,17 +879,15 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   <button type="button" className="p26-return" onClick={onClose}>← Назад към пътуването</button>
   <div className="p21-section"><h4>🚗 Автомобил</h4><p>Начални километри: <b>{Number(settings.start_km||0).toLocaleString('bg-BG')} км</b></p>
   <form onSubmit={e=>save('track_fuel',e)}><label>Проследяване на гориво<select value={track} onChange={e=>setTrack(e.target.value)} disabled={busy||locked}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label><button type="submit" disabled={busy||locked||track===settings.track_fuel}>Запази настройката</button></form></div>
-  <div className="p21-section"><h4>⛽ Пропуснато гориво</h4><p className="muted">Добавяне само на забравени литри, без километраж. Ако помниш сумата, тя се отчита като транспортен разход.</p>
+  <div className="p21-section"><h4>⛽ Пропуснато гориво</h4>
   <form onSubmit={e=>save('missed',e)} className="p22-form"><label>Литри<input inputMode="decimal" value={liters} onChange={e=>setLiters(e.target.value)} disabled={busy||locked}/></label><label className="p22-check"><input type="checkbox" checked={paid} onChange={e=>setPaid(e.target.checked)} disabled={busy||locked}/> Помня и платената сума</label>
   {paid&&<label>Сума (€)<input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||locked}/></label>}
   <button type="submit" disabled={busy||locked||!validPositive(liters)||Number(String(liters).replace(',','.'))>500||(paid&&!validPositive(amount))}>{busy?'Записвам…':'Добави пропуснатото гориво'}</button></form></div>
   <div className="p21-section"><h4>🏁 Приключване на пътуването</h4>
-   <p className="muted">Проверка без запис: начални {startKm.toLocaleString('bg-BG')} км · последни записани {latestKm.toLocaleString('bg-BG')} км. Реалният разход между две пълни зареждания не се променя при приключване.</p>
    {locked?<p role="status">🔒 Пътуването е приключено. Крайни километри: {Number(settings.end_km||0).toLocaleString('bg-BG')} км.</p>:<form onSubmit={finishTrip}>
     <label>Краен километраж<input inputMode="numeric" type="number" min={Math.max(startKm+1,latestKm)} step="1" value={endKm} onChange={e=>setEndKm(e.target.value)} disabled={busy} placeholder="Крайни километри"/></label>
     {endKm&&<p role="status" className="muted">{validEnd?`Пробег при приключване: ${(desiredKm-startKm).toLocaleString('bg-BG')} км. Нищо не е записано.`:`Крайният километраж трябва да е поне ${Math.max(startKm+1,latestKm).toLocaleString('bg-BG')} км.`}</p>}
     <button type="submit" disabled={busy||!validEnd}>{busy?'Приключвам…':'🏁 Приключи пътуването'}</button>
-    <small>Две потвърждения преди реален запис. Не натискай в тестовото пътуване, ако искаш да го използваме за следващите проверки.</small>
    </form>}
   </div>
   {notice&&<p role="status">{notice}</p>}
@@ -2460,7 +2458,6 @@ function RegularNewTrip({onClose,onPreflight,onCreate,onSaved,trips=[]}){
  }
  return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog" role="dialog" aria-modal="true" aria-label="Ново пътуване" onClick={e=>e.stopPropagation()}>
   <div className="dialoghead"><h3>✈️ Ново пътуване</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
-  <p className="muted">Създаване с автоматична сверка и архив в Google Drive. Старите пътувания не се променят. Не използвай едновременно Streamlit.</p>
   <form className="quick-demo-form" onSubmit={submit}>
    <label>Име на пътуването<input value={name} onChange={e=>setName(e.target.value)} maxLength={80} placeholder="Например: Италия 2027" required/></label>
    {suggestedName!==name.trim()&&<p className="p914-name-preview">Следващо свободно име: <strong>{suggestedName}</strong></p>}
@@ -2471,7 +2468,6 @@ function RegularNewTrip({onClose,onPreflight,onCreate,onSaved,trips=[]}){
    <button type="submit" disabled={!valid||busy}>{busy?'⏳ Записвам…':'💾 Създай пътуването'}</button>
   </form>
   {message&&<p role="status" className={message.startsWith('⚠️')?'error':'muted'}>{message}</p>}
-  <p className="muted" style={{fontSize:12}}>Бюджетите и обикновените разходи са налични след създаване на новото пътуване. Горивото остава отделно.</p>
  </div></div>;
 }
 
@@ -2593,7 +2589,6 @@ function NeonQuickExpense({trip,request,onClose,onSaved}){
    <button type="submit" disabled={busy||loading||!workspace||!amount||(fuelRecognized&&!isCar)}>{loading?'Зареждам пътуването…':busy?'Записвам и проверявам…':fuelRecognized?'Запази зареждането':'Запази разхода'}</button>
   </form>
   {error&&<p role="alert" className="error">{error}</p>}
-  <small className="muted">При категория „Транспорт“ описания като „дизел“, „гориво“, „бензин“, „газ“ или „зареждане“ отварят полетата за гориво. Пропуснатите литри остават в настройките на автомобила.</small>
  </div></div>;
 }
 
@@ -3162,7 +3157,8 @@ function App(){
  if(authMode==='checking'||authMode==='error'||!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager</p><section className="panel"><h3>{authMode==='accounts'?'Вход в профила':authMode==='legacy'?'Личен достъп':'Проверка на връзката'}</h3>{authMode==='error'?<><p role="alert" className="error">{authConfigError}</p><p>Опитай отново. Ако проблемът продължи, провери дали Render е Live и дали адресът на API е правилен.</p><button type="button" onClick={()=>setAuthRetry(n=>n+1)}>Провери отново</button></>:authMode==='checking'?<p>Проверявам какъв вход използва сървърът…</p>:<form onSubmit={connect}>{authMode==='accounts'?<><input autoComplete="username" value={authUser} onChange={e=>setAuthUser(e.target.value)} placeholder="Потребителско име" required/><input type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Парола" required/></>:<><p>Въведи личния API ключ. Google токените не се въвеждат тук.</p><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ" required/></>}<button>Влез</button></form>}{authError&&authMode!=='error'&&<p className="error" role="alert">{authError}</p>}</section></main>;
  return <main className="app"><header><div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div></header>
  
- <nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else if(comparisonOpen){setComparisonOpen(false)}else{logout()}}}>{current||comparisonOpen?<><ArrowLeft size={17}/> Начало</>:<><LogOut size={17}/> Изход</>}</button>{!current&&!comparisonOpen&&<button type="button" aria-expanded={adminOpen} aria-controls="pixelapp-admin-settings" className="ghost p37-settings-button" onClick={()=>setAdminOpen(v=>!v)}>⚙️ {adminOpen?"Затвори настройки":"Настройки"}</button>}<button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>
+ <style>{`.p998-home-nav{display:flex;justify-content:flex-end;position:relative;z-index:20}.p998-home-menu{position:relative}.p998-home-menu>summary{list-style:none;cursor:pointer;border:1px solid rgba(135,184,211,.38);background:rgba(70,130,160,.14);border-radius:12px;min-width:42px;min-height:42px;display:grid;place-items:center;font-size:23px;user-select:none}.p998-home-menu>summary::-webkit-details-marker{display:none}.p998-home-menu>summary:focus-visible{outline:2px solid #67d4f5;outline-offset:2px}.p998-home-menu-items{position:absolute;right:0;top:calc(100% + 7px);width:min(230px,calc(100vw - 36px));padding:7px;border-radius:14px;background:var(--card,#142533);border:1px solid rgba(135,184,211,.35);box-shadow:0 14px 40px rgba(0,0,0,.38);z-index:30;display:grid;gap:4px}.p998-home-menu-items button{display:flex;align-items:center;gap:9px;text-align:left;width:100%;padding:10px 12px;border-radius:9px;background:transparent;border:0;color:inherit;font:inherit}.p998-home-menu-items button:hover,.p998-home-menu-items button:focus-visible{background:rgba(122,184,210,.16)}`}</style>
+ {current||comparisonOpen?<nav><button className="ghost" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{setComparisonOpen(false)}}}><ArrowLeft size={17}/> Начало</button><button className="ghost" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button></nav>:<nav className="p998-home-nav"><details className="p998-home-menu"><summary title="Меню" aria-label="Меню: настройки, обновяване, изход">⚙️</summary><div className="p998-home-menu-items"><button type="button" onClick={()=>setAdminOpen(v=>!v)}>⚙️ {adminOpen?'Затвори настройки':'Настройки'}</button><button type="button" onClick={()=>reload()}><RefreshCcw size={17}/> Обнови</button><button type="button" onClick={logout}><LogOut size={17}/> Изход</button></div></details></nav>}
  {!current&&!comparisonOpen&&profileOpen&&authMode==='accounts'&&<MyProfile username={profileUser} onChangePassword={payload=>req('/auth/change-password','POST',payload)} onLogout={logout} onClose={()=>setProfileOpen(false)}/>}
  {!current&&!comparisonOpen&&adminOpen&&<section id="pixelapp-admin-settings" className="p881-admin-inline" aria-label="Настройки на PixelApp"><div className="dialog p37-admin-dialog"><div className="dialoghead"><h3>⚙️ Настройки на PixelApp</h3><button type="button" className="ghost" onClick={()=>setAdminOpen(false)} aria-label="Затвори">✕</button></div><div className="p37-admin-content"><div className="pixelapp-settings-group"><h4>🎨 Външен вид</h4><label htmlFor="pixelapp-skin-select">Тема на това устройство</label><select id="pixelapp-skin-select" value={skin} onChange={e=>changeSkin(e.target.value)}><option value="standard">Стандартен · Синьо</option><option value="graphite">Графит 2.0 · Премиум</option><option value="slate">Slate · Светъл</option><option value="ocean">Ocean Blue · Син</option><option value="obsidian">Obsidian · Почти черен</option><option value="liquid">Liquid Glass · Стъклен</option></select><p className="muted">Изборът на тема не променя общите данни.</p></div><div className="pixelapp-settings-group"><h4>⛽ Цена на горивото</h4><label htmlFor="pixelapp-fuel-price-threshold">Червена цена над (€/л)</label><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><input id="pixelapp-fuel-price-threshold" type="number" min="0.1" max="20" step="0.01" inputMode="decimal" value={expensiveFuelPriceDraft} onChange={e=>setExpensiveFuelPriceDraft(e.target.value)} style={{flex:'1 1 125px',minWidth:0}}/><button type="button" className="p37-admin-action" disabled={!Number.isFinite(Number(String(expensiveFuelPriceDraft).replace(',','.')))||Number(String(expensiveFuelPriceDraft).replace(',','.'))<0.1||Number(String(expensiveFuelPriceDraft).replace(',','.'))>20} onClick={saveExpensiveFuelPrice}>Запази прага</button></div><p className="muted">При цена над {expensiveFuelPrice.toLocaleString('bg-BG',{minimumFractionDigits:2,maximumFractionDigits:2})} €/л стойността в историята на зарежданията е червена. Настройката е само за този профил на това устройство.</p></div>{authMode==='accounts'&&<div className="pixelapp-settings-group"><h4>👤 Профил</h4><button type="button" className="p37-admin-action" onClick={()=>{setAdminOpen(false);setProfileOpen(true)}}>Моят профил · Парола и изход</button></div>}<button type="button" className="p37-admin-action" onClick={()=>{setAdminOpen(false);void reload()}}><RefreshCcw size={16}/> Обнови данните</button></div></div></section>}
  {dataFreshness==='cached'&&<aside role="status" style={{padding:'10px 12px',borderRadius:10,background:'rgba(255,190,80,.12)',color:'inherit',margin:'10px 0',fontSize:13}}>🕘 Показани са последно запазените данни{cachedAt?` (${new Date(cachedAt).toLocaleString('bg-BG')})`:''}. Обновяването още не е потвърдено. Записването върху тези данни не е разрешено.</aside>}
