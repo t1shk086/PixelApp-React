@@ -2669,6 +2669,7 @@ function App(){
  const [favoriteLibrarySearch,setFavoriteLibrarySearch]=useState('');
  const [favoriteLibraryTrip,setFavoriteLibraryTrip]=useState('all');
  const [favoriteLibraryView,setFavoriteLibraryView]=useState('map');
+ const [favoriteLibraryScope,setFavoriteLibraryScope]=useState('all');
  const [favoriteLibrarySelected,setFavoriteLibrarySelected]=useState(null);
  const [comparisonOpen,setComparisonOpen]=useState(false);
  const [readOnly,setReadOnly]=useState(true);
@@ -3210,8 +3211,28 @@ function App(){
   }catch(e){setFavoriteLibraryError(String(e.message||e))}
   finally{setFavoriteLibraryLoading(false)}
  }
- const favoriteLibraryTrips=[...new Map(favoriteLibraryItems.map(x=>[x.tripId,x.tripName])).entries()];
- const favoriteLibraryFiltered=favoriteLibraryItems.filter(x=>
+ // P99.18: one home library with the existing overview map's points and Neon favorite detail.
+ // Read-only merge; the map's existing points remain available even if a Neon read fails.
+ const favoriteLibraryCombined=(()=>{
+  const out=[];const byPosition=new Map();
+  const signature=p=>String(p.tripId)+'|'+p.lat.toFixed(5)+'|'+p.lon.toFixed(5);
+  for(const [index,raw] of (homePlaces||[]).entries()){
+   const lat=Number(raw?.lat),lon=Number(raw?.lon);
+   if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)continue;
+   const tripId=String(raw.trip_id||raw.tripId||'home');
+   const entry={tripId,tripName:String(raw.trip_name||raw.tripName||trips.find(t=>t.id===tripId)?.name||tripId),title:String(raw.title||'Място'),lat,lon,index:'h'+index,favorite:false};
+   const key=signature(entry);if(!byPosition.has(key)){out.push(entry);byPosition.set(key,entry)}
+  }
+  for(const p of favoriteLibraryItems){
+   const key=signature(p),existing=byPosition.get(key);
+   if(existing){existing.favorite=true;existing.title=p.title||existing.title;existing.tripName=p.tripName||existing.tripName}
+   else {const entry={...p,favorite:true};out.push(entry);byPosition.set(key,entry)}
+  }
+  return out;
+ })();
+ const favoriteLibraryTrips=[...new Map(favoriteLibraryCombined.map(x=>[x.tripId,x.tripName])).entries()];
+ const favoriteLibraryFiltered=favoriteLibraryCombined.filter(x=>
+  (favoriteLibraryScope==='all'||x.favorite)&&
   (favoriteLibraryTrip==='all'||favoriteLibraryTrip===x.tripId)&&
   (!favoriteLibrarySearch.trim()||[x.title,x.tripName].join(' ').toLocaleLowerCase('bg').includes(favoriteLibrarySearch.trim().toLocaleLowerCase('bg'))));
  function logout(){setFavoriteLibraryOpen(false);setFavoriteLibraryItems([]);setFavoriteLibraryMissing([]);setP962Preview(null);setProfileOpen(false);setProfileUser('');sessionStorage.removeItem('pixel_account_name');sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
@@ -3249,12 +3270,19 @@ function App(){
  {!trips.length&&!loading&&dataFreshness==='fresh'&&<p className="muted">Сървърът върна празен списък с пътувания. Провери синхронизацията с Google Drive преди нов запис.</p>}
  {Object.values(expenseDrafts).some(hasExpenseChanges)&&<div className="p27-home-warning">● Сумите за пътуванията включват временни промени. Те ще изчезнат при презареждане. Google Drive не е променен.</div>}
  <style>{`.p9917-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:9px;margin:12px 0}.p9917-counts{display:flex;gap:14px;font-size:12px;opacity:.83}.p9917-counts b{font-size:18px;margin-right:4px}.p9917-switch{display:flex;padding:3px;border-radius:12px;background:rgba(96,125,145,.2);gap:3px}.p9917-switch button{border:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;padding:8px 11px!important;border-radius:9px!important;font-size:12px!important}.p9917-switch button.active{background:rgba(74,180,219,.28)!important;box-shadow:inset 0 0 0 1px rgba(85,194,232,.55)!important}.p9917-map-block{border:1px solid var(--line,#415466);border-radius:16px;overflow:hidden;background:#1c3041}.p9917-map{height:clamp(260px,48vw,420px);width:100%;z-index:0}.p9917-map-hint{font-size:11px;padding:8px 12px;margin:0;color:#bed0df;background:#243745}.p9917-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:11px;margin-top:12px}.p9917-strip{display:flex;overflow:auto;gap:10px;margin-top:12px;padding-bottom:9px;scroll-snap-type:x proximity}.p9917-card{border:1px solid var(--line,#415466)!important;background:rgba(120,145,160,.08)!important;color:inherit!important;border-radius:15px!important;min-width:0;padding:0!important;display:flex;flex-direction:column;overflow:hidden;text-align:left!important;box-shadow:none!important;cursor:pointer;scroll-snap-align:start}.p9917-strip .p9917-card{min-width:185px;width:185px;flex:none}.p9917-card.p9917-selected{border-color:#65c9ed!important;box-shadow:0 0 0 1px #65c9ed55!important}.p9917-card-visual{height:83px;width:100%;display:flex;align-items:center;justify-content:center;position:relative;background:linear-gradient(135deg,#173d50,#335a6b 53%,#214057);color:#82daf3}.p9917-card:nth-child(3n+2) .p9917-card-visual{background:linear-gradient(135deg,#233958,#455c78,#243f59)}.p9917-card:nth-child(3n+3) .p9917-card-visual{background:linear-gradient(135deg,#304a47,#52716a,#304f5b)}.p9917-number{position:absolute;top:10px;left:12px;font-size:12px;letter-spacing:1px;font-weight:700;color:#d4e5ef}.p9917-heart{position:absolute;top:9px;right:12px;color:#ff9eaf;font-size:18px}.p9917-card-info{display:flex;flex-direction:column;gap:5px;padding:11px;min-width:0;width:100%;box-sizing:border-box}.p9917-card-info strong{font-size:13px;line-height:1.3;overflow-wrap:anywhere}.p9917-card-info small{font-size:11px;opacity:.72;overflow-wrap:anywhere}.p9917-coords{font-size:10px;opacity:.55}.p9917-detail{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:13px;margin-top:9px;border:1px solid rgba(101,201,237,.37);background:rgba(101,201,237,.08);border-radius:13px}.p9917-detail>div{display:flex;flex-direction:column;gap:4px;min-width:0}.p9917-detail small{font-size:10px;letter-spacing:.8px;opacity:.68}.p9917-detail strong{font-size:15px;overflow-wrap:anywhere}.p9917-detail span{font-size:11px;opacity:.75}.p9917-detail a{border-radius:10px;padding:10px 12px;background:rgba(77,171,207,.2);font-size:12px;color:inherit;text-decoration:none}@media(max-width:440px){.p9917-toolbar{align-items:flex-start}.p9917-counts{width:100%}.p9917-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.p9917-strip .p9917-card{width:160px;min-width:160px}.p9917-map{height:300px}.p9917-card-visual{height:70px}}`}</style>
- <section className="p9916-library" aria-label="Обща библиотека с любими места">
+ <div className="p9162-home-insights">
+ {dashboard?.last_activity&&<LatestActivityCard activity={dashboard.last_activity}/>}
+ <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{p983HomeSpent===null?'…':money(p983HomeSpent)}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
+ </div>
+
+ <style>{`.p9918-scopes{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.p9918-scopes button{padding:9px 13px!important;font-size:12px!important;border-radius:12px!important;background:rgba(120,145,160,.10)!important;color:inherit!important;border:1px solid var(--line,#415466)!important}.p9918-scopes button.active{border-color:#65c9ed!important;background:rgba(101,201,237,.17)!important}.p9917-strip{scrollbar-width:thin}.p9917-heart:empty{display:none}`}</style>
+ <section className="p9916-library" aria-label="Обща библиотека Моите места">
   <button type="button" className="p9916-launch" aria-expanded={favoriteLibraryOpen} onClick={()=>{if(favoriteLibraryOpen){setFavoriteLibraryOpen(false)}else{setFavoriteLibraryOpen(true);void loadFavoriteLibrary()}}}>
-   <span className="p9916-launch-icon">❤️</span><span className="p9916-launch-copy"><strong>Любими места</strong><small>Всички любими локации от пътуванията</small></span><span aria-hidden="true" className="p9916-chevron">{favoriteLibraryOpen?'⌃':'›'}</span>
+   <span className="p9916-launch-icon">❤️</span><span className="p9916-launch-copy"><strong>Моите места</strong><small>Карта, колекция и любими от всички пътувания</small></span><span aria-hidden="true" className="p9916-chevron">{favoriteLibraryOpen?'⌃':'›'}</span>
   </button>
   {favoriteLibraryOpen&&<div className="p9916-panel">
-   <div className="p9916-head"><div><h3>❤️ Моите любими места</h3><small>{favoriteLibraryItems.length} запазени места · само преглед</small></div><button type="button" disabled={favoriteLibraryLoading} className="p9916-refresh" title="Обнови библиотеката" onClick={()=>void loadFavoriteLibrary()}><RefreshCcw size={17}/></button></div>
+   <div className="p9916-head"><div><h3>🌍 Моите места</h3><small>Карта и любими места от пътуванията · само преглед</small></div><button type="button" disabled={favoriteLibraryLoading} className="p9916-refresh" title="Обнови библиотеката" onClick={()=>void loadFavoriteLibrary()}><RefreshCcw size={17}/></button></div>
+   <div className="p9918-scopes" role="group" aria-label="Кои места да се показват"><button type="button" className={favoriteLibraryScope==='all'?'active':''} onClick={()=>setFavoriteLibraryScope('all')}>📍 Всички · {favoriteLibraryCombined.length}</button><button type="button" className={favoriteLibraryScope==='favorite'?'active':''} onClick={()=>setFavoriteLibraryScope('favorite')}>❤️ Любими · {favoriteLibraryCombined.filter(p=>p.favorite).length}</button></div>
    <div className="p9916-filters"><input type="search" aria-label="Търси любимо място" placeholder="🔎 Търси място или пътуване" value={favoriteLibrarySearch} onChange={e=>setFavoriteLibrarySearch(e.target.value)}/><select aria-label="Филтър по пътуване" value={favoriteLibraryTrip} onChange={e=>setFavoriteLibraryTrip(e.target.value)}><option value="all">Всички пътувания</option>{favoriteLibraryTrips.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></div>
    {favoriteLibraryLoading&&<p className="muted" role="status">Зареждам любимите места от Neon…</p>}
    {favoriteLibraryError&&<p className="error" role="alert">⚠️ {favoriteLibraryError}</p>}
@@ -3267,20 +3295,15 @@ function App(){
     {favoriteLibraryView==='map'&&<div className="p9917-map-block"><MapContainer key={'favmap-'+favoriteLibraryTrip} center={[favoriteLibraryFiltered[0].lat,favoriteLibraryFiltered[0].lon]} zoom={6} scrollWheelZoom={false} className="p9917-map"><TileLayer attribution='&copy; OpenStreetMap contributors' url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'/><FitPlaces points={favoriteLibraryFiltered}/><FocusRoutePoint target={favoriteLibraryFiltered.find(p=>p.tripId+':'+p.index===favoriteLibrarySelected)||null}/>{favoriteLibraryFiltered.map(p=><Marker key={p.tripId+':'+p.index} position={[p.lat,p.lon]} icon={homePin} eventHandlers={{click:()=>setFavoriteLibrarySelected(p.tripId+':'+p.index)}}><Popup><strong>{p.title}</strong><div>{p.tripName}</div><a target="_blank" rel="noopener noreferrer" href={'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(p.lat+','+p.lon)}>Отвори в Google Maps</a></Popup></Marker>)}</MapContainer><p className="p9917-map-hint">Докосни маркер за подробности · увеличавай с + / −</p></div>}
     <div className={favoriteLibraryView==='cards'?'p9917-grid':'p9917-strip'}>
      {favoriteLibraryFiltered.map((p,i)=><button type="button" key={p.tripId+':'+p.index} className={'p9917-card '+(favoriteLibrarySelected===p.tripId+':'+p.index?'p9917-selected':'')} onClick={()=>{setFavoriteLibrarySelected(p.tripId+':'+p.index);if(favoriteLibraryView==='cards')setFavoriteLibraryView('map')}}>
-      <span className="p9917-card-visual"><span className="p9917-number">{String(i+1).padStart(2,'0')}</span><MapPin size={25}/><span className="p9917-heart">♥</span></span>
+      <span className="p9917-card-visual"><span className="p9917-number">{String(i+1).padStart(2,'0')}</span><MapPin size={25}/><span className="p9917-heart">{p.favorite?'♥':''}</span></span>
       <span className="p9917-card-info"><strong>{p.title}</strong><small>🚙 {p.tripName}</small><span className="p9917-coords">{p.lat.toFixed(4)}°, {p.lon.toFixed(4)}°</span></span>
      </button>)}
     </div>
     {favoriteLibrarySelected&&favoriteLibraryFiltered.some(p=>p.tripId+':'+p.index===favoriteLibrarySelected)&&(()=>{const p=favoriteLibraryFiltered.find(p=>p.tripId+':'+p.index===favoriteLibrarySelected);return <div className="p9917-detail"><div><small>ИЗБРАНО МЯСТО</small><strong>{p.title}</strong><span>От пътуване: {p.tripName}</span></div><a href={'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(p.lat+','+p.lon)} target="_blank" rel="noopener noreferrer">Отвори в Google Maps ↗</a></div>})()}
-   </>:<p className="muted">{favoriteLibraryItems.length?'Няма места по избраните филтри.':'Все още няма любими места в потвърдените пътувания.'}</p>)}
-   <p className="p9916-footnote">Преглед: без редактиране или изтриване на местата. Карта: OpenStreetMap. Картите са декоративни, не снимки на местата.</p>
+   </>:<p className="muted">{favoriteLibraryCombined.length?'Няма места по избраните филтри.':'Все още няма запазени места за показване.'}</p>)}
+   <p className="p9916-footnote">Общ преглед без промени по местата. Картата използва OpenStreetMap; цветните плочки не са снимки.</p>
   </div>}
  </section>
- <div className="p9162-home-insights">
- {dashboard?.last_activity&&<LatestActivityCard activity={dashboard.last_activity}/>}
- <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{p983HomeSpent===null?'…':money(p983HomeSpent)}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
- </div>
- <HomePlaces points={homePlaces}/>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
  </>: <>{chosen&&<>
  {current!==newTestTripId&&!(p962Preview?.tripId===current&&p962Preview.writeEnabled===true)&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
