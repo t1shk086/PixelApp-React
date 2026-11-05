@@ -5006,6 +5006,10 @@ def p962_real_trip_preview(trip_id: str):
     return {
         'ok': True, 'trip_id': trip_id, 'read_only': True, 'source': 'neon_verified_workspace',
         'revision': revision, 'archive_revision': backup[0],
+        # P98.6: this verified preview already rejects missing, stale or
+        # failed backup above. Return the explicit source contract field so
+        # activation UI does not mistake an omitted value for a failed check.
+        'archive_current': True,
         'exact_match_live_drive': True, 'production_switched': False,
         'records': records,
     }
@@ -5171,9 +5175,10 @@ class P971ActivateLivigno(BaseModel):
 
 @app.post('/safe/neon/activate-livigno', dependencies=[Depends(authorize)])
 def p971_activate_livigno(payload: P971ActivateLivigno):
-    # P98.4: one-time opt-in only. All following immutable-baseline, current
-    # Drive, revision and archive checks must succeed before recording cutover.
-    # No production data are altered merely by deploying this endpoint.
+    # P98.5: one explicit canary cutover, never on GET or at deploy time.
+    # The guarded transaction below checks the unchanged Drive source, staged
+    # baseline, workspace revision and registered backup before committing.
+    # Server-side legacy Drive writes remain blocked for Livigno throughout.
     trip_id = payload.trip_id
     if trip_id != _P966_PROTECTED_TRIP:
         raise HTTPException(403, 'Превключването е ограничено само до Livigno.')
@@ -5181,8 +5186,6 @@ def p971_activate_livigno(payload: P971ActivateLivigno):
         raise HTTPException(422, 'Липсва изрично потвърждение за включване.')
     if payload.expected_revision < 1:
         raise HTTPException(422, 'Невалидна версия на Neon.')
-    if trip_id not in _P978_REAL_TRIPS or trip_id != _P966_PROTECTED_TRIP:
-        raise HTTPException(403, 'Неразрешено пътуване за превключване.')
     # Verify the actual live Drive original, not just the historical stage.
     # Legacy Drive writers for this trip remain blocked by the P96.6 middleware.
     live_digest = _p930_digest(_p930_load_drive_trip(trip_id))
@@ -5214,6 +5217,10 @@ def p971_activate_livigno(payload: P971ActivateLivigno):
                 rows[dataset].append(item)
             if len(rows['settings']) != 1 or _p930_digest(rows) != live_digest:
                 raise HTTPException(409, 'Работното копие се различава от оригинала. Нищо не е превключено.')
+            # Completeness is checked against every registered dataset, not only
+            # the settings record. Cutover is prohibited for unknown row types.
+            if set(rows) != set(_P930_KINDS):
+                raise HTTPException(409, 'Липсва задължителен раздел на пътуването.')
             settings = rows['settings'][0]
             if str(settings.get('trip_finished', '')).strip().casefold() == 'да' or str(settings.get('end_km') or '').strip() not in ('', '0', '0.0', '0.00'):
                 raise HTTPException(409, 'Livigno има данни за приключване; превключването е спряно.')
@@ -5224,6 +5231,63 @@ def p971_activate_livigno(payload: P971ActivateLivigno):
             'archive_revision': int(backup[0]), 'drive_csv_modified': False,
             'note': 'Нормалните записи за Livigno вече отиват в Neon; Drive остава резервен архив.'}
 
+
+# P99.0: one reusable, per-trip, explicitly confirmed Neon production cutover.
+# Never runs during deployment or GET. This does not modify original Drive data.
+# An unmodified, current Drive digest, source provenance, v1 workspace and
+# registered archive must all match in a single DB transaction.
+class P990ActivateRealTrip(BaseModel):
+    trip_id: str
+    expected_revision: int
+    confirmation: str
+
+@app.post('/safe/neon/activate-real-trip', dependencies=[Depends(authorize)])
+def p990_activate_real_trip(payload: P990ActivateRealTrip):
+    trip_id = payload.trip_id
+    if trip_id not in _P978_REAL_TRIPS or trip_id == _P966_PROTECTED_TRIP:
+        raise HTTPException(403, 'Този преход е само за останалите седем проверени пътувания.')
+    if payload.confirmation != f'ВКЛЮЧИ NEON ЗА {trip_id}':
+        raise HTTPException(422, 'Липсва точното потвърждение за избраното пътуване.')
+    if payload.expected_revision != 1:
+        raise HTTPException(409, 'Началната Neon версия не е v1. Не превключвай.')
+    # We read the live original before taking the per-workspace DB lock.
+    # Legacy writes may still occur before activation, so compare the live
+    # source again immediately before committing, and refuse if it changed.
+    live_before = _p930_digest(_p930_load_drive_trip(trip_id))
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p970_cutover_schema(cur)
+            cur.execute('SELECT status FROM pixelapp_p970_cutovers WHERE trip_id=%s FOR UPDATE', (trip_id,))
+            if cur.fetchone():
+                raise HTTPException(409, 'Вече има записано превключване. Обнови приложението; не повтаряй.')
+            cur.execute('SELECT revision,source_digest FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE', (trip_id,))
+            meta=cur.fetchone()
+            cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s', (trip_id,))
+            stage=cur.fetchone()
+            if not meta or not stage or meta[0]!=1 or meta[1]!=stage[0] or stage[0]!=live_before:
+                raise HTTPException(409, 'Drive и провереното Neon копие се различават или липсват.')
+            cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s', (trip_id,))
+            archive=cur.fetchone()
+            if not archive or not archive[1] or archive[2] or int(archive[0] or 0)<1:
+                raise HTTPException(409, 'Провереният Drive архив не е актуален.')
+            cur.execute('SELECT dataset,payload FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id', (trip_id,))
+            rows={kind: [] for kind in _P930_KINDS}
+            for kind,data in cur.fetchall():
+                if kind not in rows:
+                    raise HTTPException(409, 'Neon съдържа непознат вид данни.')
+                rows[kind].append(data)
+            if len(rows['settings'])!=1 or _p930_digest(rows)!=live_before:
+                raise HTTPException(409, 'Работното Neon копие не съвпада с Drive.')
+            if any(str(row.get('trip_id',''))!=trip_id for kind in rows for row in rows[kind]):
+                raise HTTPException(409, 'Neon съдържа записи за друго пътуване.')
+            live_final = _p930_digest(_p930_load_drive_trip(trip_id))
+            if live_final != live_before:
+                raise HTTPException(409, 'Drive се промени по време на проверката. Не е превключено.')
+            cur.execute('INSERT INTO pixelapp_p970_cutovers(trip_id,status,source_revision) VALUES(%s,%s,%s)',(trip_id,'active',1))
+        conn.commit()
+    return {'ok':True,'trip_id':trip_id,'production_switched':True,
+            'source_mode':'neon_primary_active','revision':1,
+            'archive_revision':int(archive[0]),'drive_csv_modified':False}
 
 # P96.9: explicit, read-only cutover blocker audit for Livigno.
 # This never grants write access, toggles flags, writes rows or creates backups.
