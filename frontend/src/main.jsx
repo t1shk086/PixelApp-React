@@ -226,7 +226,7 @@ function confirmedFuelStage(rows,startKm){
   .sort((a,b)=>a.km-b.km);
  let lastFull=null,partial=0,latest=null;
  for(const r of readings){
-  if(r.km<=number(startKm))continue;
+  if(r.km<number(startKm))continue; // Initial full refill at starting odometer is a valid reference point.
   const full=/\[ПЪЛН(?:О|ЕН)\s+ЗАРЕЖДАНЕ\]/i.test(r.desc);
   const part=/\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(r.desc);
   if(!full&&!part)continue;
