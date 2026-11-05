@@ -916,8 +916,8 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  const [p943Km,setP943Km]=useState('');
  const [p943FuelKind,setP943FuelKind]=useState('untagged');
  const fuelFormActive=p942Category==='Транспорт'&&/гориво|зареждане|дизел|бензин|газ|lpg|cng/i.test(p942Description);
- const fuelFieldsVisible=(!!p943Editing&&isFuelExpense(p943Editing))||(!p943Editing&&fuelFormActive);
  const isFuelExpense=r=>String(r?.category||'')==='Транспорт'&&(Number(r?.liters||0)>0||Number(r?.current_km||0)>0||/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(String(r?.description||'')));
+ const fuelFieldsVisible=(!!p943Editing&&isFuelExpense(p943Editing))||(!p943Editing&&fuelFormActive);
  const fuelPrefix=/^\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]\s*/i;
  const [p950BudgetOpen,setP950BudgetOpen]=useState(false);
  const [p952CarOpen,setP952CarOpen]=useState(false);
