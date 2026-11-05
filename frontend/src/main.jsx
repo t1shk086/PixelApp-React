@@ -535,15 +535,16 @@ function NeonTripBudgetEditor({tripId,workspace,request,onReload,open,setOpen}){
  }
  const setting=workspace?.records?.settings?.[0]?.data||{};
  const editable=!!workspace&&String(setting.trip_finished||'').toLowerCase()!=='да'&&!(Number(setting.end_km)>0);
+ if(!open)return null;
  return <div className="travel-card" style={{display:'grid',gap:10}}>
-  <div className="p9043-expense-actions"><button type="button" className="ghost" onClick={()=>setCategoriesOpen(v=>!v)}>{categoriesOpen?'Скрий категориите':'🏷️ Управление на категории'}</button></div>
-  {open&&editable&&<form onSubmit={save} style={{display:'grid',gap:10}}><label>Режим на бюджет<select value={mode} onChange={e=>setMode(e.target.value)} disabled={busy}><option value="global">Общ</option><option value="category">По категории</option></select></label>
+  {open&&editable&&<><form onSubmit={save} style={{display:'grid',gap:10}}><label>Режим на бюджет<select value={mode} onChange={e=>setMode(e.target.value)} disabled={busy}><option value="global">Общ</option><option value="category">По категории</option></select></label>
   {mode==='global'?<label>Общ бюджет (€)<input inputMode="decimal" value={total} onChange={e=>setTotal(e.target.value)} disabled={busy}/></label>:<div style={{display:'grid',gap:8}}>{allNames.map(c=><label key={c}>{c} (€)<input inputMode="decimal" value={limits[c]??'0'} onChange={e=>setLimits(v=>({...v,[c]:e.target.value}))} disabled={busy}/></label>)}</div>}
-  <div className="p9043-expense-actions"><button type="submit" disabled={busy||!editable}>{busy?'Записвам…':'💾 Запази бюджета'}</button><button type="button" className="ghost" onClick={()=>setOpen(false)}>Отказ</button></div></form>}
+  <div className="p9043-expense-actions"><button type="submit" disabled={busy||!editable}>{busy?'Записвам…':'💾 Запази бюджета'}</button><button type="button" className="ghost" onClick={()=>setOpen(false)}>Отказ</button></div></form>
+  <div className="p9043-expense-actions"><button type="button" className="ghost" onClick={()=>setCategoriesOpen(v=>!v)}>{categoriesOpen?'Скрий индивидуалните категории':'🏷️ Индивидуални категории'}</button></div>
   {categoriesOpen&&<form onSubmit={addCategory} style={{display:'grid',gap:8}}><strong>🏷️ Категории на това пътуване</strong><p className="muted">Основните категории остават. Новите важат само за това пътуване и могат да се използват при разходи и бюджет.</p>
   {customNames.length>0&&<p className="muted">Добавени: {customNames.join(' · ')}</p>}
   <label>Нова категория<input maxLength={50} value={newCategory} onChange={e=>setNewCategory(e.target.value)} placeholder="Например Ски карти" disabled={busy}/></label>
-  <button type="submit" disabled={busy||!editable||!newCategory.trim()}>＋ Добави категория</button></form>}
+  <button type="submit" disabled={busy||!editable||!newCategory.trim()}>＋ Добави категория</button></form>}</>}
   {message&&<p role="status" className="muted">{message}</p>}
   {!editable&&<p role="alert" className="error">Данните не са заредени — записването е блокирано.</p>}
  </div>;
@@ -914,32 +915,12 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  const [p943Liters,setP943Liters]=useState('');
  const [p943Km,setP943Km]=useState('');
  const [p943FuelKind,setP943FuelKind]=useState('untagged');
+ const fuelFormActive=p942Category==='Транспорт'&&/гориво|зареждане|дизел|бензин|газ|lpg|cng/i.test(p942Description);
+ const fuelFieldsVisible=(!!p943Editing&&isFuelExpense(p943Editing))||(!p943Editing&&fuelFormActive);
  const isFuelExpense=r=>String(r?.category||'')==='Транспорт'&&(Number(r?.liters||0)>0||Number(r?.current_km||0)>0||/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(String(r?.description||'')));
  const fuelPrefix=/^\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]\s*/i;
  const [p950BudgetOpen,setP950BudgetOpen]=useState(false);
  const [p952CarOpen,setP952CarOpen]=useState(false);
- const [p952FuelAmount,setP952FuelAmount]=useState('');
- const [p952FuelLiters,setP952FuelLiters]=useState('');
- const [p952FuelKm,setP952FuelKm]=useState('');
- const [p952FuelFull,setP952FuelFull]=useState(true);
- const [p952FuelDesc,setP952FuelDesc]=useState('Гориво');
- const [p952Busy,setP952Busy]=useState(false);
- const [p952Message,setP952Message]=useState('');
- async function p952SaveFuel(e){
-  e.preventDefault();if(p952Busy||!p942Data)return;
-  setP952Busy(true);setP952Message('');
-  try{
-   await onNeonRequest('/safe/neon/car-action','POST',{
-    trip_id:neonTripId,operation:'refuel',expected_revision:p942Data.revision,
-    amount:String(p952FuelAmount).replace(',','.'),liters:String(p952FuelLiters).replace(',','.'),
-    current_km:p952FuelKm,full:p952FuelFull,description:p952FuelDesc.trim()
-   });
-   setP952FuelAmount('');setP952FuelLiters('');setP952FuelKm('');
-   await p942Reload();setP952Message('✅ Зареждането е записано.');
-  }catch(err){await p942Reload();setP952Message('⚠️ '+String(err.message||err)+' Провери историята преди нов опит.');}
-  finally{setP952Busy(false)}
- }
-
  const p942Reload=async()=>{
   if(!p942Test||!onNeonRequest)return;
   try{const result=await onNeonRequest('/safe/neon/managed-source/'+encodeURIComponent(neonTripId));
@@ -971,16 +952,30 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
   e.preventDefault();if(!p942Data||p942Saving||p953Finished)return;
   const amount=Number(String(p942Amount).replace(',','.'));
   const fuelEdit=!!p943Editing&&isFuelExpense(p943Editing);
-  if(!Number.isFinite(amount)||(fuelEdit?amount<0:amount<=0)||amount>100000){setP942Error('Въведи валидна сума.');return;}
-  if(fuelEdit){
+  const newFuel=!p943Editing&&fuelFormActive;
+  if(!Number.isFinite(amount)||((fuelEdit||newFuel)?amount<0:amount<=0)||amount>100000){setP942Error('Въведи валидна сума.');return;}
+  if(fuelEdit||newFuel){
    const rawLiters=String(p943Liters).trim().replace(',','.');
    const rawKm=String(p943Km).trim();
    const l=Number(rawLiters);
    if(!/^\d+(?:\.\d{1,2})?$/.test(rawLiters)||!Number.isFinite(l)||l<=0||l>200){setP942Error('Литрите трябва да са над 0 и до 200, с максимум 2 знака след запетаята.');return;}
    if((p943FuelKind!=='untagged'||rawKm)&&(!/^\d{1,9}$/.test(rawKm)||Number(rawKm)<=0)){setP942Error('Въведи валиден цял километраж.');return;}
+   if(newFuel){
+    if(String(p943FuelKind)!=='full'&&String(p943FuelKind)!=='partial'){setP942Error('Избери пълно или частично зареждане.');return;}
+    if(String(settings.car_trip||'').toLowerCase()!=='да'){setP942Error('Това пътуване не е отбелязано като пътуване с автомобил.');return;}
+   }
   }
   setP942Saving(true);setP942Error('');
   try{
+   if(newFuel){
+    await onNeonRequest('/safe/neon/car-action','POST',{
+     trip_id:neonTripId,operation:'refuel',expected_revision:p942Data.revision,
+     amount:String(amount),liters:String(p943Liters).trim().replace(',','.'),current_km:String(p943Km).trim(),
+     full:p943FuelKind==='full',description:p942Description.trim()
+    });
+    setP942Form(false);setP942Amount('');setP942Description('');setP943Liters('');setP943Km('');
+    await p942Reload();return;
+   }
    const editing=p943Editing;
    const kindLabel=p943FuelKind==='full'?'[ПЪЛНО ЗАРЕЖДАНЕ] ':p943FuelKind==='partial'?'[ЧАСТИЧНО ЗАРЕЖДАНЕ] ':'';
    const row=editing?{trip_id:neonTripId,date:String(editing.date),amount:String(amount),category:fuelEdit?'Транспорт':p942Category,description:fuelEdit?kindLabel+p942Description.trim():p942Description.trim(),type:String(editing.type),liters:fuelEdit?String(p943Liters).trim().replace(',','.'):String(editing.liters??''),current_km:fuelEdit?String(p943Km).trim():String(editing.current_km??'')}:
@@ -1455,24 +1450,11 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  {!p942Test&&p932Mode&&isP931Test&&<NeonExpenseWorkspace key={'p932-'+neonTripId} tripId={neonTripId} request={onNeonRequest} p932 onWorkspaceChange={setP932Workspace} compact/>}
  {isNeonExpenseTest&&!p942Test&&!isP934Canary&&!p931Active&&!p932Mode&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
  {p942Test&&p942Error&&<p role="alert" className="error">⚠️ Не може да се работи с Neon: {p942Error}</p>}
- {p942Test&&p942Form&&<form className="travel-card quick-demo-form" onSubmit={p942Add}><h3>{p943Editing?'Редактирай разход':'Добави разход'}</h3><label>Сума (€)<input type="number" min={p943Editing&&isFuelExpense(p943Editing)?'0':'0.01'} step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} disabled={!!p943Editing&&isFuelExpense(p943Editing)} onChange={e=>setP942Category(e.target.value)}>{[...new Set([...(p943Editing?[p943Editing.category]:[]),...categories.filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт'),...(p942Data?.records?.categories||[]).map(r=>r.data?.category).filter(Boolean),...rows.map(r=>r.category).filter(Boolean).filter(c=>c!=='Депозит/Резервация'&&c!=='Транспорт')])].map(c=><option key={c}>{c}</option>)}</select></label>{p943Editing&&isFuelExpense(p943Editing)&&<><label>Тип зареждане<select value={p943FuelKind} onChange={e=>setP943FuelKind(e.target.value)}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option>{p943FuelKind==='untagged'&&<option value="untagged">Без отбелязан тип (запази)</option>}</select></label><label>Литри<input type="number" min="0.01" max="200" step="0.01" inputMode="decimal" value={p943Liters} onChange={e=>setP943Liters(e.target.value)} required/></label><label>Километраж<input type="number" min="1" step="1" inputMode="numeric" value={p943Km} onChange={e=>setP943Km(e.target.value)} required={p943FuelKind!=='untagged'}/></label><small className="muted">При промяна на литри, километраж или тип всички показатели за разход се преизчисляват от историята. Проверявай внимателно показанията.</small></>}<label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div><small className="muted">Записът е в Neon и се синхронизира между двата профила. Пропуснатите литри остават в настройките на автомобила.</small></form>}
- <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving||p953Finished} onClick={()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP942Error('');setP942Form(true)}}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&!previewReadOnly&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
+ {p942Test&&p942Form&&<form className="travel-card quick-demo-form" onSubmit={p942Add}><h3>{p943Editing?'Редактирай разход':'Добави разход'}</h3><label>Сума (€)<input type="number" min={p943Editing&&isFuelExpense(p943Editing)?'0':'0.01'} step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} disabled={!!p943Editing&&isFuelExpense(p943Editing)} onChange={e=>setP942Category(e.target.value)}>{[...new Set([...(p943Editing?[p943Editing.category]:[]),...categories.filter(c=>c!=='Депозит/Резервация'),...(p942Data?.records?.categories||[]).map(r=>r.data?.category).filter(Boolean),...rows.map(r=>r.category).filter(Boolean).filter(c=>c!=='Депозит/Резервация')])].map(c=><option key={c}>{c}</option>)}</select></label>{fuelFieldsVisible&&<><p className="muted">⛽ Разпознато зареждане — въведи литри, вид и километраж.</p><label>Тип зареждане<select value={p943FuelKind} onChange={e=>setP943FuelKind(e.target.value)}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option>{p943Editing&&p943FuelKind==='untagged'&&<option value="untagged">Без отбелязан тип (запази)</option>}</select></label><label>Литри<input type="number" min="0.01" max="200" step="0.01" inputMode="decimal" value={p943Liters} onChange={e=>setP943Liters(e.target.value)} required/></label><label>Километраж<input type="number" min="1" step="1" inputMode="numeric" value={p943Km} onChange={e=>setP943Km(e.target.value)} required={p943FuelKind!=='untagged'}/></label><small className="muted">При промяна на литри, километраж или тип всички показатели за разход се преизчисляват от историята. Проверявай внимателно показанията.</small></>}<label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div><small className="muted">Записът е в Neon и се синхронизира между двата профила. Пропуснатите литри остават в настройките на автомобила.</small></form>}
+ <div className="p9043-expense-actions">{p942Test?<button type="button" className="p9043-add-expense" disabled={!p942Data||p942Saving||p953Finished} onClick={()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP943Liters('');setP943Km('');setP943FuelKind('full');setP942Error('');setP942Form(true)}}>＋ Добави разход</button>:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&!previewReadOnly&&<button type="button" className="p9043-add-expense" onClick={()=>onOpenPreview('quick-demo')}>＋ Добави разход</button>}<button type="button" className="p9043-budget-link" onClick={()=>setSection('budget')}>Бюджет ↗</button></div>
  <ExpenseHistory rows={rows} onExpenseAction={p942Test?(p953Finished?null:p943Action):!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
  {p942Test&&p952CarOpen&&<NeonCarSettings tripId={neonTripId} workspace={p942Data} request={onNeonRequest} onReload={p942Reload} onClose={()=>setP952CarOpen(false)}/>}
- {section==='fuel'&&p942Test&&<div className="travel-card"><h3>⛽ Добави зареждане</h3>
-  <p className="muted">Частичните зареждания участват при следващото пълно. Първото пълно задава начална точка за изчислението.</p>
-  <form className="quick-demo-form" onSubmit={p952SaveFuel}>
-   <label>Тип зареждане<select value={p952FuelFull?'full':'partial'} onChange={e=>setP952FuelFull(e.target.value==='full')} disabled={p952Busy}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option></select></label>
-   <label>Платена сума (€)<input type="number" step="0.01" min="0" required value={p952FuelAmount} onChange={e=>setP952FuelAmount(e.target.value)} disabled={p952Busy}/></label>
-   <label>Литри<input type="number" step="0.01" min="0.01" max="200" required value={p952FuelLiters} onChange={e=>setP952FuelLiters(e.target.value)} disabled={p952Busy}/></label>
-   <label>Километраж<input type="number" min="1" step="1" required value={p952FuelKm} onChange={e=>setP952FuelKm(e.target.value)} disabled={p952Busy}/></label>
-   <label>Описание<input maxLength="250" value={p952FuelDesc} onChange={e=>setP952FuelDesc(e.target.value)} disabled={p952Busy}/></label>
-   <button type="submit" disabled={p952Busy||!p942Data||p953Finished||String(settings.car_trip).toLowerCase()!=='да'||Number(settings.end_km)>0||String(settings.trip_finished).toLowerCase()==='да'||!p952FuelLiters||!p952FuelKm}>{p952Busy?'Записвам…':'Запази зареждането'}</button>
-  </form>
-  {p952Message&&<p role="status">{p952Message}</p>}
-  <p className="muted">Пропуснатите литри са в ⚙️ Настройки на пътуването → Пропуснато гориво.</p>
- </div>}
  {section==='fuel'&&p936Reconciliation}
  {section==='fuel'&&<>
 
