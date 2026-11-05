@@ -2661,7 +2661,11 @@ function App(){
   return()=>{active=false};
  },[authMode,key]);
  // P99.16: home favorites library preview — on-demand and strictly read-only.
- const [favoriteLibraryOpen,setFavoriteLibraryOpen]=useState(false);
+ const [favoriteLibraryOpen,setFavoriteLibraryOpen]=useState(true);
+ const [placesCountryInfo,setPlacesCountryInfo]=useState({});
+ const [placesCountryBusy,setPlacesCountryBusy]=useState(false);
+ const [placesCountryStatus,setPlacesCountryStatus]=useState('');
+ const placesAutoloaded=useRef(false);
  const [favoriteLibraryLoading,setFavoriteLibraryLoading]=useState(false);
  const [favoriteLibraryError,setFavoriteLibraryError]=useState('');
  const [favoriteLibraryItems,setFavoriteLibraryItems]=useState([]);
@@ -3220,7 +3224,7 @@ function App(){
    const lat=Number(raw?.lat),lon=Number(raw?.lon);
    if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)continue;
    const tripId=String(raw.trip_id||raw.tripId||'home');
-   const entry={tripId,tripName:String(raw.trip_name||raw.tripName||trips.find(t=>t.id===tripId)?.name||tripId),title:String(raw.title||'Място'),lat,lon,index:'h'+index,favorite:false};
+   const entry={tripId,tripName:String(raw.trip_name||raw.tripName||trips.find(t=>t.id===tripId)?.name||tripId),title:String(raw.title||'Място'),lat,lon,index:'h'+index,favorite:false,photoUrl:String(raw.photo_url||raw.image_url||raw.thumbnail_url||''),country:String(raw.country||'').trim()};
    const key=signature(entry);if(!byPosition.has(key)){out.push(entry);byPosition.set(key,entry)}
   }
   for(const p of favoriteLibraryItems){
@@ -3230,6 +3234,42 @@ function App(){
   }
   return out;
  })();
+
+ // P99.19: countries are resolved only on explicit action; cached locally, never guessed from trip names.
+ const placesCountryKey=p=>p.lat.toFixed(3)+','+p.lon.toFixed(3);
+ const placesCountryFor=p=>p.country||placesCountryInfo[placesCountryKey(p)]?.name||'';
+ const placesPast= favoriteLibraryCombined.filter(p=>{const t=trips.find(t=>t.id===p.tripId);return t&&tripState(t)==='finished'&&!/^(тест|test)[_\s-]/i.test(String(t.name||t.id))});
+ const placesPastCountries=[...new Set(placesPast.map(placesCountryFor).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'bg'));
+ const placesPastUnresolved=placesPast.filter(p=>!placesCountryFor(p)).length;
+ async function resolvePlacesCountries(){
+  if(placesCountryBusy)return;
+  setPlacesCountryBusy(true);setPlacesCountryStatus('');
+  const cacheId='pixel_places_country_v1';
+  const stored=(()=>{try{return JSON.parse(localStorage.getItem(cacheId)||'{}')}catch{return {}}})();
+  const resolved={...stored,...placesCountryInfo};
+  const unique=new Map();
+  for(const p of favoriteLibraryCombined){if(!p.country&&!resolved[placesCountryKey(p)])unique.set(placesCountryKey(p),p)}
+  const pending=[...unique.values()];let succeeded=0,failed=0;
+  try{
+   for(const [i,p] of pending.entries()){
+    setPlacesCountryStatus(`Проверявам местоположенията: ${i+1} от ${pending.length}`);
+    try{
+     // Public Nominatim requires at most one request per second; don't parallelize.
+     const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(p.lat)}&lon=${encodeURIComponent(p.lon)}&zoom=3&addressdetails=1&accept-language=bg`;
+     const response=await fetch(url,{headers:{Accept:'application/json'}});
+     if(!response.ok)throw Error('HTTP '+response.status);
+     const json=await response.json();const name=String(json?.address?.country||'').trim();
+     if(name){resolved[placesCountryKey(p)]={name};succeeded++}else failed++;
+    }catch{failed++}
+    setPlacesCountryInfo({...resolved});
+    try{localStorage.setItem(cacheId,JSON.stringify(resolved))}catch{}
+    if(i<pending.length-1)await new Promise(done=>setTimeout(done,1200));
+   }
+   setPlacesCountryStatus(failed?`Установени ${succeeded} местоположения; ${failed} остават непотвърдени.`:'Държавите са обновени.');
+  }finally{setPlacesCountryBusy(false)}
+ }
+ useEffect(()=>{try{const stored=JSON.parse(localStorage.getItem('pixel_places_country_v1')||'{}');setPlacesCountryInfo(stored)}catch{}},[]);
+ useEffect(()=>{if(key&&p980Sources.status==='ready'&&trips.length&&!placesAutoloaded.current){placesAutoloaded.current=true;void loadFavoriteLibrary()}},[key,p980Sources.status,trips.length]);
  const favoriteLibraryTrips=[...new Map(favoriteLibraryCombined.map(x=>[x.tripId,x.tripName])).entries()];
  const favoriteLibraryFiltered=favoriteLibraryCombined.filter(x=>
   (favoriteLibraryScope==='all'||x.favorite)&&
@@ -3276,12 +3316,17 @@ function App(){
  </div>
 
  <style>{`.p9918-scopes{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.p9918-scopes button{padding:9px 13px!important;font-size:12px!important;border-radius:12px!important;background:rgba(120,145,160,.10)!important;color:inherit!important;border:1px solid var(--line,#415466)!important}.p9918-scopes button.active{border-color:#65c9ed!important;background:rgba(101,201,237,.17)!important}.p9917-strip{scrollbar-width:thin}.p9917-heart:empty{display:none}`}</style>
+ <style>{`.p9919-always-open{margin-top:0}.p9919-country-summary{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;margin:16px 0 8px;padding:15px;border-radius:14px;border:1px solid rgba(101,201,237,.30);background:rgba(101,201,237,.07);align-items:center}.p9919-country-summary>div:first-child{display:flex;flex-direction:column;gap:3px}.p9919-country-summary>div:first-child small{font-size:10px;letter-spacing:.6px;opacity:.76}.p9919-country-summary>div:first-child strong{font-size:29px;line-height:1.1}.p9919-country-list{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.p9919-country-list>span{padding:6px 8px;border-radius:999px;background:rgba(120,145,160,.16);font-size:12px}.p9919-country-list small{font-size:10px;opacity:.75;flex-basis:100%}.p9919-country-summary>button{grid-column:1/-1;width:100%;font-size:12px;padding:10px}.p9919-country-status{font-size:12px;opacity:.8}.p9917-card-visual .p9919-place-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}.p9917-card-visual .p9917-number,.p9917-card-visual .p9917-heart{z-index:1;text-shadow:0 1px 4px #000}.p9917-card-visual .p9919-place-photo~svg{position:relative;z-index:1;filter:drop-shadow(0 1px 4px #000)}@media(max-width:450px){.p9919-country-summary{grid-template-columns:1fr}.p9919-country-summary>div:first-child{flex-direction:row;gap:8px;align-items:baseline}}`}</style>
  <section className="p9916-library" aria-label="Обща библиотека Моите места">
-  <button type="button" className="p9916-launch" aria-expanded={favoriteLibraryOpen} onClick={()=>{if(favoriteLibraryOpen){setFavoriteLibraryOpen(false)}else{setFavoriteLibraryOpen(true);void loadFavoriteLibrary()}}}>
-   <span className="p9916-launch-icon">❤️</span><span className="p9916-launch-copy"><strong>Моите места</strong><small>Карта, колекция и любими от всички пътувания</small></span><span aria-hidden="true" className="p9916-chevron">{favoriteLibraryOpen?'⌃':'›'}</span>
-  </button>
-  {favoriteLibraryOpen&&<div className="p9916-panel">
+  <div className="p9916-panel p9919-always-open">
    <div className="p9916-head"><div><h3>🌍 Моите места</h3><small>Карта и любими места от пътуванията · само преглед</small></div><button type="button" disabled={favoriteLibraryLoading} className="p9916-refresh" title="Обнови библиотеката" onClick={()=>void loadFavoriteLibrary()}><RefreshCcw size={17}/></button></div>
+   <div className="p9919-country-summary" aria-label="Държави по приключени пътувания">
+    <div><small>🌍 ДЪРЖАВИ ОТ ПРИКЛЮЧЕНИ ПЪТУВАНИЯ</small><strong>{placesPastCountries.length?placesPastCountries.length:'—'}</strong></div>
+    <div className="p9919-country-list">{placesPastCountries.length?placesPastCountries.map(c=><span key={c}>📍 {c}</span>):<span>Няма потвърдени държави</span>}
+      <small>{placesPastUnresolved?`${placesPastUnresolved} места без определена държава`:'Държавите са определени за наличните места'}</small></div>
+    <button type="button" disabled={placesCountryBusy||!favoriteLibraryCombined.length} onClick={()=>void resolvePlacesCountries()}>{placesCountryBusy?'Проверявам…':'🌐 Определи държавите'}</button>
+   </div>
+   {placesCountryStatus&&<p role="status" className="p9919-country-status">{placesCountryStatus}</p>}
    <div className="p9918-scopes" role="group" aria-label="Кои места да се показват"><button type="button" className={favoriteLibraryScope==='all'?'active':''} onClick={()=>setFavoriteLibraryScope('all')}>📍 Всички · {favoriteLibraryCombined.length}</button><button type="button" className={favoriteLibraryScope==='favorite'?'active':''} onClick={()=>setFavoriteLibraryScope('favorite')}>❤️ Любими · {favoriteLibraryCombined.filter(p=>p.favorite).length}</button></div>
    <div className="p9916-filters"><input type="search" aria-label="Търси любимо място" placeholder="🔎 Търси място или пътуване" value={favoriteLibrarySearch} onChange={e=>setFavoriteLibrarySearch(e.target.value)}/><select aria-label="Филтър по пътуване" value={favoriteLibraryTrip} onChange={e=>setFavoriteLibraryTrip(e.target.value)}><option value="all">Всички пътувания</option>{favoriteLibraryTrips.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></div>
    {favoriteLibraryLoading&&<p className="muted" role="status">Зареждам любимите места от Neon…</p>}
@@ -3295,13 +3340,13 @@ function App(){
     {favoriteLibraryView==='map'&&<div className="p9917-map-block"><MapContainer key={'favmap-'+favoriteLibraryTrip} center={[favoriteLibraryFiltered[0].lat,favoriteLibraryFiltered[0].lon]} zoom={6} scrollWheelZoom={false} className="p9917-map"><TileLayer attribution='&copy; OpenStreetMap contributors' url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'/><FitPlaces points={favoriteLibraryFiltered}/><FocusRoutePoint target={favoriteLibraryFiltered.find(p=>p.tripId+':'+p.index===favoriteLibrarySelected)||null}/>{favoriteLibraryFiltered.map(p=><Marker key={p.tripId+':'+p.index} position={[p.lat,p.lon]} icon={homePin} eventHandlers={{click:()=>setFavoriteLibrarySelected(p.tripId+':'+p.index)}}><Popup><strong>{p.title}</strong><div>{p.tripName}</div><a target="_blank" rel="noopener noreferrer" href={'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(p.lat+','+p.lon)}>Отвори в Google Maps</a></Popup></Marker>)}</MapContainer><p className="p9917-map-hint">Докосни маркер за подробности · увеличавай с + / −</p></div>}
     <div className={favoriteLibraryView==='cards'?'p9917-grid':'p9917-strip'}>
      {favoriteLibraryFiltered.map((p,i)=><button type="button" key={p.tripId+':'+p.index} className={'p9917-card '+(favoriteLibrarySelected===p.tripId+':'+p.index?'p9917-selected':'')} onClick={()=>{setFavoriteLibrarySelected(p.tripId+':'+p.index);if(favoriteLibraryView==='cards')setFavoriteLibraryView('map')}}>
-      <span className="p9917-card-visual"><span className="p9917-number">{String(i+1).padStart(2,'0')}</span><MapPin size={25}/><span className="p9917-heart">{p.favorite?'♥':''}</span></span>
-      <span className="p9917-card-info"><strong>{p.title}</strong><small>🚙 {p.tripName}</small><span className="p9917-coords">{p.lat.toFixed(4)}°, {p.lon.toFixed(4)}°</span></span>
+      <span className="p9917-card-visual">{/^https?:\/\//i.test(p.photoUrl||'')&&<img className="p9919-place-photo" loading="lazy" alt="" src={p.photoUrl}/>}<span className="p9917-number">{String(i+1).padStart(2,'0')}</span><MapPin size={25}/><span className="p9917-heart">{p.favorite?'♥':''}</span></span>
+      <span className="p9917-card-info"><strong>{p.title}</strong><small>🚙 {p.tripName}</small>{placesCountryFor(p)&&<small>🌍 {placesCountryFor(p)}</small>}<span className="p9917-coords">{p.lat.toFixed(4)}°, {p.lon.toFixed(4)}°</span></span>
      </button>)}
     </div>
     {favoriteLibrarySelected&&favoriteLibraryFiltered.some(p=>p.tripId+':'+p.index===favoriteLibrarySelected)&&(()=>{const p=favoriteLibraryFiltered.find(p=>p.tripId+':'+p.index===favoriteLibrarySelected);return <div className="p9917-detail"><div><small>ИЗБРАНО МЯСТО</small><strong>{p.title}</strong><span>От пътуване: {p.tripName}</span></div><a href={'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(p.lat+','+p.lon)} target="_blank" rel="noopener noreferrer">Отвори в Google Maps ↗</a></div>})()}
    </>:<p className="muted">{favoriteLibraryCombined.length?'Няма места по избраните филтри.':'Все още няма запазени места за показване.'}</p>)}
-   <p className="p9916-footnote">Общ преглед без промени по местата. Картата използва OpenStreetMap; цветните плочки не са снимки.</p>
+   <p className="p9916-footnote">Преглед без редактиране на местата. Снимки се показват само ако мястото вече има прикрепен адрес към снимка. Броят държави включва само разпознатите места от приключени пътувания, не всички възможни посещения.</p>
   </div>}
  </section>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
