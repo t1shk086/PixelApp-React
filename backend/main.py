@@ -5460,12 +5460,16 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
                 if change.operation == 'refuel':
                     start = numeric(settings.get('start_km') or '0', 100000000, True)
                     largest = start
+                    has_prior_reading = False
                     for row in existing:
                         if row.get('current_km'):
                             prior = numeric(row['current_km'], 100000000, True)
+                            has_prior_reading = True
                             largest = max(largest, prior)
-                    if Decimal(km) <= largest:
-                        raise HTTPException(409, 'Километражът трябва да е над последния запис. Обнови историята.')
+                    # An initial fill at the trip's starting odometer is valid: 0 km
+                    # have been driven. After any recorded fill, readings must rise.
+                    if Decimal(km) < start or (has_prior_reading and Decimal(km) <= largest):
+                        raise HTTPException(409, 'Километражът трябва да е поне началният, а след първото зареждане — над последния запис. Обнови историята.')
                     tag = '[ПЪЛНО ЗАРЕЖДАНЕ]' if change.full else '[ЧАСТИЧНО ЗАРЕЖДАНЕ]'
                     description = tag + ' ' + (change.description.strip() or 'Гориво')
                     odometer = str(km)
