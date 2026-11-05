@@ -2259,7 +2259,7 @@ function TestTripEditPreview({onClose,onPreflight,onEdit,onSaved}){
 // Patch 62: dedicated, lockable financial test for the NEW trip only.
 // Patch 65: normal expense editor using verified Patch 64 server protection.
 // The server still restricts writes to the single test trip; this UI does not grant permissions.
-function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,onFuelSave,onMissedFuelSave,initialExpense=null,initialAction="edit",carTrip=false,expensesOnly=false,quickOnly=false,tripName='ТЕСТ НОВО – PixelApp'}){
+function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,onFuelSave,onMissedFuelSave,initialExpense=null,initialAction="edit",carTrip=false,expensesOnly=false,quickOnly=false,tripName='ТЕСТ НОВО – PixelApp',tripSelector=null}){
  const [proof,setProof]=useState(null),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
  const [view,setView]=useState(expensesOnly?'expenses':'budget');
  const [budget,setBudget]=useState('');
@@ -2368,6 +2368,7 @@ function TestFinancePreview({onClose,onPreflight,onSave,onSaved,onFuelPreflight,
  function beginEdit(x){setView('expenses');setOriginal(x);setAmount(String(x.amount||''));setCategory(x.category||'Други');setDesc(String(x.description||'').replace(/^\[P62\] /,''));setMsg('')}
  if(quickOnly)return <div className="overlay" onClick={onClose}><div className="dialog p21-dialog p9041-quick-dialog" role="dialog" aria-modal="true" aria-label="Бърз разход" onClick={e=>e.stopPropagation()}>
   <div className="dialoghead"><h3>💳 Бърз разход</h3><button type="button" className="ghost" onClick={onClose} aria-label="Затвори">✕</button></div>
+  {tripSelector}
   <p className="muted p9041-quick-trip">🚙 {tripName}</p>
   {!proof?<p className="muted">{busy?'⏳ Проверявам данните…':'Няма заредени данни за запис.'}</p>:!proof.can_write?<p className="error">🔒 Записът не е разрешен за това пътуване. Данните няма да бъдат променяни.</p>:null}
   <div className="p9041-quick-form">
@@ -2521,7 +2522,7 @@ function MyProfile({username,onChangePassword,onLogout,onClose}){
 
 // P95.6 — the normal home Quick Expense must not write the migrated pilot trip to Drive.
 // This form uses the same Neon writer as the trip's regular expenses screen.
-function NeonQuickExpense({trip,request,onClose,onSaved}){
+function NeonQuickExpense({trip,request,onClose,onSaved,tripSelector}){
  const [amount,setAmount]=useState('');
  const [category,setCategory]=useState('Други');
  const [description,setDescription]=useState('');
@@ -2595,7 +2596,7 @@ function NeonQuickExpense({trip,request,onClose,onSaved}){
  }
  return <div className="overlay" onClick={()=>{if(!busy)onClose()}}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Бърз разход">
   <div className="dialoghead"><h3>💳 Бърз разход</h3><button className="ghost" type="button" disabled={busy} onClick={onClose}>✕</button></div>
-  <p className="muted">{trip.name}</p>
+  {tripSelector||<p className="muted">{trip.name}</p>}
   <form className="quick-demo-form" onSubmit={submit}>
    <label>Сума (€)<input type="number" min="0.01" max="100000" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||loading} required/></label>
    <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)} disabled={busy||loading}>{categoryChoices.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
@@ -2698,6 +2699,7 @@ function App(){
  const [p965Home,setP965Home]=useState({status:'checking',data:null,message:''});
  const [p974TestHome,setP974TestHome]=useState({status:'checking',data:null,message:''});
  const [p980Sources,setP980Sources]=useState({status:'checking',active:[],homes:{},message:''});
+ const [quickTripId,setQuickTripId]=useState(''); // P99.23: explicit choice when several trips are active
  const [detail,setDetail]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
  const [dataFreshness,setDataFreshness]=useState('none');const [cachedAt,setCachedAt]=useState(null);
  const [expenseDrafts,setExpenseDrafts]=useState({});
@@ -3398,7 +3400,7 @@ html[data-pixelapp-skin="standard"] .p9916-library{--places-bg:#192a37;--places-
  </section>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
  </>: <>{chosen&&<>
- {current!==newTestTripId&&!(p962Preview?.tripId===current&&p962Preview.writeEnabled===true)&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
+ {current===p963CanaryId&&!(p962Preview?.tripId===current&&p962Preview.writeEnabled===true)&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
  <strong>{current===p963CanaryId?(p962Preview?.writeEnabled?'⚡ Livigno · Neon':'⚡ P96.3 · Livigno от Neon'):'⚡ P96.2 · Проверен Neon преглед'}</strong>
  <p className="muted">{current===p963CanaryId?'Livigno се отваря директно от провереното Neon копие. Редакциите на пътуването са временно блокирани по време на миграцията; това НЕ означава, че пътуването е приключено. Галерията работи отделно през Google Drive. При несъответствие няма автоматично връщане към старите Drive данни.':'За това реално пътуване можеш да видиш действителното Neon работно копие, само за четене. Нормалният изглед и всички нормални записи остават в Drive. Прегледът се разрешава само ако двете копия съвпадат и архивът е актуален.'}</p>
  {current===p963CanaryId?<div className="p9043-expense-actions"><button type="button" disabled={p962Busy} onClick={()=>void p963OpenTrip(chosen)}>{p962Busy?'Проверявам…':'↻ Провери отново Neon'}</button><small className="muted">Предстоящо пътуване · временно заключени само мигрираните записи · снимките остават в Drive</small></div>:<div className="p9043-expense-actions"><button type="button" disabled={p962Busy||!(p962Preview&&p962Preview.tripId===current)} onClick={()=>{setP962Preview(null);setP962Error('')}}>☁️ Нормален изглед (Drive)</button><button type="button" disabled={p962Busy} onClick={()=>void openP962Preview()}>{p962Busy?'Проверявам…':'⚡ Отвори Neon (само преглед)'}</button></div>}
@@ -3419,7 +3421,23 @@ html[data-pixelapp-skin="standard"] .p9916-library{--places-bg:#192a37;--places-
  {current===newTestTripId&&p962Error&&<p role="alert" className="error">⚠️ {p962Error}</p>}
  <TripDetails key={current+'-'+(p962Preview?.tripId===current?(p962Preview.writeEnabled?'neon-active':'neon-preview'):'drive')} trip={chosen} detail={p962Preview?.tripId===current?p962Preview.detail:detail} readOnly={readOnly} previewReadOnly={p962Preview?.tripId===current&&!p962Preview?.writeEnabled} neonPrimaryWritable={p962Preview?.tripId===current&&p962Preview?.writeEnabled===true} financeOwned={p962Preview?.tripId===current?Boolean(p962Preview?.writeEnabled):reactOwnedTrips.includes(current)} expenseDraft={currentExpenseDraft} onExpenseAction={(action,expense)=>{setSelectedExpenseAction({action,expense});setModal('owned-expenses')}} onTaskPreflight={()=>req(`/safe/tasks-preflight/${encodeURIComponent(current)}`)} onTaskChange={payload=>req(`/safe/tasks/${encodeURIComponent(current)}`,'POST',payload)} onTasksSaved={()=>refreshAfterWrite(current)} onRoutePreflight={()=>req(`/safe/route-preflight/${encodeURIComponent(current)}`)} onRouteChange={payload=>req(`/safe/route/${encodeURIComponent(current)}`,'POST',payload)} onRouteSaved={()=>refreshAfterWrite(current)} galleryAuthHeaders={authMode==='accounts'?{Authorization:`Bearer ${key}`}:{'X-API-Key':key}} expensiveFuelPrice={expensiveFuelPrice} onNeonRequest={req} neonTripId={current} onFavoritesLoad={()=>req(`/safe/trip-places/${encodeURIComponent(current)}`)} onFavoriteChange={payload=>req(`/safe/trip-places/${encodeURIComponent(current)}`,'POST',payload)} onOpenPreview={m=>{if(p962Preview?.tripId===current)return;setModal((m==='pilot-budget'||m==='quick-demo')&&reactOwnedTrips.includes(current)?(m==='pilot-budget'?'owned-budget':'owned-expenses'):m)}}/></>}</>}
  
-  {modal==='normal-expenses'&&(()=>{const active=trips.find(t=>tripState(t)==='active');if(!active)return <div className="overlay" onClick={()=>setModal('')}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>💳 Бърз разход</h3><button type="button" className="ghost" onClick={()=>setModal('')}>✕</button></div><p className="muted">Няма активно пътуване. Разходите за предстоящи пътувания се добавят от самото пътуване.</p></div></div>;if(p980Sources.status!=='ready'&&active.id!==newTestTripId&&active.id!==p963CanaryId)return <div className="overlay" onClick={()=>setModal('')}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>💳 Бърз разход</h3><button className="ghost" onClick={()=>setModal('')}>✕</button></div><p>Проверката на основния източник не е завършена. Обнови приложението, преди да записваш.</p></div></div>;if(active.id===p963CanaryId&&!p980Sources.active.includes(active.id))return <div className="overlay" onClick={()=>setModal('')}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Бърз разход — защитен режим"><div className="dialoghead"><h3>💳 Бърз разход</h3><button type="button" className="ghost" onClick={()=>setModal('')}>✕</button></div><p role="status">🔒 Livigno чете от Neon, но записите още не са пренасочени. Бързият разход е временно блокиран, за да не бъде записан по погрешка в Drive.</p></div></div>;if(active.id===newTestTripId||p980Sources.active.includes(active.id))return <NeonQuickExpense key={active.id} trip={active} request={req} onClose={()=>setModal('')} onSaved={async()=>{setModal('');await p963OpenTrip(active)}}/>;return <TestFinancePreview key={active.id} quickOnly tripName={active.name} carTrip={active.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(active.id)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(active.id)}`,'POST',payload)} onClose={()=>setModal('')} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(active.id)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(active.id)}`,'POST',payload)} onSaved={()=>reload()}/>})()}
+  {modal==='normal-expenses'&&(()=>{
+  // Quick expense favors active trips; verified Neon trips can accept pre-trip expenses. If more than one is
+  // active, never silently choose the first item returned by the server.
+  const activeTrips=trips.filter(t=>tripState(t)==='active'||(tripState(t)==='upcoming'&&(t.id===newTestTripId||p980Sources.active.includes(t.id))));
+  const active=activeTrips.find(t=>t.id===quickTripId)||activeTrips.find(t=>tripState(t)==='active')||activeTrips[0];
+  const picker=activeTrips.length>1?<label>Активно пътуване<select value={active.id} onChange={e=>setQuickTripId(e.target.value)}>{activeTrips.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>:null;
+  const close=()=>{setModal('');setQuickTripId('')};
+  const message=(value)=><div className="overlay" onClick={close}><div className="dialog p9041-quick-dialog" onClick={e=>e.stopPropagation()}><div className="dialoghead"><h3>💳 Бърз разход</h3><button type="button" className="ghost" onClick={close}>✕</button></div>{picker}<p className="muted">{value}</p></div></div>;
+  if(!active)return message('Няма активно пътуване. Предстоящите пътувания се редактират от самото пътуване.');
+  if(p980Sources.status!=='ready'&&active.id!==newTestTripId&&active.id!==p963CanaryId)return message('Проверката на основния източник не е завършена. Обнови приложението, преди да записваш.');
+  if(active.id===p963CanaryId&&!p980Sources.active.includes(active.id))return message('Livigno още няма потвърден режим за запис в Neon. Разходът няма да се изпрати към Drive.');
+  const editor=active.id===newTestTripId||p980Sources.active.includes(active.id)
+   ?<NeonQuickExpense key={active.id} trip={active} tripSelector={picker} request={req} onClose={close} onSaved={async()=>{close();await refreshAfterWrite(active.id)}}/>
+   :<TestFinancePreview key={active.id} quickOnly tripSelector={picker} tripName={active.name} carTrip={active.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(active.id)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(active.id)}`,'POST',payload)} onClose={close} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(active.id)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(active.id)}`,'POST',payload)} onSaved={()=>reload()}/>;
+  return editor;
+ })()}
+
   {(modal==='owned-expenses'||modal==='owned-budget')&&current&&current!==p963CanaryId&&!p980Sources.active.includes(current)&&reactOwnedTrips.includes(current)&&<TestFinancePreview key={current+'-'+(selectedExpenseAction?.expense?.description||'')+'-'+(selectedExpenseAction?.action||'')} initialExpense={modal==='owned-expenses'?selectedExpenseAction?.expense:null} initialAction={selectedExpenseAction?.action||'edit'} expensesOnly={modal==='owned-expenses'} tripName={trips.find(t=>t.id===current)?.name||current} carTrip={trips.find(t=>t.id===current)?.settings?.car_trip==='Да'} onFuelPreflight={()=>req(`/safe/fuel-preflight/${encodeURIComponent(current)}`)} onFuelSave={payload=>req(`/safe/fuel/${encodeURIComponent(current)}`,'POST',payload)} onMissedFuelSave={payload=>req(`/safe/missed-fuel/${encodeURIComponent(current)}`,'POST',payload)} onClose={()=>{setModal('');setSelectedExpenseAction(null)}} onPreflight={()=>req(`/safe/trip-finance-preflight/${encodeURIComponent(current)}`)} onSave={payload=>req(`/safe/trip-finance/${encodeURIComponent(current)}`,'POST',payload)} onSaved={()=>refreshAfterWrite(current)}/>}
   {modal==='test-finance'&&<TestFinancePreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-finance-preflight')} onSave={payload=>req('/safety/test-finance','POST',payload)} onSaved={()=>reload()}/> }
  {modal==='edit-test-trip'&&<TestTripEditPreview onClose={()=>setModal('')} onPreflight={()=>req('/safety/test-trip-edit-preflight')} onEdit={payload=>req('/safety/test-trip-edit','POST',payload)} onSaved={()=>reload()}/> }
