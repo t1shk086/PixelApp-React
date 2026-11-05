@@ -873,11 +873,22 @@ def list_trips():
             else:
                 spent=sum(float(x.get('amount') or 0) for x in trip_exp if (x.get('type')=='expense' and x.get('category') in cat_budgets) or (x.get('type')=='deposit' and 'Нощувки/Хотел' in cat_budgets))
             result.append({'id':tid,'name':tid.replace('_',' ').rsplit(' __ ',1)[0], 'settings':setting,'budget':budget,'spent':spent})
+        # Neon-created trips are indexed from their own authoritative workspace.
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass('public.pixelapp_neon_new_trips')::text")
+                if cur.fetchone()[0] is not None:
+                    cur.execute("""SELECT n.trip_id,r.payload FROM pixelapp_neon_new_trips n
+                        JOIN pixelapp_p932_rows r ON r.trip_id=n.trip_id AND r.dataset='settings'""")
+                    for tid, setting in cur.fetchall():
+                        if tid not in ids:
+                            result.append({'id':tid,'name':tid.replace('_',' ').rsplit(' __ ',1)[0],
+                                'settings':setting,'budget':0,'spent':0})
         return result
 
 
 
-@app.get('/home/places', dependencies=[Depends(authorize)])
+@app.get('/home/places' , dependencies=[Depends(authorize)])
 def home_places():
     ensure_local_snapshot()
     """All saved places from the imported map CSV; read-only, no geocoding."""
@@ -1867,87 +1878,49 @@ def safe_new_trip_id(payload: SafeNewTrip):
         raise HTTPException(422, 'Километражът трябва да е 0 за пътуване без автомобил.')
     return name.replace(' ', '_')
 
+# New trips: Neon is the ONLY authoritative write target. No Drive fallback.
 @app.get('/safe/new-trip-preflight', dependencies=[Depends(authorize)])
 def safe_new_trip_preflight():
-    ensure_local_snapshot()
-    with LOCK:
-        path = DATA_DIR / FILENAMES['settings']
-        service = drive_service()
-        if service is None:
-            raise HTTPException(503, 'Google Drive не е конфигуриран.')
-        _, mapping = folder_and_files(service)
-        fid = mapping.get(FILENAMES['settings'])
-        if not fid:
-            raise HTTPException(409, 'Липсва CSV файлът на пътуванията в Drive.')
-        remote = service.files().get_media(fileId=fid).execute()
-        digest = hashlib.sha256(remote).hexdigest()
-        return {'enabled': NEW_TRIPS_ENABLED,
-                'drive_matches_local': hashlib.sha256(path.read_bytes()).hexdigest() == digest,
-                'settings_sha256': digest}
+    if not NEW_TRIPS_ENABLED:
+        return {'enabled': False, 'neon_ready': False}
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT 1')
+            cur.fetchone()
+    return {'enabled': True, 'neon_ready': True}
 
 @app.post('/safe/new-trip', dependencies=[Depends(authorize)])
 def safe_new_trip_create(payload: SafeNewTrip):
     if not NEW_TRIPS_ENABLED:
-        raise HTTPException(423, 'Създаването на нови пътувания е временно изключено.')
+        raise HTTPException(423, 'Създаването на пътувания е изключено.')
     tid = safe_new_trip_id(payload)
-    ensure_local_snapshot()
-    with guarded_csv_write():
-        path = DATA_DIR / FILENAMES['settings']
-        local = path.read_bytes()
-        service = drive_service()
-        if service is None:
-            raise HTTPException(503, 'Google Drive не е конфигуриран.')
-        folder_id, mapping = folder_and_files(service)
-        fid = mapping.get(FILENAMES['settings'])
-        if not fid:
-            raise HTTPException(409, 'Липсва CSV файлът на пътуванията.')
-        remote = service.files().get_media(fileId=fid).execute()
-        digest = hashlib.sha256(remote).hexdigest()
-        if digest != payload.expected_sha256 or hashlib.sha256(local).hexdigest() != digest:
-            raise HTTPException(409, 'Данните са променени. Обнови и опитай отново.')
-        reader = csv.DictReader(io.StringIO(remote.decode('utf-8-sig')))
-        cols = reader.fieldnames
-        if not cols or any(k not in cols for k in COLUMNS['settings']):
-            raise HTTPException(422, 'Непознат формат на CSV файла.')
-        rows = list(reader)
-        if any(r.get('trip_id', '').casefold() == tid.casefold() for r in rows):
-            raise HTTPException(409, 'Вече има пътуване с това име. Избери различно.')
-        # Record proven React ownership first; never unlock a legacy trip by date/name.
-        _register_react_trip(service, folder_id, mapping, tid)
-        newrow = {k: '' for k in cols}
-        newrow.update({'trip_id': tid, 'car_trip': 'Да' if payload.car_trip else 'Не',
-            'track_fuel': 'Да' if payload.car_trip else 'Добави впоследствие',
-            'start_km': str(payload.start_km), 'end_km': '0', 'manual_fuel': '0',
-            'start_date': payload.start_date, 'end_date': payload.end_date,
-            'trip_finished': 'Не'})
-        rows.append(newrow)
-        output = io.StringIO(newline='')
-        writer = csv.DictWriter(output, fieldnames=cols, extrasaction='ignore', lineterminator='\n')
-        writer.writeheader(); writer.writerows(rows)
-        new_bytes = output.getvalue().encode('utf-8')
-        try:
-            backup = service.files().copy(fileId=fid,
-                body={'name':'P67_NEW_TRIP_BACKUP_'+uuid.uuid4().hex+'_'+FILENAMES['settings']},
-                fields='id').execute()
-            backup_id = backup['id']
-        except Exception:
-            raise HTTPException(503, 'Неуспешен архив. Не е записано пътуване.')
-        latest = service.files().get_media(fileId=fid).execute()
-        if hashlib.sha256(latest).hexdigest() != digest:
-            raise HTTPException(409, 'Drive се е променил след архива. Записът е отказан.')
-        try:
-            from googleapiclient.http import MediaIoBaseUpload
-            media = MediaIoBaseUpload(io.BytesIO(new_bytes), mimetype='text/csv', resumable=False)
-            service.files().update(fileId=fid, media_body=media).execute()
-            confirmed = service.files().get_media(fileId=fid).execute()
-            if hashlib.sha256(confirmed).digest() != hashlib.sha256(new_bytes).digest():
-                raise RuntimeError('Drive mismatch')
-        except Exception:
-            raise HTTPException(503, 'Неясен резултат от записа. Провери списъка, преди нов опит.')
-        temp = path.with_suffix('.p67_verified')
-        temp.write_bytes(confirmed)
-        os.replace(temp, path)
-        return {'ok': True, 'trip_id': tid, 'backup_id': backup_id}
+    from psycopg.types.json import Jsonb
+    settings = {col: '' for col in COLUMNS['settings']}
+    settings.update({'trip_id': tid, 'car_trip': 'Да' if payload.car_trip else 'Не',
+        'track_fuel': 'Да' if payload.car_trip else 'Добави впоследствие',
+        'start_km': str(payload.start_km), 'end_km': '0', 'manual_fuel': '0',
+        'start_date': payload.start_date, 'end_date': payload.end_date,
+        'trip_finished': 'Не'})
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p932_schema(cur)
+            _p970_cutover_schema(cur)
+            cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_neon_new_trips (
+                trip_id TEXT PRIMARY KEY REFERENCES pixelapp_p932_workspaces(trip_id),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
+            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('pixelapp-new-trip:' + tid.casefold(),))
+            cur.execute('SELECT 1 FROM pixelapp_p932_workspaces WHERE lower(trip_id)=lower(%s)', (tid,))
+            if cur.fetchone():
+                raise HTTPException(409, 'Вече има пътуване с това име.')
+            cur.execute('INSERT INTO pixelapp_p932_workspaces(trip_id,source_digest) VALUES(%s,%s)', (tid,'neon-created'))
+            cur.execute('INSERT INTO pixelapp_p932_rows(trip_id,dataset,row_id,row_order,payload) VALUES(%s,%s,%s,%s,%s)',
+                        (tid,'settings',uuid.uuid4().hex,0,Jsonb(settings)))
+            cur.execute('INSERT INTO pixelapp_neon_new_trips(trip_id) VALUES(%s)',(tid,))
+            cur.execute('INSERT INTO pixelapp_p970_cutovers(trip_id,status,source_revision) VALUES(%s,%s,%s)',(tid,'active',1))
+            _p932_backup_schema(cur)
+            cur.execute('INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,1)',(tid,))
+        conn.commit()
+    return {'ok':True,'trip_id':tid,'source':'neon','drive_modified':False}
 
 
 # Safe trip finalization: updates one React-owned settings row only.
@@ -5056,10 +5029,20 @@ def p968_real_trip_source(trip_id: str):
     return {'ok':True,'trip_id':trip_id,'read_only':True,
             'source_mode':'neon_primary_read_only', 'production_switched':False,
             'exact_match_live_drive':False, 'revision':meta[0],
-            'archive_revision':backup[0],
-            'archive_current':bool(backup[0]>=meta[0] and not backup[2]),
+            'archive_revision':backup[0] if backup else 0,
+            'archive_current':bool(backup and backup[0]>=meta[0] and not backup[2]),
             'records':records}
 
+
+
+def _neon_is_new_trip(trip_id):
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_neon_new_trips')::text")
+            if cur.fetchone()[0] is None:
+                return False
+            cur.execute('SELECT 1 FROM pixelapp_neon_new_trips WHERE trip_id=%s',(trip_id,))
+            return cur.fetchone() is not None
 
 # P97.0: a persistent source-of-truth contract. No activation route is
 # published in this patch: enabling a real trip requires a later controlled
@@ -5083,7 +5066,7 @@ def p980_active_primary_trips():
             if cur.fetchone()[0] is None:
                 return {'ok': True, 'active_trip_ids': []}
             cur.execute("SELECT trip_id FROM pixelapp_p970_cutovers WHERE status='active'")
-            ids = sorted(x[0] for x in cur.fetchall() if x[0] in _P978_REAL_TRIPS)
+            ids = sorted(x[0] for x in cur.fetchall() if x[0] in _P978_REAL_TRIPS or _neon_is_new_trip(x[0]))
     return {'ok': True, 'active_trip_ids': ids}
 
 @app.get('/safe/neon/managed-source/{trip_id}', dependencies=[Depends(authorize)])
@@ -5111,7 +5094,7 @@ def p970_managed_source(trip_id: str):
     # P97.9: the verified managed-source contract is shared by ALL eight
     # real-trip workspaces. This read endpoint never activates writes.
     # No arbitrary trip ID is accepted and the separate test path stays above.
-    if trip_id not in _P978_REAL_TRIPS:
+    if trip_id not in _P978_REAL_TRIPS and not _neon_is_new_trip(trip_id):
         raise HTTPException(403, 'Няма разрешен проверен Neon източник за това пътуване.')
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
@@ -5140,13 +5123,17 @@ def p970_managed_source(trip_id: str):
             cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             cur.execute('SELECT revision,source_digest FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
             meta=cur.fetchone()
-            cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s',(trip_id,))
-            baseline=cur.fetchone()
-            if not meta or not baseline or meta[1]!=baseline[0]:
+            created_here = _neon_is_new_trip(trip_id)
+            if not created_here:
+                cur.execute('SELECT digest FROM pixelapp_p933_stage WHERE trip_id=%s',(trip_id,))
+                baseline=cur.fetchone()
+            else:
+                baseline=None
+            if not meta or (not created_here and (not baseline or meta[1]!=baseline[0])):
                 raise HTTPException(409,'Липсва проверен произход на Neon данните.')
             cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s',(trip_id,))
             backup=cur.fetchone()
-            if not backup or not backup[1]:
+            if not created_here and (not backup or not backup[1]):
                 raise HTTPException(409,'Липсва първоначален проверен Drive архив.')
             cur.execute('SELECT dataset,row_id,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
             records={kind:[] for kind in _P930_KINDS}
@@ -5160,8 +5147,8 @@ def p970_managed_source(trip_id: str):
         raise HTTPException(409,'Липсват настройки на пътуването.')
     return {'ok':True,'trip_id':trip_id,'read_only':False,'write_enabled':True,
             'production_switched':True,'source_mode':'neon_primary_active',
-            'revision':meta[0],'archive_revision':backup[0],
-            'archive_current':bool(backup[0]>=meta[0] and not backup[2]),
+            'revision':meta[0],'archive_revision':backup[0] if backup else 0,
+            'archive_current':bool(backup and backup[0]>=meta[0] and not backup[2]),
             'records':records,'workspace':workspace}
 
 # P97.1: one-time, explicitly confirmed source-of-truth switch for Livigno.
