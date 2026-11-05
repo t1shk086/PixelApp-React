@@ -9,6 +9,16 @@ import './style.css';
 
 const apiBase=import.meta.env.VITE_API_URL||'http://localhost:8000';
 
+// P99.21: Do not leave the login screen waiting indefinitely for an external service.
+async function authFetch(url, options={}, timeoutMs=18000){
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),timeoutMs);
+ try{return await fetch(url,{...options,signal:controller.signal})}
+ catch(error){if(error?.name==='AbortError')throw Error('Сървърът не отговори навреме. Входът не е потвърден. Опитай отново след проверка на Render и Google Drive.');throw error}
+ finally{clearTimeout(timer)}
+}
+
+
 // Patch 56: encrypted, device-local snapshot. No Google token or API key is saved in the cache.
 // A cached snapshot is for display ONLY; network validation is required before any real write.
 const FAST_CACHE_KEY='pixelapp_home_snapshot_v56';
@@ -2611,12 +2621,13 @@ function App(){
  const [authUser,setAuthUser]=useState('');
  const [authPassword,setAuthPassword]=useState('');
  const [authError,setAuthError]=useState('');
+ const [authBusy,setAuthBusy]=useState(false);
  useEffect(()=>{
   let live=true;
   // Do not block an existing account session on a second cold-start request.
   if(!sessionStorage.getItem('pixel_auth_session'))setAuthMode('checking');
   setAuthConfigError('');
-  fetch(`${apiBase}/auth/config`,{cache:'no-store',headers:{'Accept':'application/json'}})
+  authFetch(`${apiBase}/auth/config`,{cache:'no-store',headers:{'Accept':'application/json'}},12000)
    .then(async r=>{if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()})
    .then(x=>{
     if(!live)return;
@@ -3133,14 +3144,18 @@ function App(){
   return req(`/trips/${encodeURIComponent(id)}`);
  },[key,p980Sources.active.join('|')]);
  async function connect(e){
-  e.preventDefault();setAuthError('');
+  e.preventDefault();if(authBusy)return;setAuthError('');
   if(authMode==='accounts'){
+   setAuthBusy(true);
    try{
-    const response=await fetch(`${apiBase}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:authUser.trim(),password:authPassword})});
-    if(!response.ok)throw Error(response.status===401?'Неправилно потребителско име или парола.':'Неуспешен вход. Провери настройките на сървъра.');
-    const result=await response.json();sessionStorage.setItem('pixel_auth_session',result.token);sessionStorage.removeItem('pixel_api_key');
+    const response=await authFetch(`${apiBase}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:authUser.trim(),password:authPassword})},18000);
+    if(!response.ok)throw Error(response.status===401?'Неправилно потребителско име или парола.':`Входът не е потвърден (HTTP ${response.status}). Провери връзката на сървъра с Google Drive.`);
+    const result=await response.json();
+    if(!result?.token)throw Error('Сървърът не върна валидна сесия.');
+    sessionStorage.setItem('pixel_auth_session',result.token);sessionStorage.removeItem('pixel_api_key');
     setAuthPassword('');setProfileUser(result.username||'');sessionStorage.setItem('pixel_account_name',result.username||'');setKey(result.token);
    }catch(err){setAuthError(String(err.message||err))}
+   finally{setAuthBusy(false)}
    return;
   }
   const value=entry.trim();if(!value)return;sessionStorage.setItem('pixel_api_key',value);setKey(value);setEntry('');
@@ -3288,7 +3303,7 @@ function App(){
   (favoriteLibraryTrip==='all'||favoriteLibraryTrip===x.tripId)&&
   (!favoriteLibrarySearch.trim()||[x.title,x.tripName].join(' ').toLocaleLowerCase('bg').includes(favoriteLibrarySearch.trim().toLocaleLowerCase('bg'))));
  function logout(){setFavoriteLibraryOpen(false);setFavoriteLibraryItems([]);setFavoriteLibraryMissing([]);setP962Preview(null);setProfileOpen(false);setProfileUser('');sessionStorage.removeItem('pixel_account_name');sessionStorage.removeItem('pixel_api_key');sessionStorage.removeItem('pixel_auth_session');localStorage.removeItem(FAST_CACHE_KEY);setKey('');setTrips([]);setExpenseDrafts({});setDataFreshness('none');}
- if(authMode==='checking'||authMode==='error'||!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager</p><section className="panel"><h3>{authMode==='accounts'?'Вход в профила':authMode==='legacy'?'Личен достъп':'Проверка на връзката'}</h3>{authMode==='error'?<><p role="alert" className="error">{authConfigError}</p><p>Опитай отново. Ако проблемът продължи, провери дали Render е Live и дали адресът на API е правилен.</p><button type="button" onClick={()=>setAuthRetry(n=>n+1)}>Провери отново</button></>:authMode==='checking'?<p>Проверявам какъв вход използва сървърът…</p>:<form onSubmit={connect}>{authMode==='accounts'?<><input autoComplete="username" value={authUser} onChange={e=>setAuthUser(e.target.value)} placeholder="Потребителско име" required/><input type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Парола" required/></>:<><p>Въведи личния API ключ. Google токените не се въвеждат тук.</p><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ" required/></>}<button>Влез</button></form>}{authError&&authMode!=='error'&&<p className="error" role="alert">{authError}</p>}</section></main>;
+ if(authMode==='checking'||authMode==='error'||!key)return <main className="auth"><div className="brand">🐾 <span>PixelApp</span></div><p>Travel Manager</p><section className="panel"><h3>{authMode==='accounts'?'Вход в профила':authMode==='legacy'?'Личен достъп':'Проверка на връзката'}</h3>{authMode==='error'?<><p role="alert" className="error">{authConfigError}</p><p>Опитай отново. Ако проблемът продължи, провери дали Render е Live и дали адресът на API е правилен.</p><button type="button" onClick={()=>setAuthRetry(n=>n+1)}>Провери отново</button></>:authMode==='checking'?<p>Проверявам какъв вход използва сървърът…</p>:<form onSubmit={connect}>{authMode==='accounts'?<><input autoComplete="username" value={authUser} onChange={e=>setAuthUser(e.target.value)} placeholder="Потребителско име" required/><input type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Парола" required/></>:<><p>Въведи личния API ключ. Google токените не се въвеждат тук.</p><input type="password" autoComplete="off" value={entry} onChange={e=>setEntry(e.target.value)} placeholder="API ключ" required/></>}<button disabled={authBusy}>{authBusy?'Проверявам входа…':'Влез'}</button></form>}{authError&&authMode!=='error'&&<p className="error" role="alert">{authError}</p>}</section></main>;
  return <main className="app"><header className={'p999-app-header'+((current||comparisonOpen)?' p9911-compact-trip-header':'')}>
  {(current||comparisonOpen)&&<button type="button" className="p9911-home-link" title="Към началния екран" aria-label="Начало" onClick={()=>{if(current){setCurrent(null);setDetail(null)}else{setComparisonOpen(false)}}}><ArrowLeft size={18}/><span>Начало</span></button>}
  <div className="brand">🐾 <span>PixelApp</span></div><div className="sub">Travel Manager</div>
