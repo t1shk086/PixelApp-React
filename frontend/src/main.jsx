@@ -1087,7 +1087,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
     await onNeonRequest('/safe/neon/points-action','POST',{trip_id:neonTripId,kind:'favorite',operation,
      expected_revision:p942Data.revision,index,title,lat,lon});
     await p942Reload();setFavoriteEditing(-1);setFavoriteEditorOpen(false);setFavoriteName('');setFavoriteLat('');setFavoriteLon('');
-    setFavoriteMessage('✅ Записано в Neon. Архивът в Drive е заявен.');return;
+    setFavoriteMessage('');return;
    }
    const current=await onFavoritesLoad();
    if(!current.can_write)throw Error('Google Drive се е променил. Обнови страницата.');
@@ -1416,7 +1416,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
     await onNeonRequest('/safe/neon/points-action','POST',{trip_id:neonTripId,kind:'route',operation,
      expected_revision:p942Data.revision,index,position,title:routeName.trim(),
      lat:Number(routeLat),lon:Number(routeLon),stop_type:routeType});
-    await p942Reload();setRouteName('');setRouteLat('');setRouteLon('');setRouteMessage('✅ Записано в Neon. Архивът в Drive е заявен.');return;
+    await p942Reload();setRouteName('');setRouteLat('');setRouteLon('');setRouteMessage('');return;
    }
    const pre=await onRoutePreflight();
    if(!pre.can_write)throw Error('Маршрутът не е готов за запис. Обнови данните от Google Drive.');
@@ -1520,7 +1520,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
    <button type="button" className="task-preview-check" disabled={!taskEditable||taskBusy} aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>changeTask('toggle',t)}>{complete?'✓':'○'}</button>
    {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())void changeTask('edit',t,taskEditText.trim())}}><input autoFocus value={taskEditText} maxLength={200} disabled={taskBusy} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit" disabled={taskBusy||!taskEditText.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>{setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null)}}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}</span>{taskEditable&&<><button type="button" className="task-preview-action" disabled={taskBusy} onClick={()=>void beginTaskEdit(t)} aria-label={'Редактирай '+(t.title||'задача')}>✎</button><button type="button" className="task-preview-action" disabled={taskBusy} aria-label="Изтрий задача" onClick={()=>{if(window.confirm('Изтриване на задача: '+t.title+'?'))void changeTask('delete',t)}}>✕</button></>}</>}
   </div>}):<p className="muted">Няма задачи за това пътуване.</p>}
-  {taskBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}
+  {taskBusy&&<p className="muted" role="status">Записвам…</p>}
   {taskMessage&&<p role="status" className="muted">{taskMessage}</p>}
  </div>
  </>}
@@ -1559,7 +1559,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  {favoriteMessage&&<p role="status" className="muted">{favoriteMessage}</p>}
  </section></div>}{mapTab==='add'&&<div className="route82-panel route82-add-panel">
  {routeEditable?<form className="route76-form" onSubmit={e=>{e.preventDefault();void routeAction('add',-1,Number(routePosition))}}><h3>➕ Нова спирка</h3><div className="route77-search"><label htmlFor="route77-place">🔎 Намери място по име или адрес</label><div className="route77-search-row"><input id="route77-place" type="search" value={placeQuery} onChange={e=>{setPlaceQuery(e.target.value);setPlaceResults([]);setPlaceSearchError('');}} placeholder="Напр. Колизеум, Рим" minLength={3} maxLength={180}/><button type="button" onClick={searchRoutePlace} disabled={placeSearching||placeQuery.trim().length<3}>{placeSearching?'Търся…':'Търси'}</button></div>{placeSearchError&&<p className="route77-search-message" role="status">{placeSearchError}</p>}{placeResults.length>0&&<div className="route77-results" aria-label="Намерени места">{placeResults.map((p,i)=><button key={`${p.place_id||i}-${p.lat}`} type="button" onClick={()=>chooseRoutePlace(p)}><span>📍 {String(p.display_name||p.name||'Място')}</span><small>{Number(p.lat).toFixed(5)}, {Number(p.lon).toFixed(5)}</small></button>)}</div>}<small>Търсене чрез © OpenStreetMap contributors / Nominatim. Избери резултат, после провери данните и запиши спирката.</small></div><div className="route79-gps"><button type="button" onClick={useCurrentGps} disabled={gpsBusy}>{gpsBusy?'📍 Определям местоположение…':'📍 Използвай текущата ми GPS позиция'}</button><small>GPS се използва само след натискане и разрешение от телефона. Не се записва автоматично.</small>{gpsMessage&&<p role="status">{gpsMessage}</p>}</div><input aria-label="Име на спирката" placeholder="Име на мястото" required maxLength={150} value={routeName} onChange={e=>setRouteName(e.target.value)}/><div className="route76-grid"><input type="number" step="any" min="-90" max="90" required placeholder="Ширина (lat)" aria-label="Географска ширина" value={routeLat} onChange={e=>setRouteLat(e.target.value)}/><input type="number" step="any" min="-180" max="180" required placeholder="Дължина (lon)" aria-label="Географска дължина" value={routeLon} onChange={e=>setRouteLon(e.target.value)}/></div><div className="route76-grid"><select value={routeType} onChange={e=>setRouteType(e.target.value)} aria-label="Тип спирка"><option value="planned">Планирана</option><option value="unplanned">Непланирана</option></select><select value={routePosition} onChange={e=>setRoutePosition(e.target.value)} aria-label="Позиция"><option value="-1">В края</option>{routeStops.map((p,i)=><option key={i} value={i}>Преди {i+1}. {String(p.title||'').replace(/^3b:\s*/,'')}</option>)}</select></div><button type="submit" disabled={routeBusy||!routeName.trim()||!routeLat.trim()||!routeLon.trim()}>💾 Запиши спирката</button><small className="muted">Координатите се попълват при избор от търсенето. Можеш и да ги въведеш ръчно.</small></form>:<p className="muted">🔒 За старите и приключените пътувания маршрутът е само за преглед.</p>}
- {routeBusy&&<p className="muted">🔄 Проверявам и записвам…</p>}{routeMessage&&<p role="status" className="muted">{routeMessage}</p>}</div>}</div>}
+ {routeBusy&&<p className="muted" role="status">Записвам…</p>}{routeMessage&&<p role="status" className="muted">{routeMessage}</p>}</div>}</div>}
  {section==='gallery'&&<TripGallery tripId={trip.id} authHeaders={galleryAuthHeaders}/> }
 
 
@@ -2714,7 +2714,7 @@ function App(){
  const [selectedExpenseAction,setSelectedExpenseAction]=useState(null);
  const [modal,setModal]=useState('');const [name,setName]=useState('');const [start,setStart]=useState('');const [end,setEnd]=useState('');const [car,setCar]=useState(false);
  const [amount,setAmount]=useState('');const [category,setCategory]=useState(categories[0]);const [desc,setDesc]=useState('');const [task,setTask]=useState('');
- const [budget,setBudget]=useState('');const [tab,setTab]=useState('overview');const [dashboard,setDashboard]=useState(null);const [showFinished,setShowFinished]=useState(false);const [homePlaces,setHomePlaces]=useState([]);
+ const [budget,setBudget]=useState('');const [tab,setTab]=useState('overview');const [dashboard,setDashboard]=useState(null);const [neonLatest,setNeonLatest]=useState(null);const [showFinished,setShowFinished]=useState(false);const [homePlaces,setHomePlaces]=useState([]);
  // Retry only transient connection/server errors. Authentication and client errors must not be retried.
  async function reqWithRetry(path,attempts=3){
   let lastError;
@@ -3115,6 +3115,22 @@ function App(){
   document.addEventListener('visibilitychange',onVisibility);
   return()=>{disposed=true;window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility)};
  },[key,current,modal,authMode,p980Sources.active.join('|')]);
+ // P99.27: show latest expense from the current Neon source, never the Drive dashboard.
+ // A failed read hides the card rather than presenting stale financial activity.
+ useEffect(()=>{
+  if(!key){setNeonLatest(null);return;}
+  let live=true;
+  const update=async()=>{
+   try{
+    const response=await req('/safe/neon/latest-expense');
+    if(live)setNeonLatest(response?.ok&&response.activity?response.activity:null);
+   }catch(_error){if(live)setNeonLatest(null)}
+  };
+  void update();
+  const focus=()=>{if(document.visibilityState==='visible')void update()};
+  window.addEventListener('focus',focus);
+  return()=>{live=false;window.removeEventListener('focus',focus)};
+ },[key,current,modal]);
  // P98.3: the total on Home must not come from a legacy Drive dashboard
  // once the test trip or a real trip has an authoritative Neon snapshot.
  // Unverified Neon sources render an indeterminate total, never stale Drive money.
@@ -3340,7 +3356,7 @@ function App(){
  {Object.values(expenseDrafts).some(hasExpenseChanges)&&<div className="p27-home-warning">● Сумите за пътуванията включват временни промени. Те ще изчезнат при презареждане. Google Drive не е променен.</div>}
  <style>{`.p9917-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:9px;margin:12px 0}.p9917-counts{display:flex;gap:14px;font-size:12px;opacity:.83}.p9917-counts b{font-size:18px;margin-right:4px}.p9917-switch{display:flex;padding:3px;border-radius:12px;background:rgba(96,125,145,.2);gap:3px}.p9917-switch button{border:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;padding:8px 11px!important;border-radius:9px!important;font-size:12px!important}.p9917-switch button.active{background:rgba(74,180,219,.28)!important;box-shadow:inset 0 0 0 1px rgba(85,194,232,.55)!important}.p9917-map-block{border:1px solid var(--line,#415466);border-radius:16px;overflow:hidden;background:#1c3041}.p9917-map{height:clamp(260px,48vw,420px);width:100%;z-index:0}.p9917-map-hint{font-size:11px;padding:8px 12px;margin:0;color:#bed0df;background:#243745}.p9917-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:11px;margin-top:12px}.p9917-strip{display:flex;overflow:auto;gap:10px;margin-top:12px;padding-bottom:9px;scroll-snap-type:x proximity}.p9917-card{border:1px solid var(--line,#415466)!important;background:rgba(120,145,160,.08)!important;color:inherit!important;border-radius:15px!important;min-width:0;padding:0!important;display:flex;flex-direction:column;overflow:hidden;text-align:left!important;box-shadow:none!important;cursor:pointer;scroll-snap-align:start}.p9917-strip .p9917-card{min-width:185px;width:185px;flex:none}.p9917-card.p9917-selected{border-color:#65c9ed!important;box-shadow:0 0 0 1px #65c9ed55!important}.p9917-card-visual{height:83px;width:100%;display:flex;align-items:center;justify-content:center;position:relative;background:linear-gradient(135deg,#173d50,#335a6b 53%,#214057);color:#82daf3}.p9917-card:nth-child(3n+2) .p9917-card-visual{background:linear-gradient(135deg,#233958,#455c78,#243f59)}.p9917-card:nth-child(3n+3) .p9917-card-visual{background:linear-gradient(135deg,#304a47,#52716a,#304f5b)}.p9917-number{position:absolute;top:10px;left:12px;font-size:12px;letter-spacing:1px;font-weight:700;color:#d4e5ef}.p9917-heart{position:absolute;top:9px;right:12px;color:#ff9eaf;font-size:18px}.p9917-card-info{display:flex;flex-direction:column;gap:5px;padding:11px;min-width:0;width:100%;box-sizing:border-box}.p9917-card-info strong{font-size:13px;line-height:1.3;overflow-wrap:anywhere}.p9917-card-info small{font-size:11px;opacity:.72;overflow-wrap:anywhere}.p9917-coords{font-size:10px;opacity:.55}.p9917-detail{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:13px;margin-top:9px;border:1px solid rgba(101,201,237,.37);background:rgba(101,201,237,.08);border-radius:13px}.p9917-detail>div{display:flex;flex-direction:column;gap:4px;min-width:0}.p9917-detail small{font-size:10px;letter-spacing:.8px;opacity:.68}.p9917-detail strong{font-size:15px;overflow-wrap:anywhere}.p9917-detail span{font-size:11px;opacity:.75}.p9917-detail a{border-radius:10px;padding:10px 12px;background:rgba(77,171,207,.2);font-size:12px;color:inherit;text-decoration:none}@media(max-width:440px){.p9917-toolbar{align-items:flex-start}.p9917-counts{width:100%}.p9917-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.p9917-strip .p9917-card{width:160px;min-width:160px}.p9917-map{height:300px}.p9917-card-visual{height:70px}}`}</style>
  <div className="p9162-home-insights">
- {dashboard?.last_activity&&<LatestActivityCard activity={dashboard.last_activity}/>}
+ <LatestActivityCard activity={neonLatest}/>
  <div className="home-extra"><div className="home-extra-title">📊 БЪРЗ ПОГЛЕД</div><div className="home-stats"><div><strong>{dashboard?.trips??trips.length}</strong><small>ПЪТУВАНИЯ</small></div><div><strong>{p983HomeSpent===null?'…':money(p983HomeSpent)}</strong><small>РАЗХОДИ</small></div><div><strong>{Number(dashboard?.km||0).toLocaleString('bg-BG')}</strong><small>КМ</small></div></div></div>
  </div>
 
