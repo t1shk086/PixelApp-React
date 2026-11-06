@@ -2103,7 +2103,7 @@ function LatestActivityCard({activity}){
  const category=String(activity.category||'Действие');
  const title=String(activity.description||category);
  const expenseCategory=activity.dataset==='expenses'?String(activity.expense_category||'').trim():'';
- const leading=expenseCategory||activity.action_label||'Действие';
+ const leading=activity.dataset==='expenses'&&activity.action==='deleted'?'Изтрит разход':expenseCategory||activity.action_label||'Действие';
  const icon=activity.dataset==='expenses'?'💳':activity.dataset==='tasks'?'☑️':activity.dataset==='points'?'📍':activity.dataset==='budgets'?'📊':'✎';
  const when=activity.happened_at?new Date(activity.happened_at):null;
  const whenText=when&&!Number.isNaN(when.getTime())?when.toLocaleString('bg-BG',{dateStyle:'short',timeStyle:'short'}):'';
