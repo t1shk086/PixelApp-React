@@ -5137,7 +5137,8 @@ def p9928_latest_neon_activity():
               payload.get('name') or payload.get('task') or label).strip()[:120]
     return {'ok':True,'source':'neon_events','activity':{
         'trip_id':trip_id,'trip':trip_id.replace('_',' '),
-        'category':label,'action':action,'action_label':verb,
+        'category':label,'expense_category':str(payload.get('category') or '').strip() if dataset=='expenses' else None,
+        'action':action,'action_label':verb,
         'description':title,'happened_at':happened_at.isoformat(),
         'amount':payload.get('amount') if dataset=='expenses' else None,
         'dataset':dataset}}
