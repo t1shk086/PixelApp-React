@@ -1717,3 +1717,22 @@ html:not([data-pixelapp-skin="liquid"]) .p915-swipe > .home-trip {
   margin: 0 !important;
   margin-block: 0 !important;
 }
+
+/* P99.44 — compact UI polish (presentation only; no data handlers changed) */
+.p38-comparison{border-radius:24px;padding:clamp(14px,3vw,23px);border:1px solid color-mix(in srgb,var(--skin-border,#69b7d1) 55%,transparent);box-shadow:0 16px 35px #0003}
+.p38-comparison-head{align-items:center;margin-bottom:15px}
+.p38-comparison-head h2{font-size:clamp(21px,5vw,27px);letter-spacing:-.6px;margin:2px 0}
+.p38-toggle{padding:4px;border-radius:16px;background:#08172270;border:1px solid #91c7d229;gap:4px}
+.p38-toggle button{border-radius:12px;min-height:42px;border:1px solid transparent;font-weight:750}
+.p38-toggle button.active{background:linear-gradient(145deg,#276d80,#16425b);border-color:#8ce2e77a;box-shadow:0 4px 11px #0003}
+.p38-compare-bars{gap:12px;margin-top:15px}
+.p38-compare-row{padding:12px 13px;border:1px solid #85b9d12e;border-radius:15px;background:linear-gradient(120deg,#ffffff0c,#ffffff03)}
+.p38-compare-row-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-weight:650}
+.p38-compare-track{height:7px;margin-top:10px;background:#7699ae2a}
+.p38-compare-result{border-radius:17px;background:linear-gradient(135deg,#264857a8,#183040a8);padding:15px}
+.p39-compare-section .p38-compare-launch{min-height:63px;align-items:center}
+.p39-compare-section .p38-compare-launch small{display:none}
+.visual-gauges>div>small:last-child{font-size:clamp(10px,2.5vw,12px);line-height:1.35;text-align:center;max-width:100%;overflow-wrap:anywhere}
+.pixelapp-settings-group h4{margin-bottom:12px}
+.gallery-p91-head .muted:empty{display:none}
+@media(max-width:480px){.p38-comparison{padding:14px}.p38-compare-row{padding:11px}.p38-comparison-head .ghost{font-size:11px}}
