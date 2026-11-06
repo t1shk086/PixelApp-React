@@ -730,7 +730,8 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   finally{setBusy(false)}
  }
   const startKm=Number(settings.start_km||0);
-  const canEditStartKm=!locked && !(workspace?.records?.expenses||[]).some(r=>String(r.data?.current_km||'').trim()!=='' || Number(r.data?.liters||0)>0);
+  const startKmBlockers=(workspace?.records?.expenses||[]).filter(r=>String(r.data?.current_km??'').trim()!=='' || Number(String(r.data?.liters??'0').replace(',','.'))>0);
+  const canEditStartKm=!locked && startKmBlockers.length===0;
   const startKmValid=/^\d{1,7}$/.test(startKmDraft) && Number.isSafeInteger(Number(startKmDraft));
   async function saveStartKm(e){
    e.preventDefault();if(!canEditStartKm||!startKmValid||busy||Number(startKmDraft)===startKm)return;
@@ -910,7 +911,7 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   <div className="dialoghead"><h3>⚙️ Настройки на пътуването</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
   <button type="button" className="p26-return" onClick={onClose}>← Назад към пътуването</button>
   <div className="p21-section"><h4>🚗 Автомобил</h4><p>Начални километри: <b>{Number(settings.start_km||0).toLocaleString('bg-BG')} км</b></p>
-  {canEditStartKm?<form onSubmit={saveStartKm}><label>Начален километраж<input type="number" inputMode="numeric" min="0" max="9999999" step="1" value={startKmDraft} onChange={e=>setStartKmDraft(e.target.value)} disabled={busy} required/></label><button type="submit" disabled={busy||!startKmValid||Number(startKmDraft)===startKm}>{busy?'Записвам…':'Запази началните км'}</button></form>:<p className="muted">Началните километри не могат да се променят след първото зареждане или при приключено пътуване.</p>}
+  {canEditStartKm?<form onSubmit={saveStartKm}><label>Начален километраж<input type="number" inputMode="numeric" min="0" max="9999999" step="1" value={startKmDraft} onChange={e=>setStartKmDraft(e.target.value)} disabled={busy} required/></label><button type="submit" disabled={busy||!startKmValid||Number(startKmDraft)===startKm}>{busy?'Записвам…':'Запази началните км'}</button></form>:<div className="muted"><p>{locked?'Началният километраж е заключен, защото пътуването е приключено или данните още не са готови.':'Началният километраж е заключен от следните налични записи в Neon:'}</p>{!locked&&startKmBlockers.slice(0,5).map((r,i)=><p key={r.row_id||r.id||i} style={{overflowWrap:'anywhere'}}>• {String(r.data?.description||'Запис без описание')} · {String(r.data?.date||'без дата')} · {String(r.data?.current_km||'').trim()?'км '+r.data.current_km:''} {Number(String(r.data?.liters??'0').replace(',','.'))>0?'· '+r.data.liters+' л':''}</p>)}{!locked&&startKmBlockers.length>5&&<p>И още {startKmBlockers.length-5} записа.</p>}<p>Не премахвай данни на сляпо. Ако зареждането вече е изтрито, провери дали това не е друг останал запис.</p></div>}
 
   <form onSubmit={e=>save('track_fuel',e)}><label>Проследяване на гориво<select value={track} onChange={e=>setTrack(e.target.value)} disabled={busy||locked}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label><button type="submit" disabled={busy||locked||track===settings.track_fuel}>Запази настройката</button></form></div>
   <div className="p21-section"><h4>⛽ Пропуснато гориво</h4>
