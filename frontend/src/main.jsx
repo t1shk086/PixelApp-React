@@ -730,8 +730,7 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   finally{setBusy(false)}
  }
   const startKm=Number(settings.start_km||0);
-  const startKmBlockers=(workspace?.records?.expenses||[]).filter(r=>String(r.data?.current_km??'').trim()!=='' || Number(String(r.data?.liters??'0').replace(',','.'))>0);
-  const canEditStartKm=!locked && startKmBlockers.length===0;
+  const canEditStartKm=!locked && !(workspace?.records?.expenses||[]).some(r=>Number(r.data?.current_km||0)>0 || Number(r.data?.liters||0)>0);
   const startKmValid=/^\d{1,7}$/.test(startKmDraft) && Number.isSafeInteger(Number(startKmDraft));
   async function saveStartKm(e){
    e.preventDefault();if(!canEditStartKm||!startKmValid||busy||Number(startKmDraft)===startKm)return;
@@ -911,7 +910,7 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
   <div className="dialoghead"><h3>⚙️ Настройки на пътуването</h3><button type="button" className="ghost" onClick={onClose}>✕</button></div>
   <button type="button" className="p26-return" onClick={onClose}>← Назад към пътуването</button>
   <div className="p21-section"><h4>🚗 Автомобил</h4><p>Начални километри: <b>{Number(settings.start_km||0).toLocaleString('bg-BG')} км</b></p>
-  {canEditStartKm?<form onSubmit={saveStartKm}><label>Начален километраж<input type="number" inputMode="numeric" min="0" max="9999999" step="1" value={startKmDraft} onChange={e=>setStartKmDraft(e.target.value)} disabled={busy} required/></label><button type="submit" disabled={busy||!startKmValid||Number(startKmDraft)===startKm}>{busy?'Записвам…':'Запази началните км'}</button></form>:<div className="muted"><p>{locked?'Началният километраж е заключен, защото пътуването е приключено или данните още не са готови.':'Началният километраж е заключен от следните налични записи в Neon:'}</p>{!locked&&startKmBlockers.slice(0,5).map((r,i)=><p key={r.row_id||r.id||i} style={{overflowWrap:'anywhere'}}>• {String(r.data?.description||'Запис без описание')} · {String(r.data?.date||'без дата')} · {String(r.data?.current_km||'').trim()?'км '+r.data.current_km:''} {Number(String(r.data?.liters??'0').replace(',','.'))>0?'· '+r.data.liters+' л':''}</p>)}{!locked&&startKmBlockers.length>5&&<p>И още {startKmBlockers.length-5} записа.</p>}<p>Не премахвай данни на сляпо. Ако зареждането вече е изтрито, провери дали това не е друг останал запис.</p></div>}
+  {canEditStartKm?<form onSubmit={saveStartKm}><label>Начален километраж<input type="number" inputMode="numeric" min="0" max="9999999" step="1" value={startKmDraft} onChange={e=>setStartKmDraft(e.target.value)} disabled={busy} required/></label><button type="submit" disabled={busy||!startKmValid||Number(startKmDraft)===startKm}>{busy?'Записвам…':'Запази началните км'}</button></form>:<p className="muted">Началните километри не могат да се променят след първото зареждане или при приключено пътуване.</p>}
 
   <form onSubmit={e=>save('track_fuel',e)}><label>Проследяване на гориво<select value={track} onChange={e=>setTrack(e.target.value)} disabled={busy||locked}><option>Да</option><option>Не</option><option>Добави впоследствие</option></select></label><button type="submit" disabled={busy||locked||track===settings.track_fuel}>Запази настройката</button></form></div>
   <div className="p21-section"><h4>⛽ Пропуснато гориво</h4>
@@ -1449,7 +1448,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  return <div className="travel-detail">
  <style>{`.travel-detail .p9912-expense-heading{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important}.travel-detail .p9912-expense-heading h3{margin:0!important;min-width:0!important}.travel-detail .p9912-add-expense{width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;padding:0!important;border-radius:50%!important;border:1px solid rgba(103,212,245,.34)!important;background:rgba(52,150,189,.18)!important;color:var(--text,#eaf3fb)!important;box-shadow:none!important;cursor:pointer!important;flex-shrink:0!important}.travel-detail .p9912-add-expense:hover{background:rgba(52,150,189,.29)!important}.travel-detail .p9912-add-expense:focus-visible{outline:2px solid #67d4f5!important;outline-offset:2px!important}.travel-detail .p9912-add-expense:disabled{opacity:.45!important;cursor:not-allowed!important}.travel-detail h3.p997-section-title{font-family:inherit!important;font-size:18px!important;line-height:1.35!important;font-weight:750!important;letter-spacing:0!important;text-transform:none!important;margin:0 0 14px!important;color:var(--text,#eaf3fb)!important}.travel-detail .p29-expense-heading h3.p997-section-title,.travel-detail .p36-budget-head h3.p997-section-title,.travel-detail .gallery-p91-head h3.p997-section-title,.travel-detail .route82-header h3.p997-section-title{margin-bottom:0!important}.travel-detail .p29-expense-heading,.travel-detail .route82-header{align-items:center!important}.travel-detail .p29-expense-heading>span{display:none!important}.travel-detail .route82-header>div{min-width:0}.travel-detail .route82-header .p997-section-title{font-size:18px!important}.travel-detail h3.p997-section-title::before,.travel-detail h3.p997-section-title::after{content:none!important}`}</style>
  <style>{`.travel-detail .p9910-trip-gear{appearance:none!important;-webkit-appearance:none!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;padding:0!important;margin:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:36px!important;height:36px!important;min-width:36px!important;line-height:1!important;color:inherit!important;cursor:pointer!important}.travel-detail .p9910-trip-gear:focus-visible{outline:2px solid #67d4f5!important;outline-offset:2px!important}.travel-detail .p9910-trip-gear:disabled{opacity:.45!important;cursor:not-allowed!important}`}</style>
- <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon p9910-trip-gear" type="button" disabled={previewReadOnly||(neonTripId==='Livigno_Italy'&&!neonPrimaryWritable)} onClick={()=>{if(neonTripId==='Livigno_Italy'){if(!neonPrimaryWritable){setP942Error('Изчакай проверката на Neon за Livigno, преди да редактираш настройките.');return;}if(!p942Data?.records?.settings){setP942Error('Настройките от Neon още не са заредени. Обнови пътуването и опитай отново.');void p942Reload();return;}setP952CarOpen(true);return;}if(p942Test){if(!p942Data?.records?.settings){setP942Error('Настройките от Neon още не са заредени.');void p942Reload();return;}setP952CarOpen(true)}else onOpenPreview('trip-demo')}} title="Настройки на пътуването" aria-label="Настройки на пътуването"><Settings size={23} strokeWidth={2.2} aria-hidden="true"/></button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
+ <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon p9910-trip-gear" type="button" disabled={previewReadOnly} onClick={()=>p942Test?setP952CarOpen(true):onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването"><Settings size={23} strokeWidth={2.2} aria-hidden="true"/></button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
  
  {!p942Test&&p934Active&&<div className="travel-card" role="status">⚡ P93.4.1 · Данни от Neon (само преглед). Drive остава основният източник. За редакция се върни към Drive.</div>}
  {!p942Test&&p932Active&&<div className="travel-card" role="status">⚡ P93.5 · Редакции през провереното P93.2 Neon копие. Само тестовото пътуване; Drive и оригиналното P93.0 копие не се променят.</div>}
@@ -2665,21 +2664,7 @@ function App(){
     }
     setAuthMode(x.mode);
    })
-   .catch(err=>{
-    if(!live)return;
-    // A slow /auth/config is not proof that an existing account session is invalid.
-    // Retain the account UI and session token; every protected API request still
-    // validates the token on the server. New unauthenticated logins still show error.
-    const existingAccountSession=sessionStorage.getItem('pixel_auth_session');
-    if(existingAccountSession){
-     setAuthMode('accounts');
-     setKey(existingAccountSession);
-     setAuthConfigError('');
-    }else{
-     setAuthConfigError(`Не успях да проверя режима на вход от сървъра (${String(err.message||err)}).`);
-     setAuthMode('error');setKey('');
-    }
-   });
+   .catch(err=>{if(live){setAuthConfigError(`Не успях да проверя режима на вход от сървъра (${String(err.message||err)}).`);setAuthMode('error');setKey('');}});
   return()=>{live=false};
  },[authRetry]);
  const newTestTripId='ТЕСТ_НОВО_–_PixelApp';
