@@ -5069,54 +5069,78 @@ def p980_active_primary_trips():
             ids = sorted(x[0] for x in cur.fetchall() if x[0] in _P978_REAL_TRIPS or _neon_is_new_trip(x[0]))
     return {'ok': True, 'active_trip_ids': ids}
 
-# P99.27 — a read-only Neon-backed latest expense for the home screen.
-# The old /dashboard is Drive-backed and must not be used for this card.
-@app.get('/safe/neon/latest-expense', dependencies=[Depends(authorize)])
-def p9927_latest_neon_expense():
+# P99.28 — audit future, COMMITTED Neon row mutations, never infer a
+# "last action" from the date typed into a historical expense.
+# The trigger executes in the same transaction as the user change, so failed
+# writes and optimistic-lock conflicts cannot create fake activities.
+def _p9928_activity_schema(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_neon_activity_events (
+        event_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        trip_id TEXT NOT NULL,
+        dataset TEXT NOT NULL,
+        action TEXT NOT NULL,
+        row_id TEXT NOT NULL,
+        payload JSONB,
+        happened_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+    )""")
+    cur.execute("""SELECT 1 FROM pg_trigger
+        WHERE tgname='pixelapp_neon_activity_trigger' AND tgrelid='pixelapp_p932_rows'::regclass""")
+    if not cur.fetchone():
+        cur.execute("""CREATE OR REPLACE FUNCTION pixelapp_neon_capture_activity()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' THEN
+        INSERT INTO pixelapp_neon_activity_events(trip_id,dataset,action,row_id,payload)
+        VALUES(NEW.trip_id,NEW.dataset,'added',NEW.row_id,NEW.payload);
+      ELSIF TG_OP = 'DELETE' THEN
+        INSERT INTO pixelapp_neon_activity_events(trip_id,dataset,action,row_id,payload)
+        VALUES(OLD.trip_id,OLD.dataset,'deleted',OLD.row_id,OLD.payload);
+      ELSIF NEW.payload IS DISTINCT FROM OLD.payload THEN
+        INSERT INTO pixelapp_neon_activity_events(trip_id,dataset,action,row_id,payload)
+        VALUES(NEW.trip_id,NEW.dataset,'edited',NEW.row_id,NEW.payload);
+      END IF;
+      RETURN NULL;
+    END $$""")
+        cur.execute("""CREATE TRIGGER pixelapp_neon_activity_trigger
+            AFTER INSERT OR UPDATE OR DELETE ON pixelapp_p932_rows
+            FOR EACH ROW EXECUTE FUNCTION pixelapp_neon_capture_activity()""")
+
+@app.get('/safe/neon/latest-activity', dependencies=[Depends(authorize)])
+def p9928_latest_neon_activity():
+    # First read activates auditing. Old data stays intact and is NOT treated as
+    # a recently performed action. New writes are captured after this point.
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
+            _p9928_activity_schema(cur)
             cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
-            has_cutovers = cur.fetchone()[0] is not None
             ids = [_P932_TRIP]
-            if has_cutovers:
+            if cur.fetchone()[0]:
                 cur.execute("SELECT trip_id FROM pixelapp_p970_cutovers WHERE status='active'")
-                ids.extend(x[0] for x in cur.fetchall())
-            ids = list(dict.fromkeys(ids))
-            cur.execute("""SELECT r.trip_id, r.payload, r.row_order, w.updated_at
-                FROM pixelapp_p932_rows r
-                JOIN pixelapp_p932_workspaces w ON w.trip_id = r.trip_id
-                WHERE r.dataset = 'expenses' AND r.trip_id = ANY(%s)
-                ORDER BY r.trip_id, r.row_order DESC""", (ids,))
-            rows = cur.fetchall()
-    latest = None
-    latest_sort = None
-    for trip_id, expense, order, updated_at in rows:
-        if not isinstance(expense, dict) or expense.get('type') not in ('expense', 'deposit'):
-            continue
-        raw = str(expense.get('date') or '').strip()
-        stamp = None
-        for fmt in ('%d.%m.%Y %H:%M:%S', '%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%d'):
-            try:
-                stamp = datetime.strptime(raw, fmt)
-                break
-            except ValueError:
-                continue
-        if stamp is None:
-            continue
-        # Old rows carry an expense date but no per-row creation timestamp.
-        # Tie-breaks are best effort, never represented as an exact save time.
-        sort_key = (stamp, updated_at.isoformat() if updated_at else '', int(order or 0))
-        if latest_sort is None or sort_key > latest_sort:
-            latest_sort = sort_key
-            try:
-                amount = float(str(expense.get('amount') or '0').replace(',', '.'))
-            except (TypeError, ValueError):
-                amount = 0.0
-            latest = {'trip': trip_id.replace('_', ' '), 'trip_id': trip_id,
-                      'description': str(expense.get('description') or ''),
-                      'category': str(expense.get('category') or ''),
-                      'amount': amount, 'date': raw}
-    return {'ok': True, 'source': 'neon', 'activity': latest}
+                ids.extend(row[0] for row in cur.fetchall())
+            ids=list(dict.fromkeys(ids))
+            cur.execute("""SELECT trip_id,dataset,action,payload,happened_at
+                FROM pixelapp_neon_activity_events
+                WHERE trip_id = ANY(%s)
+                ORDER BY event_id DESC LIMIT 1""", (ids,))
+            hit=cur.fetchone()
+        conn.commit()
+    if not hit:
+        return {'ok':True,'source':'neon_events','activity':None}
+    trip_id, dataset, action, payload, happened_at=hit
+    payload=payload if isinstance(payload,dict) else {}
+    label={'expenses':'Разходи','tasks':'Задачи','budgets':'Бюджет',
+           'points':'Места','categories':'Категории',
+           'settings':'Настройки'}.get(dataset,dataset)
+    verb={'added':'Добавено','edited':'Променено','deleted':'Изтрито'}.get(action,action)
+    # Do not expose the old expense *date* as the moment of the action.
+    title=str(payload.get('description') or payload.get('title') or
+              payload.get('name') or payload.get('task') or label).strip()[:120]
+    return {'ok':True,'source':'neon_events','activity':{
+        'trip_id':trip_id,'trip':trip_id.replace('_',' '),
+        'category':label,'action':action,'action_label':verb,
+        'description':title,'happened_at':happened_at.isoformat(),
+        'amount':payload.get('amount') if dataset=='expenses' else None,
+        'dataset':dataset}}
 
 
 @app.get('/safe/neon/managed-source/{trip_id}', dependencies=[Depends(authorize)])
