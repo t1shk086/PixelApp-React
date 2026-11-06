@@ -5464,7 +5464,7 @@ def p954_finish_safety(trip_id: str):
 # remain unchanged. No initial-tank-fuel field, and no trip completion here.
 class P952FuelAction(BaseModel):
     trip_id: str
-    operation: str  # refuel, missed, track_fuel
+    operation: str  # refuel, missed, track_fuel, start_km
     expected_revision: int
     amount: str = '0'
     liters: str = '0'
@@ -5473,12 +5473,13 @@ class P952FuelAction(BaseModel):
     description: str = ''
     track_fuel: str = ''
     end_km: str = ''
+    start_km: str = ''
     confirmation: str = ''
 
 @app.post('/safe/neon/car-action', dependencies=[Depends(authorize)])
 def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
     _p941_write_allowed(change.trip_id)
-    if change.operation not in ('refuel', 'missed', 'track_fuel', 'finish') or change.expected_revision < 1:
+    if change.operation not in ('refuel', 'missed', 'track_fuel', 'start_km', 'finish') or change.expected_revision < 1:
         raise HTTPException(422, 'Невалидна автомобилна операция или версия.')
     from psycopg.types.json import Jsonb
     from decimal import Decimal, InvalidOperation
@@ -5501,6 +5502,12 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
             raise HTTPException(422, 'Невалиден километраж.')
         if len(change.description) > 250:
             raise HTTPException(422, 'Описанието е твърде дълго.')
+    if change.operation == 'start_km':
+        if not re.fullmatch(r'[0-9]{1,7}', str(change.start_km)):
+            raise HTTPException(422, 'Началният километраж трябва да е цяло неотрицателно число.')
+        requested_start_km = int(change.start_km)
+        if change.confirmation != 'ПОТВЪРДИ НАЧАЛНИТЕ КИЛОМЕТРИ':
+            raise HTTPException(422, 'Липсва потвърждение за промяната.')
     if change.operation == 'track_fuel' and change.track_fuel not in ('Да', 'Не', 'Добави впоследствие'):
         raise HTTPException(422, 'Невалидна настройка за проследяване на гориво.')
     if change.operation == 'finish':
@@ -5526,7 +5533,16 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
                 raise HTTPException(409, 'Пътуването не е с автомобил.')
             if str(settings.get('trip_finished', '')).lower() == 'да' or numeric(settings.get('end_km') or '0', 100000000, True) > 0:
                 raise HTTPException(409, 'Пътуването е приключено.')
-            if change.operation == 'finish':
+            if change.operation == 'start_km':
+                # Changing the baseline after fuel or odometer records changes the
+                # meaning of historical consumption. Refuse rather than rewrite history.
+                cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'", (change.trip_id,))
+                existing_rows = [item[0] for item in cur.fetchall()]
+                if any(str(r.get('current_km') or '').strip() or numeric(r.get('liters') or '0', 100000000, True) > 0 for r in existing_rows):
+                    raise HTTPException(409, 'Началният километраж може да се промени само преди първото зареждане или записани литри.')
+                settings['start_km'] = str(requested_start_km)
+                cur.execute("UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset='settings' AND row_id=%s", (Jsonb(settings),change.trip_id,settings_id))
+            elif change.operation == 'finish':
                 start = numeric(settings.get('start_km') or '0', 100000000, True)
                 cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'", (change.trip_id,))
                 last_km = start
