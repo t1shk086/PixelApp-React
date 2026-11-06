@@ -3937,7 +3937,7 @@ def p932_change(change:P924Change, background_tasks:BackgroundTasks):
             if not cur.fetchone():raise HTTPException(409,'Първо подготви P93.2 копие.')
             cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",(change.trip_id,))
             st=cur.fetchone()
-            if st and (str(st[0].get('trip_finished','')).lower()=='да' or float(st[0].get('end_km') or 0)>0):
+            if st and _p9941_locked(st[0]):
                 raise HTTPException(409,'Тестовото пътуване е приключено и заключено.')
             if change.operation=='add':
                 rid=uuid.uuid4().hex
@@ -4235,7 +4235,7 @@ def p938_test_budget(change:P938BudgetChange, background_tasks:BackgroundTasks):
                 raise HTTPException(409,'Пътуването е променено от другия профил. Обнови и опитай пак.')
             cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",(change.trip_id,))
             st=cur.fetchone()
-            if st and (str(st[0].get('trip_finished','')).lower()=='да' or float(st[0].get('end_km') or 0)>0):
+            if st and _p9941_locked(st[0]):
                 raise HTTPException(409,'Тестовото пътуване е приключено и заключено.')
             cur.execute("DELETE FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='budgets'",(change.trip_id,))
             for i,row in enumerate(rows):
@@ -4493,8 +4493,20 @@ def neon_shared_expense(change: P924Change, background_tasks: BackgroundTasks):
                 raise HTTPException(409, 'Първо подготви Neon работното копие.')
             cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'", (change.trip_id,))
             settings = cur.fetchone()
-            if settings and (str(settings[0].get('trip_finished','')).lower()=='да' or float(settings[0].get('end_km') or 0)>0):
+            if settings and _p9941_locked(settings[0]):
                 raise HTTPException(409, 'Завършеното пътуване е заключено.')
+            if settings and _p9941_finished(settings[0]) and change.operation != 'delete':
+                # A correction to an ended trip may not add a reading beyond
+                # the final odometer. Regular expense rows with km=0 are fine.
+                raw_km = str(change.row.get('current_km') or '').strip()
+                if raw_km:
+                    try:
+                        reading = Decimal(raw_km.replace(',', '.'))
+                        ending = Decimal(str(settings[0].get('end_km') or '0').replace(',', '.'))
+                    except (ValueError, InvalidOperation):
+                        raise HTTPException(422, 'Невалиден километраж.')
+                    if not reading.is_finite() or reading < 0 or reading > ending:
+                        raise HTTPException(409, 'Километражът е след края на приключеното пътуване.')
             if change.operation == 'add':
                 row_id = uuid.uuid4().hex
                 cur.execute("SELECT COALESCE(MAX(row_order),-1)+1 FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'",(change.trip_id,))
@@ -4558,8 +4570,7 @@ def neon_shared_collection(change: P924Change, background_tasks: BackgroundTasks
             cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",
                         (change.trip_id,))
             settings = cur.fetchone()
-            if settings and (str(settings[0].get('trip_finished', '')).lower() == 'да' or
-                             float(settings[0].get('end_km') or 0) > 0):
+            if settings and _p9941_locked(settings[0]):
                 raise HTTPException(409, 'Завършеното пътуване е заключено.')
             if change.operation == 'add':
                 row_id = uuid.uuid4().hex
@@ -4638,8 +4649,7 @@ def neon_points_action(change: P951PointAction, background_tasks: BackgroundTask
                 raise HTTPException(409, 'Другият профил е променил данните. Обнови картата.')
             cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",(change.trip_id,))
             settings=cur.fetchone()
-            if settings and (str(settings[0].get('trip_finished','')).lower()=='да' or
-                             float(settings[0].get('end_km') or 0)>0):
+            if settings and _p9941_locked(settings[0]):
                 raise HTTPException(409,'Пътуването е приключено.')
             cur.execute("SELECT row_id,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='points' ORDER BY row_order,row_id FOR UPDATE",(change.trip_id,))
             items=[{'id':r[0], 'row':r[1], 'version':r[2]} for r in cur.fetchall()]
@@ -5163,6 +5173,91 @@ def p9928_latest_neon_activity():
 
 # P99.40: read-only temporary backup diagnostic for activated Neon trips.
 # Never starts a backup, creates schema, changes data or exposes Drive credentials.
+
+# P99.41: finished remains a historical state; a separate persisted flag
+# temporarily authorizes corrections. Never clear end_km or trip_finished.
+def _p9941_finished(settings):
+    return str(settings.get('trip_finished','')).strip().casefold() == 'да' or float(settings.get('end_km') or 0) > 0
+
+def _p9941_locked(settings):
+    return _p9941_finished(settings) and settings.get('temporary_unlocked') is not True
+
+class P9941UnlockAction(BaseModel):
+    trip_id: str
+    expected_revision: int
+    unlock: bool
+    confirmation: str
+
+@app.get('/safe/neon/finished-management', dependencies=[Depends(authorize)])
+def p9941_finished_management():
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+            cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
+            if cur.fetchone()[0] is None:
+                return {'ok':True,'trips':[]}
+            cur.execute("""SELECT w.trip_id,w.revision,r.payload,b.archived_revision,b.archive_file,b.last_error
+                FROM pixelapp_p932_workspaces w
+                JOIN pixelapp_p970_cutovers c ON c.trip_id=w.trip_id AND c.status='active'
+                JOIN pixelapp_p932_rows r ON r.trip_id=w.trip_id AND r.dataset='settings'
+                LEFT JOIN pixelapp_p932_backup_state b ON b.trip_id=w.trip_id
+                ORDER BY w.trip_id""")
+            entries=cur.fetchall()
+    trips=[]
+    for tid,revision,settings,archived,archive_file,error in entries:
+        if _p9941_finished(settings):
+            trips.append({'trip_id':tid,'revision':revision,
+                'unlocked':settings.get('temporary_unlocked') is True,
+                'archive_current':bool(archive_file and archived is not None and archived>=revision and not error)})
+    return {'ok':True,'trips':trips}
+
+@app.post('/safe/neon/finished-management', dependencies=[Depends(authorize)])
+def p9941_finished_management_change(change: P9941UnlockAction, background_tasks: BackgroundTasks, actor: str = Depends(authorize)):
+    _p941_write_allowed(change.trip_id)
+    required = 'ОТКЛЮЧИ ПЪТУВАНЕТО' if change.unlock else 'ЗАКЛЮЧИ ПЪТУВАНЕТО'
+    if change.confirmation != required or change.expected_revision < 1:
+        raise HTTPException(422,'Липсва потвърждение или валидна версия.')
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
+            meta=cur.fetchone()
+            if not meta or int(meta[0])!=change.expected_revision:
+                raise HTTPException(409,'Пътуването е променено от друг профил. Обнови списъка.')
+            cur.execute("SELECT row_id,payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings' FOR UPDATE",(change.trip_id,))
+            rows=cur.fetchall()
+            if len(rows)!=1 or not _p9941_finished(rows[0][1]):
+                raise HTTPException(409,'Може да се отключи само приключено пътуване.')
+            row_id,settings=rows[0]
+            if (settings.get('temporary_unlocked') is True)==change.unlock:
+                raise HTTPException(409,'Състоянието вече е променено. Обнови списъка.')
+            # A verified backup of the currently visible revision is mandatory
+            # before unlocking an otherwise protected completed trip.
+            if change.unlock:
+                cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s',(change.trip_id,))
+                backup=cur.fetchone()
+                if not backup or not backup[1] or backup[2] or int(backup[0] or 0)<int(meta[0]):
+                    raise HTTPException(409,'Преди отключване е необходим актуален проверен Drive архив.')
+            # Append-only audit trail for the two shared profiles.
+            cur.execute('''CREATE TABLE IF NOT EXISTS pixelapp_finished_unlock_events (
+                id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                trip_id TEXT NOT NULL, actor TEXT NOT NULL,
+                unlocked BOOLEAN NOT NULL, revision_before BIGINT NOT NULL,
+                happened_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+            )''')
+            cur.execute('INSERT INTO pixelapp_finished_unlock_events(trip_id,actor,unlocked,revision_before) VALUES(%s,%s,%s,%s)',
+                        (change.trip_id,actor,change.unlock,int(meta[0])))
+            settings['temporary_unlocked']=bool(change.unlock)
+            cur.execute('UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset=%s AND row_id=%s',(Jsonb(settings),change.trip_id,'settings',row_id))
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=int(cur.fetchone()[0])
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s)
+                ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",(change.trip_id,revision))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'trip_id':change.trip_id,'revision':revision,'unlocked':change.unlock,'backup_pending':True}
+
 @app.get('/safe/neon/backup-health/{trip_id}', dependencies=[Depends(authorize)])
 def p9940_backup_health(trip_id: str):
     allowed = trip_id == _P932_TRIP or trip_id in _P978_REAL_TRIPS or _neon_is_new_trip(trip_id)
@@ -5567,8 +5662,12 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
             settings_id, settings = settings_rows[0]
             if str(settings.get('car_trip', '')).lower() != 'да':
                 raise HTTPException(409, 'Пътуването не е с автомобил.')
-            if str(settings.get('trip_finished', '')).lower() == 'да' or numeric(settings.get('end_km') or '0', 100000000, True) > 0:
+            if _p9941_locked(settings):
                 raise HTTPException(409, 'Пътуването е приключено.')
+            if change.operation == 'finish' and _p9941_finished(settings):
+                raise HTTPException(409, 'Пътуването вече е приключено. Коригирай само записите.')
+            if change.operation == 'start_km' and _p9941_finished(settings):
+                raise HTTPException(409, 'Началният километраж на приключено пътуване е защитен.')
             if change.operation == 'start_km':
                 # Changing the baseline after fuel or odometer records changes the
                 # meaning of historical consumption. Refuse rather than rewrite history.
@@ -5616,6 +5715,8 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
                                 largest = max(largest, prior)
                     # An initial fill at the trip's starting odometer is valid: 0 km
                     # have been driven. After any recorded fill, readings must rise.
+                    if _p9941_finished(settings) and Decimal(km) > numeric(settings.get('end_km') or '0', 100000000, True):
+                        raise HTTPException(409, 'Зареждането не може да е след крайния километраж на приключеното пътуване.')
                     if Decimal(km) < start or (has_prior_reading and Decimal(km) <= largest):
                         raise HTTPException(409, 'Километражът трябва да е поне началният, а след първото зареждане — над последния запис. Обнови историята.')
                     tag = '[ПЪЛНО ЗАРЕЖДАНЕ]' if change.full else '[ЧАСТИЧНО ЗАРЕЖДАНЕ]'
