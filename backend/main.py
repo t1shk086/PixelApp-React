@@ -5570,10 +5570,14 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
                     largest = start
                     has_prior_reading = False
                     for row in existing:
-                        if row.get('current_km'):
-                            prior = numeric(row['current_km'], 100000000, True)
-                            has_prior_reading = True
-                            largest = max(largest, prior)
+                        raw_km = str(row.get('current_km') or '').strip()
+                        if raw_km:
+                            prior = numeric(raw_km, 100000000, True)
+                            # Ordinary expenses and deposits may store "0" as
+                            # current_km. Zero is not a previous odometer reading.
+                            if prior > 0:
+                                has_prior_reading = True
+                                largest = max(largest, prior)
                     # An initial fill at the trip's starting odometer is valid: 0 km
                     # have been driven. After any recorded fill, readings must rise.
                     if Decimal(km) < start or (has_prior_reading and Decimal(km) <= largest):
