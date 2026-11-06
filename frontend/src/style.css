@@ -1736,3 +1736,145 @@ html:not([data-pixelapp-skin="liquid"]) .p915-swipe > .home-trip {
 .pixelapp-settings-group h4{margin-bottom:12px}
 .gallery-p91-head .muted:empty{display:none}
 @media(max-width:480px){.p38-comparison{padding:14px}.p38-compare-row{padding:11px}.p38-comparison-head .ghost{font-size:11px}}
+
+
+/* P99.45 — BLACK & GREY / LIQUID GLASS: visual only.
+   Both are opt-in; unchanged skins and storage/network logic are untouched. */
+html[data-pixelapp-skin="blackgrey"] {
+  --skin-bg:#787d83; --skin-bg2:#92969c;
+  --skin-surface:#17191e; --skin-surface2:#0c0e12;
+  --skin-tile:#24272d; --skin-border:#626871;
+  --skin-field:#202329; --skin-text:#fafbfc;
+  --skin-muted:#c9cdd3; --skin-accent:#f1f3f5;
+  --skin-accent2:#aeb7c1; --skin-glow:#ffffff18;
+  --skin-progress:linear-gradient(90deg,#979fa9,#fafafa);
+  --skin-soft:#e0e5ea; --skin-quiet:#c1c9d0;
+  --skin-hover:#34383f; --skin-outline:#c6cdd6;
+  --vehicle-top:#21242a; --vehicle-bottom:#101217;
+  --vehicle-inner:#292c33; --vehicle-edge:#686e77;
+  --vehicle-ink:#fff; --vehicle-secondary:#cbd2d9;
+  --places-bg:#171a20; --places-sub:#12151a;
+  --places-tile:#282c32; --places-line:#616a75;
+  --places-accent:#e5e9ee; --places-text:#fff; --places-muted:#cbd0d6;
+  color:#fafbfc; color-scheme:dark;
+}
+html[data-pixelapp-skin="blackgrey"] body {
+  background:radial-gradient(ellipse at 12% -20%,#b1b4b9 0%,transparent 44%),
+             linear-gradient(155deg,#95999e 0%,#797e84 62%,#666c73 100%) fixed!important;
+  color:#fafbfc;
+}
+html[data-pixelapp-skin="blackgrey"] :is(.app,.auth,.travel-detail,.dialog){color:#f7f8fa}
+html[data-pixelapp-skin="blackgrey"] :is(
+ .panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,
+ .p38-latest,.p38-comparison,.p39-compare-section,.p40-countdown,
+ .p82-shell,.p82-panel,.p82-route,.p82-favorite-panel,.p82-add-panel,
+ .p81-card,.route76-wrap,.route76-stop,.route78-stop,.map-showcase,.map-place-row,
+ .p36-budget,.budget-visual,.budget-visual-row,.budget-showcase,
+ .p29-expense-item,.p29-expense-history,.p9041-expense-card,
+ .p83-place,.p9916-library,.p37-admin-dialog,.p37-admin-content,
+ .p915-swipe>.home-trip,.p38-compare-launch) {
+  background:linear-gradient(153deg,#24272d 0%,#14161b 58%,#0c0e12 100%)!important;
+  border:1px solid #606771!important;
+  color:#f7f9fa!important;
+  box-shadow:0 13px 29px #11182070,inset 0 1px 0 #ffffff24!important;
+}
+html[data-pixelapp-skin="blackgrey"] :is(.home-stats>div,.travel-facts>div,.fuel-metrics>div,.p38-compare-row,
+ .p38-compare-result,.overview-tile,.visual-overview-stats>div,.p36-kpis>div) {
+  background:linear-gradient(145deg,#31353d,#1b1f25)!important;
+  border-color:#656d78!important;
+  color:#f8fafb!important;
+}
+html[data-pixelapp-skin="blackgrey"] :is(input,select,textarea){background:#22252b!important;border-color:#777f88!important;color:#fff!important}
+html[data-pixelapp-skin="blackgrey"] :is(input,select,textarea)::placeholder{color:#c0c7cf}
+html[data-pixelapp-skin="blackgrey"] :is(.home-actions button,.travel-menu button,.p82-tabs button,.p25-tabs button,.p38-toggle button,.p37-admin-action,button:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out)) {
+  background:linear-gradient(150deg,#343941,#1b1e24)!important;
+  color:#f8f9fa!important;border-color:#686f78!important;
+  box-shadow:inset 0 1px 0 #ffffff24,0 5px 12px #11172045;
+}
+html[data-pixelapp-skin="blackgrey"] :is(.tabs button.active,.travel-menu button.selected,.p82-tabs button.active,
+ .p82-tabs button.selected,.p25-tabs button.active,.p38-toggle button.active) {
+  background:linear-gradient(145deg,#555d66,#30353c)!important;
+  border-color:#d3d9de!important;
+  box-shadow:inset 0 -2px #e4e8ec,0 5px 14px #0004!important;
+}
+html[data-pixelapp-skin="blackgrey"] :is(.muted,.sub,small,.travel-dates,.home-trip .tripstatus,.home-trip .remaining){color:#cbd1d8!important}
+html[data-pixelapp-skin="blackgrey"] :is(.home-stats strong,.travel-facts strong,.p38-compare-row-head strong,.p38-latest-main>b){color:#f6f8fa!important}
+html[data-pixelapp-skin="blackgrey"] :is(.track>div,.travel-progress>div,.budget-visual-track span){background:var(--skin-progress)!important}
+html[data-pixelapp-skin="blackgrey"] .brand span{background:linear-gradient(120deg,#fff,#e2e5e9)!important;background-clip:text!important;color:transparent!important}
+html[data-pixelapp-skin="blackgrey"] .p38-comparison{border-color:#3d444d!important}
+html[data-pixelapp-skin="blackgrey"] .p38-toggle{background:#090b0db8}
+html[data-pixelapp-skin="blackgrey"] .leaflet-container{border-radius:14px}
+
+/* Liquid Glass: extend existing home-only treatment to all app panels and modules.
+   Keep strong text contrast and real blur only where browsers support it. */
+html[data-pixelapp-skin="liquid"] {
+ --skin-bg:#101923; --skin-bg2:#233642;
+ --skin-surface:#273741; --skin-surface2:#101d27;
+ --skin-tile:#14252f; --skin-border:#a3d7de82;
+ --skin-field:#1a2b35; --skin-text:#f7fdff;
+ --skin-muted:#c7dee4; --skin-accent:#a4f4ed;
+ --skin-accent2:#83d9e7; --skin-glow:#4fe7e12c;
+ --skin-progress:linear-gradient(90deg,#46d1c9,#c1fff4);
+ --vehicle-top:#2a3943; --vehicle-bottom:#121d27;
+ --vehicle-inner:#1c303b; --vehicle-edge:#9bbcc787;
+ --vehicle-ink:#f8ffff; --vehicle-secondary:#d0e1e6;
+ --places-bg:#21323c; --places-sub:#172832;
+ --places-tile:#14242e; --places-line:#9fc7d0;
+ --places-accent:#abfff4; --places-text:#f7ffff; --places-muted:#cee3e7;
+ color-scheme:dark;
+}
+html[data-pixelapp-skin="liquid"] body {
+  background:radial-gradient(ellipse 85% 55% at 10% -10%,#4e747f70,transparent 70%),
+             radial-gradient(ellipse 85% 50% at 110% 50%,#315e7470,transparent 75%),
+             linear-gradient(150deg,#263641,#0b141c 75%) fixed!important;
+}
+html[data-pixelapp-skin="liquid"] :is(
+ .panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,
+ .p38-latest,.p38-comparison,.p39-compare-section,.p82-shell,.p82-panel,
+ .p82-route,.p82-favorite-panel,.p82-add-panel,.p81-card,.route76-wrap,
+ .route76-stop,.route78-stop,.map-showcase,.map-place-row,.p36-budget,
+ .budget-visual,.budget-visual-row,.budget-showcase,.p29-expense-item,
+ .p29-expense-history,.p9041-expense-card,.p83-place,.p9916-library,
+ .p37-admin-dialog,.p38-compare-result,.p38-compare-row) {
+  background:linear-gradient(132deg,#d8fcff2c 0%,#a6cad017 28%,#12212dbb 72%,#11202ad9 100%)!important;
+  border:1px solid #d1f4f498!important;
+  color:#f7fcff!important;
+  box-shadow:inset 0 1.5px 1px #ffffff61,inset 0 -1px 0 #ffffff16,
+             0 12px 30px #020a12a1!important;
+  -webkit-backdrop-filter:blur(17px) saturate(125%);
+  backdrop-filter:blur(17px) saturate(125%);
+}
+html[data-pixelapp-skin="liquid"] :is(.home-stats>div,.travel-facts>div,.fuel-metrics>div,
+ .overview-tile,.visual-overview-stats>div,.p36-kpis>div){
+  background:linear-gradient(145deg,#e6ffff25,#142632b8)!important;
+  border-color:#aee7e880!important;
+  box-shadow:inset 0 1px 0 #ffffff4a,0 7px 17px #0005!important;
+}
+html[data-pixelapp-skin="liquid"] :is(input,select,textarea){background:#10232edc!important;border-color:#a6d5dc96!important;color:#f9ffff!important}
+html[data-pixelapp-skin="liquid"] :is(input,select,textarea)::placeholder{color:#c3dae0}
+html[data-pixelapp-skin="liquid"] :is(.p38-toggle button,.travel-menu button,.p82-tabs button,.p25-tabs button,.p37-admin-action){
+ background:linear-gradient(145deg,#ffffff2b,#17303bc9)!important;
+ border-color:#bce9e97a!important;
+ color:#f9ffff!important;
+ box-shadow:inset 0 1px 0 #ffffff5a,0 4px 12px #0005!important;
+}
+html[data-pixelapp-skin="liquid"] :is(.p38-toggle button.active,.travel-menu button.selected,.p82-tabs button.active,.p25-tabs button.active){
+ background:linear-gradient(145deg,#6eb9ba80,#1e535fc9)!important;
+ border-color:#c5ffff!important;
+ box-shadow:inset 0 1px #ffffff91,0 0 15px #62d7d34d!important;
+}
+html[data-pixelapp-skin="liquid"] :is(.p38-compare-row-head strong,.travel-facts strong,.home-stats strong){color:#bdfff6!important}
+html[data-pixelapp-skin="liquid"] :is(.muted,.sub,.travel-dates,.p38-hint){color:#cbe0e5!important}
+html[data-pixelapp-skin="liquid"] .p38-comparison{border-color:#b8e6e99e!important}
+html[data-pixelapp-skin="liquid"] .p38-toggle{background:#06141c99;border-color:#b6dfe34d}
+html[data-pixelapp-skin="liquid"] .p38-compare-track{background:#a5d8dc48}
+html[data-pixelapp-skin="liquid"] :is(.home-places-map,.travel-map,.leaflet-container){border-radius:16px}
+@media (prefers-reduced-transparency:reduce){
+ html[data-pixelapp-skin="liquid"] :is(.panel,.travel-card,.p38-comparison,.p82-panel){
+  background:#1b2d38!important;backdrop-filter:none;-webkit-backdrop-filter:none;
+ }
+}
+@media(max-width:480px){
+ html[data-pixelapp-skin="blackgrey"] :is(.panel,.travel-card,.p38-comparison){box-shadow:0 8px 18px #11182080!important}
+ html[data-pixelapp-skin="liquid"] :is(.panel,.travel-card,.p38-comparison){-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+}
