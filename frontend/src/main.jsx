@@ -2678,7 +2678,7 @@ function App(){
      setAuthConfigError(`Не успях да проверя режима на вход от сървъра (${String(err.message||err)}).`);
      setAuthMode('error');setKey('');
     }
-   }});
+   });
   return()=>{live=false};
  },[authRetry]);
  const newTestTripId='ТЕСТ_НОВО_–_PixelApp';
