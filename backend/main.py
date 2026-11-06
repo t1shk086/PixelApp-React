@@ -5161,6 +5161,42 @@ def p9928_latest_neon_activity():
         'dataset':dataset}}
 
 
+# P99.40: read-only temporary backup diagnostic for activated Neon trips.
+# Never starts a backup, creates schema, changes data or exposes Drive credentials.
+@app.get('/safe/neon/backup-health/{trip_id}', dependencies=[Depends(authorize)])
+def p9940_backup_health(trip_id: str):
+    allowed = trip_id == _P932_TRIP or trip_id in _P978_REAL_TRIPS or _neon_is_new_trip(trip_id)
+    if not allowed:
+        raise HTTPException(403, 'Няма разрешен Neon архив за това пътуване.')
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+            if trip_id != _P932_TRIP:
+                cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
+                if cur.fetchone()[0] is None:
+                    raise HTTPException(409, 'Пътуването още не е активирано в Neon.')
+                cur.execute('SELECT status FROM pixelapp_p970_cutovers WHERE trip_id=%s', (trip_id,))
+                state=cur.fetchone()
+                if not state or state[0]!='active':
+                    raise HTTPException(409, 'Пътуването още не е активирано в Neon.')
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s', (trip_id,))
+            live=cur.fetchone()
+            if live is None:
+                raise HTTPException(404, 'Липсват работни данни в Neon.')
+            cur.execute('SELECT wanted_revision,archived_revision,archive_file,last_error,updated_at FROM pixelapp_p932_backup_state WHERE trip_id=%s', (trip_id,))
+            backup=cur.fetchone()
+    revision=int(live[0])
+    wanted=int(backup[0]) if backup else revision
+    archived=int(backup[1]) if backup else 0
+    filename=backup[2] if backup else None
+    error=backup[3] if backup else None
+    current=bool(filename and archived>=revision and archived>=wanted and not error)
+    return {'ok':True,'trip_id':trip_id,'revision':revision,
+            'wanted_revision':wanted,'archived_revision':archived,
+            'archive_current':current,'has_verified_archive':bool(filename),
+            'last_error':error,
+            'last_status_at':backup[4].isoformat() if backup and backup[4] else None}
+
 @app.get('/safe/neon/managed-source/{trip_id}', dependencies=[Depends(authorize)])
 def p970_managed_source(trip_id: str):
     # P97.3: test trip uses precisely the same read contract as the real canary.
