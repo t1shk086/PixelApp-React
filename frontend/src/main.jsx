@@ -2664,7 +2664,21 @@ function App(){
     }
     setAuthMode(x.mode);
    })
-   .catch(err=>{if(live){setAuthConfigError(`Не успях да проверя режима на вход от сървъра (${String(err.message||err)}).`);setAuthMode('error');setKey('');}});
+   .catch(err=>{
+    if(!live)return;
+    // A slow /auth/config is not proof that an existing account session is invalid.
+    // Retain the account UI and session token; every protected API request still
+    // validates the token on the server. New unauthenticated logins still show error.
+    const existingAccountSession=sessionStorage.getItem('pixel_auth_session');
+    if(existingAccountSession){
+     setAuthMode('accounts');
+     setKey(existingAccountSession);
+     setAuthConfigError('');
+    }else{
+     setAuthConfigError(`Не успях да проверя режима на вход от сървъра (${String(err.message||err)}).`);
+     setAuthMode('error');setKey('');
+    }
+   }});
   return()=>{live=false};
  },[authRetry]);
  const newTestTripId='ТЕСТ_НОВО_–_PixelApp';
