@@ -2982,35 +2982,38 @@ function App(){
    setP962Preview(null);setDetail(null);setP962Error('Neon прегледът е блокиран: '+String(e.message||e));
   }finally{setP962Busy(false)}
  }
- // P96.4: revalidate the first Neon-read canary when returning from another device/app.
- // Fail closed: a stale preview must never be presented as a verified current snapshot.
+ // P99.39: Livigno remains visible while a returning window checks for updates.
+ // Backend write preflights still enforce concurrent-edit protection.
  useEffect(()=>{
   if(current!==p963CanaryId||!key)return;
   let live=true;
-  const onFocus=async()=>{
-   if(document.visibilityState!=='visible'||!live)return;
-   setP962Busy(true);setP962Preview(null);setDetail(null);setP962Error('');
+  let inFlight=false;
+  let lastChecked=Date.now();
+  const checkSilently=async()=>{
+   if(!live||inFlight||modal||document.visibilityState!=='visible'||Date.now()-lastChecked<15000)return;
+   if(document.activeElement?.matches?.('input,textarea,select,[contenteditable="true"]'))return;
+   lastChecked=Date.now();inFlight=true;
    try{
-    const d=await managedRead(p963CanaryId);
-    if(!d.ok||!(['verified_pre_cutover','neon_primary_read_only','neon_primary_active'].includes(d.source_mode))||d.production_switched!==Boolean(d.write_enabled)||d.trip_id!==p963CanaryId||!d.records||d.records.settings?.length!==1)
-     throw Error('Сървърът не потвърди актуалното Neon копие.');
-    if(!live)return;
+    const d=await managedRead(p963CanaryId,true);
+    if(!live||!d?.ok||d.trip_id!==p963CanaryId||
+       !['verified_pre_cutover','neon_primary_read_only','neon_primary_active'].includes(d.source_mode)||
+       d.production_switched!==Boolean(d.write_enabled)||d.records?.settings?.length!==1)return;
     const r=d.records;
     const verified={settings:r.settings[0],expenses:r.expenses||[],budgets:r.budgets||[],tasks:r.tasks||[],points:r.points||[],categories:r.categories||[]};
-    setP962Preview({tripId:p963CanaryId,revision:d.revision,archiveRevision:d.archive_revision,sourceMode:d.source_mode,writeEnabled:d.write_enabled===true,detail:verified});
+    if(p962Preview?.tripId!==p963CanaryId)return;
+    if(p962Preview.revision===d.revision&&p962Preview.archiveRevision===d.archive_revision&&p962Preview.writeEnabled===(d.write_enabled===true))return;
     setDetail(verified);
-   }catch(e){if(live){setP962Error('Neon проверката при връщане е блокирана: '+String(e.message||e));setP962Preview(null);setDetail(null)}}
-   finally{if(live)setP962Busy(false)}
+    setP962Preview(prev=>prev?.tripId===p963CanaryId?{...prev,revision:d.revision,archiveRevision:d.archive_revision,sourceMode:d.source_mode,writeEnabled:d.write_enabled===true,detail:verified}:prev);
+   }catch(e){
+    // A transient connectivity failure must never blank an already verified view.
+    // Subsequent writes still require server-side validation.
+   }finally{inFlight=false}
   };
-  const onVisible=()=>{if(document.visibilityState==='visible')throttled()};
-  // focus AND visibilitychange may fire for one return. Only visibilitychange is
-  // needed for background-tab returns; focus covers window switching.
-  let last=0;
-  const throttled=()=>{if(Date.now()-last<2000)return;last=Date.now();void onFocus()};
-  window.addEventListener('focus',throttled);
-  document.addEventListener('visibilitychange',onVisible);
-  return()=>{live=false;window.removeEventListener('focus',throttled);document.removeEventListener('visibilitychange',onVisible)};
- },[current,key]);
+  const onReturn=()=>{void checkSilently()};
+  window.addEventListener('focus',onReturn);
+  document.addEventListener('visibilitychange',onReturn);
+  return()=>{live=false;window.removeEventListener('focus',onReturn);document.removeEventListener('visibilitychange',onReturn)};
+ },[current,key,modal,p962Preview?.revision,p962Preview?.archiveRevision,p962Preview?.writeEnabled]);
  async function activateLivignoP985(){
   if(p971Busy||current!==p963CanaryId||p962Preview?.tripId!==current||p962Preview?.writeEnabled||!p971Acknowledged||p971Typed.trim()!=='ВКЛЮЧИ NEON ЗА LIVIGNO')return;
   setP971Busy(true);setP971Error('');
@@ -3098,7 +3101,7 @@ function App(){
   let inFlight=false;
   let lastChecked=Date.now(); // initial load already runs above
   const refreshOnReturn=async()=>{
-   if(disposed||inFlight||document.visibilityState==='hidden'||modal)return;
+   if(disposed||inFlight||document.visibilityState==='hidden'||modal||current===p963CanaryId)return;
    if(Date.now()-lastChecked<2000)return;
    // Avoid overwriting what someone is in the middle of typing or editing.
    const editing=document.querySelector('.task-preview-edit, .task-preview-form input');
@@ -3438,7 +3441,7 @@ html[data-pixelapp-skin="standard"] .p9916-library{--places-bg:#192a37;--places-
  </section>
  <div className="p39-compare-section"><div className="p39-compare-section-title">ОЩЕ ЗА ТВОИТЕ ПРИКЛЮЧЕНИЯ</div><button type="button" className="p38-compare-launch" onClick={()=>setComparisonOpen(true)}>📊 <span><b>Сравнение на пътуванията</b><small>Всички пътувания или две едно срещу друго</small></span><span aria-hidden="true">›</span></button></div>
  </>: <>{chosen&&<>
- {current===p963CanaryId&&!(p962Preview?.tripId===current&&p962Preview.writeEnabled===true)&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
+ {current===p963CanaryId&&!p962Busy&&!(p962Preview?.tripId===current&&p962Preview.writeEnabled===true)&&<div className="travel-card" style={{padding:12,marginBottom:10}}>
  <strong>{current===p963CanaryId?(p962Preview?.writeEnabled?'⚡ Livigno · Neon':'⚡ P96.3 · Livigno от Neon'):'⚡ P96.2 · Проверен Neon преглед'}</strong>
  <p className="muted">{current===p963CanaryId?'Livigno се отваря директно от провереното Neon копие. Редакциите на пътуването са временно блокирани по време на миграцията; това НЕ означава, че пътуването е приключено. Галерията работи отделно през Google Drive. При несъответствие няма автоматично връщане към старите Drive данни.':'За това реално пътуване можеш да видиш действителното Neon работно копие, само за четене. Нормалният изглед и всички нормални записи остават в Drive. Прегледът се разрешава само ако двете копия съвпадат и архивът е актуален.'}</p>
  {current===p963CanaryId?<div className="p9043-expense-actions"><button type="button" disabled={p962Busy} onClick={()=>void p963OpenTrip(chosen)}>{p962Busy?'Проверявам…':'↻ Провери отново Neon'}</button><small className="muted">Предстоящо пътуване · временно заключени само мигрираните записи · снимките остават в Drive</small></div>:<div className="p9043-expense-actions"><button type="button" disabled={p962Busy||!(p962Preview&&p962Preview.tripId===current)} onClick={()=>{setP962Preview(null);setP962Error('')}}>☁️ Нормален изглед (Drive)</button><button type="button" disabled={p962Busy} onClick={()=>void openP962Preview()}>{p962Busy?'Проверявам…':'⚡ Отвори Neon (само преглед)'}</button></div>}
