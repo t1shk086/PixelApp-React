@@ -5538,7 +5538,7 @@ def p952_car_action(change: P952FuelAction, background_tasks: BackgroundTasks):
                 # meaning of historical consumption. Refuse rather than rewrite history.
                 cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='expenses'", (change.trip_id,))
                 existing_rows = [item[0] for item in cur.fetchall()]
-                if any(str(r.get('current_km') or '').strip() or numeric(r.get('liters') or '0', 100000000, True) > 0 for r in existing_rows):
+                if any(numeric(r.get('current_km') or '0', 100000000, True) > 0 or numeric(r.get('liters') or '0', 100000000, True) > 0 for r in existing_rows):
                     raise HTTPException(409, 'Началният километраж може да се промени само преди първото зареждане или записани литри.')
                 settings['start_km'] = str(requested_start_km)
                 cur.execute("UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset='settings' AND row_id=%s", (Jsonb(settings),change.trip_id,settings_id))
