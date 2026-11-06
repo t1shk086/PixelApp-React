@@ -2102,13 +2102,15 @@ function LatestActivityCard({activity}){
  if(!activity)return null;
  const category=String(activity.category||'Действие');
  const title=String(activity.description||category);
+ const expenseCategory=activity.dataset==='expenses'?String(activity.expense_category||'').trim():'';
+ const leading=expenseCategory||activity.action_label||'Действие';
  const icon=activity.dataset==='expenses'?'💳':activity.dataset==='tasks'?'☑️':activity.dataset==='points'?'📍':activity.dataset==='budgets'?'📊':'✎';
  const when=activity.happened_at?new Date(activity.happened_at):null;
  const whenText=when&&!Number.isNaN(when.getTime())?when.toLocaleString('bg-BG',{dateStyle:'short',timeStyle:'short'}):'';
  const amount=activity.amount===null||activity.amount===undefined?null:Number(activity.amount);
  return <section className="p38-latest" aria-label="Последна активност">
   <div className="p38-latest-top"><span>◷ ПОСЛЕДНА АКТИВНОСТ</span><span className="p38-latest-pill">{category}</span></div>
-  <div className="p38-latest-main"><span className="p38-latest-icon">{icon}</span><div className="p38-latest-text"><strong>{activity.action_label||'Действие'} · {title}</strong><small>{activity.trip||'Пътуване'}{whenText?' · '+whenText:''}</small></div>{amount!==null&&Number.isFinite(amount)&&<b>{money(amount)}</b>}</div>
+  <div className="p38-latest-main"><span className="p38-latest-icon">{icon}</span><div className="p38-latest-text"><strong>{leading} · {title}</strong><small>{activity.trip||'Пътуване'}{whenText?' · '+whenText:''}</small></div>{amount!==null&&Number.isFinite(amount)&&<b>{money(amount)}</b>}</div>
  </section>
 }
 const compareOptions=[['Общо','€'],['€ / ден','€/ден'],['Цена / км','€/км'],['Км','км'],['Гориво','€'],['л / 100 км','л/100 км'],['Хотел','€'],['Други','€']];
