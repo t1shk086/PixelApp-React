@@ -5085,9 +5085,14 @@ def _p9928_activity_schema(cur):
     )""")
     cur.execute("""SELECT 1 FROM pg_trigger
         WHERE tgname='pixelapp_neon_activity_trigger' AND tgrelid='pixelapp_p932_rows'::regclass""")
-    if not cur.fetchone():
-        cur.execute("""CREATE OR REPLACE FUNCTION pixelapp_neon_capture_activity()
+    trigger_exists = bool(cur.fetchone())
+    # Refresh the function even on existing databases: old installations already
+    # have the trigger, but need task state transitions distinguished from edits.
+    cur.execute("""CREATE OR REPLACE FUNCTION pixelapp_neon_capture_activity()
     RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE event_action TEXT;
+    DECLARE old_done BOOLEAN;
+    DECLARE new_done BOOLEAN;
     BEGIN
       IF TG_OP = 'INSERT' THEN
         INSERT INTO pixelapp_neon_activity_events(trip_id,dataset,action,row_id,payload)
@@ -5096,11 +5101,20 @@ def _p9928_activity_schema(cur):
         INSERT INTO pixelapp_neon_activity_events(trip_id,dataset,action,row_id,payload)
         VALUES(OLD.trip_id,OLD.dataset,'deleted',OLD.row_id,OLD.payload);
       ELSIF NEW.payload IS DISTINCT FROM OLD.payload THEN
+        event_action := 'edited';
+        IF NEW.dataset = 'tasks' THEN
+          old_done := lower(coalesce(OLD.payload->>'done','false')) IN ('true','1','да','yes');
+          new_done := lower(coalesce(NEW.payload->>'done','false')) IN ('true','1','да','yes');
+          IF old_done IS DISTINCT FROM new_done THEN
+            event_action := CASE WHEN new_done THEN 'completed' ELSE 'reopened' END;
+          END IF;
+        END IF;
         INSERT INTO pixelapp_neon_activity_events(trip_id,dataset,action,row_id,payload)
-        VALUES(NEW.trip_id,NEW.dataset,'edited',NEW.row_id,NEW.payload);
+        VALUES(NEW.trip_id,NEW.dataset,event_action,NEW.row_id,NEW.payload);
       END IF;
       RETURN NULL;
     END $$""")
+    if not trigger_exists:
         cur.execute("""CREATE TRIGGER pixelapp_neon_activity_trigger
             AFTER INSERT OR UPDATE OR DELETE ON pixelapp_p932_rows
             FOR EACH ROW EXECUTE FUNCTION pixelapp_neon_capture_activity()""")
@@ -5131,7 +5145,10 @@ def p9928_latest_neon_activity():
     label={'expenses':'Разходи','tasks':'Задачи','budgets':'Бюджет',
            'points':'Места','categories':'Категории',
            'settings':'Настройки'}.get(dataset,dataset)
-    verb={'added':'Добавено','edited':'Променено','deleted':'Изтрито'}.get(action,action)
+    verb=({'added':'Добавена задача','edited':'Редактирана задача',
+           'completed':'Изпълнена задача','reopened':'Върната за изпълнение',
+           'deleted':'Изтрита задача'} if dataset=='tasks' else
+          {'added':'Добавено','edited':'Променено','deleted':'Изтрито'}).get(action,action)
     # Do not expose the old expense *date* as the moment of the action.
     title=str(payload.get('description') or payload.get('title') or
               payload.get('name') or payload.get('task') or label).strip()[:120]
