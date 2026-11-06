@@ -2100,14 +2100,15 @@ function TripManagementPreview({trips,onClose,loadTrip,initialTripId,defaultPane
 // Patch 38 — display-only latest activity card and original Streamlit comparison modes.
 function LatestActivityCard({activity}){
  if(!activity)return null;
- const raw=String(activity.description||'Без описание');
- const stage=raw.match(/\(Етап:\s*([^)]*)\)/i);
- const isFuel=/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/i.test(raw);
- const title=raw.replace(/\[(?:ПЪЛНО|ПЪЛЕН|ЧАСТИЧНО)\s+ЗАРЕЖДАНЕ\]/gi,'').replace(/\(Етап:\s*[^)]*\)/gi,'').replace(/\[(?:P\d+[A-Za-z0-9:._-]*|[a-f0-9]{24,})\]/gi,'').trim()||'Зареждане';
+ const category=String(activity.category||'Действие');
+ const title=String(activity.description||category);
+ const icon=activity.dataset==='expenses'?'💳':activity.dataset==='tasks'?'☑️':activity.dataset==='points'?'📍':activity.dataset==='budgets'?'📊':'✎';
+ const when=activity.happened_at?new Date(activity.happened_at):null;
+ const whenText=when&&!Number.isNaN(when.getTime())?when.toLocaleString('bg-BG',{dateStyle:'short',timeStyle:'short'}):'';
+ const amount=activity.amount===null||activity.amount===undefined?null:Number(activity.amount);
  return <section className="p38-latest" aria-label="Последна активност">
-  <div className="p38-latest-top"><span>◷ ПОСЛЕДНА АКТИВНОСТ</span><span className="p38-latest-pill">{isFuel?'⛽ Гориво':'🧾 Разход'}</span></div>
-  <div className="p38-latest-main"><span className="p38-latest-icon">{isFuel?'⛽':'💳'}</span><div className="p38-latest-text"><strong>{title}</strong><small>{activity.trip||'Пътуване'} · {activity.category||'Разход'}</small></div><b>{money(activity.amount)}</b></div>
-  {stage&&<div className="p38-latest-foot">🚗 {stage[1].replace(/,\s*/g,' · ')}</div>}
+  <div className="p38-latest-top"><span>◷ ПОСЛЕДНА АКТИВНОСТ</span><span className="p38-latest-pill">{category}</span></div>
+  <div className="p38-latest-main"><span className="p38-latest-icon">{icon}</span><div className="p38-latest-text"><strong>{activity.action_label||'Действие'} · {title}</strong><small>{activity.trip||'Пътуване'}{whenText?' · '+whenText:''}</small></div>{amount!==null&&Number.isFinite(amount)&&<b>{money(amount)}</b>}</div>
  </section>
 }
 const compareOptions=[['Общо','€'],['€ / ден','€/ден'],['Цена / км','€/км'],['Км','км'],['Гориво','€'],['л / 100 км','л/100 км'],['Хотел','€'],['Други','€']];
@@ -3115,14 +3116,14 @@ function App(){
   document.addEventListener('visibilitychange',onVisibility);
   return()=>{disposed=true;window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility)};
  },[key,current,modal,authMode,p980Sources.active.join('|')]);
- // P99.27: show latest expense from the current Neon source, never the Drive dashboard.
+ // P99.28: actual committed Neon mutation events, not historical expense dates.
  // A failed read hides the card rather than presenting stale financial activity.
  useEffect(()=>{
   if(!key){setNeonLatest(null);return;}
   let live=true;
   const update=async()=>{
    try{
-    const response=await req('/safe/neon/latest-expense');
+    const response=await req('/safe/neon/latest-activity');
     if(live)setNeonLatest(response?.ok&&response.activity?response.activity:null);
    }catch(_error){if(live)setNeonLatest(null)}
   };
