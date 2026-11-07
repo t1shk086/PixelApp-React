@@ -1474,8 +1474,44 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
   }catch(e){if(p942Test)await p942Reload();setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
  };
  const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['gallery','Галерия']];
+ // P99.56: Optional mobile page swipe. Dialogs and interactive widgets take precedence.
+ const pageSwipeStart=useRef(null);
+ const pageMenuRef=useRef(null);
+ const pageSwipeBlockedTarget=(target)=>{
+  if(!(target instanceof Element))return true;
+  // Native controls, editable fields, nested swipe rows, maps, galleries, and tab strip own their gestures.
+  if(target.closest('button,a,input,textarea,select,[contenteditable="true"],[role="button"],[role="slider"],[role="dialog"],.travel-menu,.leaflet-container,.leaflet-control,.task48-swipe-shell,.p9951-swipe,.p915-swipe,.gallery-p91-viewer,.gallery-p91-viewer-photo,.route77-results,.route77-search,.route79-gps,.p9953-details,.visual-category-bar,.travel-progress,.track,.p29-view-tabs'))return true;
+  // Do not hijack an element's own horizontal scrolling (charts, carousels, lists).
+  for(let node=target;node&&node!==document.body;node=node.parentElement){
+   if(node.scrollWidth>node.clientWidth+12&&node.clientWidth>0){
+    const xOverflow=getComputedStyle(node).overflowX;
+    if(xOverflow==='auto'||xOverflow==='scroll')return true;
+   }
+  }
+  return false;
+ };
+ const pageDialogOpen=()=>Boolean(p942Form||p950BudgetOpen||p952CarOpen||
+  document.querySelector('[role="dialog"][aria-modal="true"],.overlay,.p9913-overlay,.p9915-budget-overlay,.gallery-p91-viewer'));
+ const pageSwipeStartHandler=(event)=>{
+  pageSwipeStart.current=null;
+  if(window.innerWidth>768||event.touches.length!==1||pageDialogOpen()||pageSwipeBlockedTarget(event.target))return;
+  const finger=event.touches[0];
+  pageSwipeStart.current={x:finger.clientX,y:finger.clientY,at:Date.now()};
+ };
+ const pageSwipeEndHandler=(event)=>{
+  const start=pageSwipeStart.current;pageSwipeStart.current=null;
+  if(!start||window.innerWidth>768||pageDialogOpen()||event.changedTouches.length!==1||pageSwipeBlockedTarget(event.target))return;
+  const finger=event.changedTouches[0];
+  const dx=finger.clientX-start.x,dy=finger.clientY-start.y;
+  if(Math.abs(dx)<95||Math.abs(dx)<Math.abs(dy)*1.7||Date.now()-start.at>1100)return;
+  const index=sections.findIndex(([id])=>id===section);
+  const next=sections[index+(dx<0?1:-1)];
+  if(!next)return;
+  setSection(next[0]);
+  requestAnimationFrame(()=>pageMenuRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));
+ };
  const dateText=(settings.start_date||'')+(settings.end_date&&settings.end_date!==settings.start_date?' → '+settings.end_date:'');
- return <div className="travel-detail">
+ return <div className="travel-detail" onTouchStartCapture={pageSwipeStartHandler} onTouchEndCapture={pageSwipeEndHandler} onTouchCancelCapture={()=>{pageSwipeStart.current=null}}> 
  <style>{`.travel-detail .p9912-expense-heading{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important}.travel-detail .p9912-expense-heading h3{margin:0!important;min-width:0!important}.travel-detail .p9912-add-expense{width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;padding:0!important;border-radius:50%!important;border:1px solid rgba(103,212,245,.34)!important;background:rgba(52,150,189,.18)!important;color:var(--text,#eaf3fb)!important;box-shadow:none!important;cursor:pointer!important;flex-shrink:0!important}.travel-detail .p9912-add-expense:hover{background:rgba(52,150,189,.29)!important}.travel-detail .p9912-add-expense:focus-visible{outline:2px solid #67d4f5!important;outline-offset:2px!important}.travel-detail .p9912-add-expense:disabled{opacity:.45!important;cursor:not-allowed!important}.travel-detail h3.p997-section-title{font-family:inherit!important;font-size:18px!important;line-height:1.35!important;font-weight:750!important;letter-spacing:0!important;text-transform:none!important;margin:0 0 14px!important;color:var(--text,#eaf3fb)!important}.travel-detail .p29-expense-heading h3.p997-section-title,.travel-detail .p36-budget-head h3.p997-section-title,.travel-detail .gallery-p91-head h3.p997-section-title,.travel-detail .route82-header h3.p997-section-title{margin-bottom:0!important}.travel-detail .p29-expense-heading,.travel-detail .route82-header{align-items:center!important}.travel-detail .p29-expense-heading>span{display:none!important}.travel-detail .route82-header>div{min-width:0}.travel-detail .route82-header .p997-section-title{font-size:18px!important}.travel-detail h3.p997-section-title::before,.travel-detail h3.p997-section-title::after{content:none!important}`}</style>
  <style>{`.travel-detail .p9910-trip-gear{appearance:none!important;-webkit-appearance:none!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;padding:0!important;margin:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:36px!important;height:36px!important;min-width:36px!important;line-height:1!important;color:inherit!important;cursor:pointer!important}.travel-detail .p9910-trip-gear:focus-visible{outline:2px solid #67d4f5!important;outline-offset:2px!important}.travel-detail .p9910-trip-gear:disabled{opacity:.45!important;cursor:not-allowed!important}`}</style>
  <div className="travel-hero"><div className="p34-hero-heading"><div className="travel-overline">🐾 МОЕТО ПЪТУВАНЕ</div><button className="p34-settings-icon p9910-trip-gear" type="button" disabled={previewReadOnly} onClick={()=>p942Test?setP952CarOpen(true):onOpenPreview('trip-demo')} title="Настройки на пътуването" aria-label="Настройки на пътуването"><Settings size={23} strokeWidth={2.2} aria-hidden="true"/></button></div><h2>🚙 {trip.name}</h2><div className="travel-dates">{dateText}</div><div className="travel-facts visual-top-facts"><div><small>💸 Общо изхарчено</small><strong>{money(allCosts)}</strong></div><div><small>🎯 Бюджет</small><strong>{budgetTotal?money(budgetTotal):'—'}</strong></div><div><small>🚙 Изминати км</small><strong>{km.toLocaleString('bg-BG')}</strong></div></div>{budgetTotal>0&&<div className="travel-progress"><div style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div>}</div>
@@ -1483,7 +1519,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  {!p942Test&&p934Active&&<div className="travel-card" role="status">⚡ P93.4.1 · Данни от Neon (само преглед). Drive остава основният източник. За редакция се върни към Drive.</div>}
  {!p942Test&&p932Active&&<div className="travel-card" role="status">⚡ P93.5 · Редакции през провереното P93.2 Neon копие. Само тестовото пътуване; Drive и оригиналното P93.0 копие не се променят.</div>}
  {!p942Test&&p931Active&&<div className="travel-card" role="status" style={{padding:10,marginBottom:8}}>🧪 P93.1 · Преглед на копие от Neon — само четене. Не променя Drive или работното Neon копие.</div>}
- <div className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
+ <div ref={pageMenuRef} className="travel-menu">{sections.map(([id,label])=><button type="button" key={id} onClick={()=>setSection(id)} className={section===id?'selected':''}>{label}</button>)}</div>
  {!detail?<div className="travel-card">{previewReadOnly?'Няма потвърдени данни.': 'Зареждаме данните за пътуването…'}</div>:<>
  {section==='summary'&&<>
  <div className="travel-card visual-section"><h3 className="p997-section-title">✨ Пътуването с един поглед</h3><div className="visual-overview-stats"><div className="overview-tile"><span>🧾</span><small>Записи</small><strong>{rows.length}</strong></div><div className="overview-tile"><span>✅</span><small>Задачи</small><strong>{done} <em>/ {previewTasks.length}</em></strong></div><div className="overview-tile"><span>📍</span><small>Места</small><strong>{validPoints.length}</strong></div><div className="overview-tile"><span>⛽</span><small>Гориво</small><strong>{liters.toLocaleString('bg-BG',{maximumFractionDigits:1})} <em>л</em></strong></div></div></div>
