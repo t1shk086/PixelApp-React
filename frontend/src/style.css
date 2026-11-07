@@ -2475,3 +2475,40 @@ html[data-pixelapp-skin="blackgrey"] :is(
 ):not(.active):not(.selected):not(:focus-visible):not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out) {
  border-color:#46545f!important;
 }
+
+/* P99.59 — Inner card outlines. P99.58 only reached outer cards;
+   visual dashboard tiles use their own borders. Paint only, for two skins. */
+html[data-pixelapp-skin="blackgrey"] .travel-detail :is(
+  .travel-hero,.travel-card,.travel-facts>div,.travel-line,
+  .visual-category,.visual-overview-stats>div,.overview-tile,
+  .p29-expense-history,.p29-total-panel,.p29-category-card,.p29-expense-item,
+  .p29-expense-group,.p29-expense-filters,.p29-category-head,
+  .fuel-metrics>div,.fuel-odometer>div,.visual-gauges>div,
+  .p35-fuel-summary>div,.fuel-history-card,.fuel-entry,
+  .p36-budget,.p36-panel,.p36-kpis>div,.p36-budget-stat,
+  .p36-budget-metric,.p36-budget-categories,.p36-pace-state,
+  .budget-visual-row,.budget-showcase-total,.budget-showcase-grid>div
+),
+html[data-pixelapp-skin="blackgrey"] .travel-detail :is(
+  .travel-card,.p36-budget,.p29-expense-history,.p29-category-card,
+  .p36-panel,.visual-gauges,.p35-fuel-summary
+) :is(div,section,article):not(.leaflet-container):not(.leaflet-pane):not(.leaflet-map-pane):not(.leaflet-tile-pane):not(.leaflet-overlay-pane):not(.leaflet-marker-pane):not(.leaflet-popup-pane):not(.leaflet-control-container):not(.gauge-circle):not(.task47-ring):not(.task-progress-track) {
+  border-color:#414b55!important;
+}
+html[data-pixelapp-skin="liquid"] .travel-detail :is(
+  .travel-hero,.travel-card,.travel-facts>div,.travel-line,
+  .visual-category,.visual-overview-stats>div,.overview-tile,
+  .p29-expense-history,.p29-total-panel,.p29-category-card,.p29-expense-item,
+  .p29-expense-group,.p29-expense-filters,.p29-category-head,
+  .fuel-metrics>div,.fuel-odometer>div,.visual-gauges>div,
+  .p35-fuel-summary>div,.fuel-history-card,.fuel-entry,
+  .p36-budget,.p36-panel,.p36-kpis>div,.p36-budget-stat,
+  .p36-budget-metric,.p36-budget-categories,.p36-pace-state,
+  .budget-visual-row,.budget-showcase-total,.budget-showcase-grid>div
+),
+html[data-pixelapp-skin="liquid"] .travel-detail :is(
+  .travel-card,.p36-budget,.p29-expense-history,.p29-category-card,
+  .p36-panel,.visual-gauges,.p35-fuel-summary
+) :is(div,section,article):not(.leaflet-container):not(.leaflet-pane):not(.leaflet-map-pane):not(.leaflet-tile-pane):not(.leaflet-overlay-pane):not(.leaflet-marker-pane):not(.leaflet-popup-pane):not(.leaflet-control-container):not(.gauge-circle):not(.task47-ring):not(.task-progress-track) {
+  border-color:#5d95ad85!important;
+}
