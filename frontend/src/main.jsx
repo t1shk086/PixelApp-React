@@ -1500,7 +1500,9 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  };
  const pageSwipeEndHandler=(event)=>{
   const start=pageSwipeStart.current;pageSwipeStart.current=null;
-  if(!start||window.innerWidth>768||pageDialogOpen()||event.changedTouches.length!==1||pageSwipeBlockedTarget(event.target))return;
+  // The gesture was validated at touch-start. The finger may finish over a button/card;
+  // checking the end target again made navigation appear one-directional on phones.
+  if(!start||window.innerWidth>768||pageDialogOpen()||event.changedTouches.length!==1)return;
   const finger=event.changedTouches[0];
   const dx=finger.clientX-start.x,dy=finger.clientY-start.y;
   if(Math.abs(dx)<95||Math.abs(dx)<Math.abs(dy)*1.7||Date.now()-start.at>1100)return;
