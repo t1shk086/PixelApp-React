@@ -2512,3 +2512,70 @@ html[data-pixelapp-skin="liquid"] .travel-detail :is(
 ) :is(div,section,article):not(.leaflet-container):not(.leaflet-pane):not(.leaflet-map-pane):not(.leaflet-tile-pane):not(.leaflet-overlay-pane):not(.leaflet-marker-pane):not(.leaflet-popup-pane):not(.leaflet-control-container):not(.gauge-circle):not(.task47-ring):not(.task-progress-track) {
   border-color:#5d95ad85!important;
 }
+
+/* P99.67 — Fullscreen gallery viewer follows the selected PixelApp skin.
+   Presentation only: photo loading, viewer gestures and delete actions are untouched. */
+html .gallery-p91-viewer {
+  --gv-backdrop:rgba(4,9,15,.94);
+  --gv-surface:#142232;
+  --gv-surface2:#090f19;
+  --gv-border:#41566b;
+  --gv-control:#223243;
+  --gv-control-border:#526b82;
+  --gv-text:#f5faff;
+  --gv-muted:#b1c3d5;
+  --gv-photo:#03070d;
+}
+html[data-pixelapp-skin="graphite"] .gallery-p91-viewer {
+  --gv-backdrop:rgba(13,18,23,.94);--gv-surface:#26323b;--gv-surface2:#171f27;
+  --gv-border:#4c626d;--gv-control:#32444d;--gv-control-border:#586e79;
+  --gv-text:#f0f5f7;--gv-muted:#b0bfca;--gv-photo:#0b1118;
+}
+html[data-pixelapp-skin="slate"] .gallery-p91-viewer {
+  --gv-backdrop:rgba(72,93,108,.82);--gv-surface:#f7fafc;--gv-surface2:#dfeaf1;
+  --gv-border:#9fb8c8;--gv-control:#e7f0f6;--gv-control-border:#9eb7c7;
+  --gv-text:#273947;--gv-muted:#536a7a;--gv-photo:#d2dfe8;
+}
+html[data-pixelapp-skin="ocean"] .gallery-p91-viewer {
+  --gv-backdrop:rgba(3,17,32,.94);--gv-surface:#174865;--gv-surface2:#08243b;
+  --gv-border:#3b789b;--gv-control:#1d5070;--gv-control-border:#468bb0;
+  --gv-text:#effaff;--gv-muted:#b4d5e6;--gv-photo:#061b2c;
+}
+html[data-pixelapp-skin="obsidian"] .gallery-p91-viewer {
+  --gv-backdrop:rgba(2,4,7,.96);--gv-surface:#1c252e;--gv-surface2:#0b1016;
+  --gv-border:#455764;--gv-control:#26343f;--gv-control-border:#566a79;
+  --gv-text:#f7fafc;--gv-muted:#c0cdd8;--gv-photo:#05090d;
+}
+html[data-pixelapp-skin="blackgrey"] .gallery-p91-viewer {
+  --gv-backdrop:rgba(12,15,19,.94);--gv-surface:#2b353e;--gv-surface2:#171d23;
+  --gv-border:#434e58;--gv-control:#36424c;--gv-control-border:#4e5e69;
+  --gv-text:#f3f7fa;--gv-muted:#b7c6d1;--gv-photo:#10161d;
+}
+html[data-pixelapp-skin="liquid"] .gallery-p91-viewer {
+  --gv-backdrop:rgba(8,40,64,.87);--gv-surface:rgba(49,112,148,.94);--gv-surface2:rgba(17,56,84,.96);
+  --gv-border:rgba(131,205,227,.48);--gv-control:rgba(102,172,207,.23);
+  --gv-control-border:rgba(155,219,238,.47);--gv-text:#f7fdff;
+  --gv-muted:#c7e9f6;--gv-photo:#092e47;
+}
+html[data-pixelapp-skin="yellow"] .gallery-p91-viewer {
+  --gv-backdrop:rgba(18,16,11,.94);--gv-surface:#34312a;--gv-surface2:#1c1d1e;
+  --gv-border:#625741;--gv-control:#3c372b;--gv-control-border:#776744;
+  --gv-text:#fff8e8;--gv-muted:#d1c7ab;--gv-photo:#171612;
+}
+html .gallery-p91-viewer {background:var(--gv-backdrop)!important;}
+html .gallery-p91-viewer-inner {
+  background:linear-gradient(150deg,var(--gv-surface),var(--gv-surface2) 85%)!important;
+  border-color:var(--gv-border)!important;color:var(--gv-text)!important;
+}
+html .gallery-p91-viewer-titles strong {color:var(--gv-text)!important;}
+html .gallery-p91-viewer-titles span,
+html .gallery-p91-viewer-nav,
+html .gallery-p91-viewer-bottom {color:var(--gv-muted)!important;}
+html .gallery-p91-viewer-photo {background:var(--gv-photo)!important;}
+html .gallery-p91-viewer :is(.gallery-p91-close,.gallery-p91-viewer-nav button) {
+  background:var(--gv-control)!important;border-color:var(--gv-control-border)!important;
+  color:var(--gv-text)!important;
+}
+html .gallery-p91-viewer-bottom .gallery-p91-delete {
+  background:transparent!important;border-color:var(--gv-control-border)!important;
+}
