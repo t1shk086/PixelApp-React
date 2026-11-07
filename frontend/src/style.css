@@ -1929,3 +1929,136 @@ html[data-pixelapp-skin]:not([data-pixelapp-skin="standard"]) .task47-board .tas
 .task47-board .task48-swipe-face{z-index:2}
 @media(max-width:420px){.task47-board .task48-title{font-size:13px}.task47-board .task48-swipe-shell{margin:6px 0}}
 @media(prefers-reduced-motion:reduce){.task47-board .task48-swipe-face{transition:none}}
+
+/* P99.49 — contrast and task swipe surface fix (presentation only).
+   Keep the already-approved colors and leave application data/handlers alone. */
+
+/* The action rail must never be visible through a completed/closed task.
+   The older .task-visual-done rule lowered the *whole row's* opacity,
+   which made the action buttons and the underlying layer show through. */
+.task47-board .task48-swipe-shell {
+  overflow: hidden;
+  isolation: isolate;
+  background: #172633;
+  border: 1px solid rgba(145,183,205,.30);
+}
+.task47-board .task48-swipe-shell .task48-actions {
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 1;
+  width: 142px;
+}
+.task47-board .task48-swipe-shell.task48-is-open .task48-actions {
+  visibility: visible;
+  pointer-events: auto;
+}
+.task47-board .task48-swipe-shell .task48-swipe-face,
+.task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done {
+  opacity: 1 !important;
+  position: relative;
+  z-index: 2;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 12px;
+  background: #24374a !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done {
+  background: #1c2b39 !important;
+}
+.task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done .task48-title {
+  opacity: .64;
+}
+.task47-board .task48-swipe-shell .task48-title {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  text-align: left !important;
+  border-radius: 0 !important;
+}
+.task47-board .task48-swipe-shell .task48-actions .task48-edit,
+.task47-board .task48-swipe-shell .task48-actions .task48-delete {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: #fff !important;
+  text-shadow: none !important;
+}
+.task47-board .task48-swipe-shell .task48-actions .task48-edit { background: #236e79 !important; }
+.task47-board .task48-swipe-shell .task48-actions .task48-delete { background: #a53e50 !important; }
+
+/* Black & Grey: three distinct layers — backdrop, section, inner tile. */
+html[data-pixelapp-skin="blackgrey"] body {
+  background: radial-gradient(ellipse 100% 50% at 48% -20%,#373f49 0%,transparent 73%),
+    linear-gradient(165deg,#292f38 0%,#21272f 51%,#171d25 100%) fixed !important;
+}
+html[data-pixelapp-skin="blackgrey"] :is(
+ .panel,.summary,.travel-card,.home-extra,.home-places,.p38-latest,
+ .p39-compare-section,.p38-comparison,.task-preview-panel,.task-showcase,
+ .p82-panel,.p82-shell,.p36-budget
+) {
+  background: linear-gradient(145deg,#1d252e 0%,#141b23 100%) !important;
+  border: 1px solid #53616f !important;
+  border-radius: 21px !important;
+  box-shadow: 0 12px 25px #03070d54,inset 0 1px 0 #ffffff13 !important;
+}
+html[data-pixelapp-skin="blackgrey"] :is(
+ .home-stats>div,.travel-facts>div,.fuel-metrics>div,
+ .budget-visual-row,.task-preview-item,.task-preview-panel .task47-progress,
+ .p81-card,.p83-place,.p9041-expense-card,.p29-expense-item
+) {
+  background: linear-gradient(155deg,#303c49 0%,#26313d 100%) !important;
+  border-color: #576a7c !important;
+  box-shadow: 0 5px 12px #0003,inset 0 1px 0 #ffffff14 !important;
+}
+html[data-pixelapp-skin="blackgrey"] .task47-board .task48-swipe-shell {
+  background: #14202a !important;
+  border-color: #536373 !important;
+}
+html[data-pixelapp-skin="blackgrey"] .task47-board .task48-swipe-shell .task48-swipe-face {
+  background: #303c49 !important;
+  box-shadow: none !important;
+}
+html[data-pixelapp-skin="blackgrey"] .task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done {
+  background: #27323d !important;
+}
+
+/* Liquid Glass: deepen the backdrop-to-panel separation without changing
+   its established cyan-blue palette or blurring map tiles. */
+html[data-pixelapp-skin="liquid"] :is(
+ .panel,.summary,.travel-card,.home-extra,.home-places,.p38-latest,
+ .p39-compare-section,.p38-comparison,.task-preview-panel,.task-showcase,
+ .p82-panel,.p82-shell,.p36-budget
+) {
+  background: linear-gradient(148deg,#0a3459c9 0%,#113f66ce 56%,#082b4dcf 100%) !important;
+  border: 1px solid #bbf1ff8a !important;
+  box-shadow: inset 0 1px 0 #ffffff59,0 14px 28px #001e3d70 !important;
+  backdrop-filter: blur(15px) saturate(130%);
+  -webkit-backdrop-filter: blur(15px) saturate(130%);
+}
+html[data-pixelapp-skin="liquid"] :is(
+ .home-stats>div,.travel-facts>div,.fuel-metrics>div,
+ .budget-visual-row,.p81-card,.p83-place,.p9041-expense-card,.p29-expense-item
+) {
+  background: linear-gradient(140deg,#85d9f542,#276f9bb0) !important;
+  border-color: #d9f9ff8a !important;
+  box-shadow: inset 0 1px 0 #ffffff5b,0 6px 16px #00345754 !important;
+}
+html[data-pixelapp-skin="liquid"] .task47-board .task48-swipe-shell {
+  background: #103958 !important;
+  border-color: #a3e7f4a3 !important;
+}
+/* Swipe faces deliberately opaque: translucent glass here reveals hidden
+   destructive actions through the task title, especially when completed. */
+html[data-pixelapp-skin="liquid"] .task47-board .task48-swipe-shell .task48-swipe-face {
+  background: #215675 !important;
+  box-shadow: none !important;
+}
+html[data-pixelapp-skin="liquid"] .task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done {
+  background: #18445f !important;
+}
