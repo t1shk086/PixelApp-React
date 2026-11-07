@@ -929,6 +929,33 @@ function NeonCarSettings({tripId,workspace,request,onReload,onClose}){
  </div></div>;
 }
 
+// P99.48: actions are revealed on a left swipe; click on the title works with mouse/keyboard.
+function SwipeTaskRow({task,complete,editing,editable,busy,open,onOpenChange,onToggle,onEdit,onDelete,editForm}){
+ const gesture=useRef(null);
+ const skipClick=useRef(false);
+ const title=task.title||'Задача';
+ const onDown=e=>{if(!editable||editing||e.button!==0)return;gesture.current={x:e.clientX,y:e.clientY};skipClick.current=false};
+ const onUp=e=>{
+  const start=gesture.current;gesture.current=null;
+  if(!start||!editable||editing)return;
+  const dx=e.clientX-start.x,dy=e.clientY-start.y;
+  if(Math.abs(dx)>38&&Math.abs(dx)>Math.abs(dy)*1.25){
+   skipClick.current=true;
+   onOpenChange(dx<0?task._previewKey:null);
+  }
+ };
+ return <div className={'task48-swipe-shell'+(open?' task48-is-open':'')+(complete?' task-visual-done':'')}>
+  {editable&&!editing&&<div className="task48-actions" aria-hidden={!open}>
+    <button type="button" className="task48-edit" disabled={busy} tabIndex={open?0:-1} onClick={()=>{onOpenChange(null);onEdit(task)}} aria-label={'Редактирай '+title}><span aria-hidden="true">✎</span><small>Редакция</small></button>
+    <button type="button" className="task48-delete" disabled={busy} tabIndex={open?0:-1} onClick={()=>{onOpenChange(null);onDelete(task)}} aria-label={'Изтрий '+title}><span aria-hidden="true">×</span><small>Изтриване</small></button>
+  </div>}
+  <div className={'task-visual-item task-preview-item task48-swipe-face'+(complete?' task-visual-done':'')} onPointerDown={onDown} onPointerUp={onUp} onPointerCancel={()=>{gesture.current=null}}>
+   <button type="button" className="task-preview-check" disabled={!editable||busy} aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>{onOpenChange(null);onToggle(task)}}>{complete?'✓':'○'}</button>
+   {editing?editForm:<button type="button" className="task-preview-name task48-title" disabled={!editable||busy} aria-expanded={open} aria-label={title+(editable?' — покажи действия':'')} title={editable?'Натисни за действия или плъзни наляво':title} onClick={()=>{if(skipClick.current){skipClick.current=false;return}if(editable)onOpenChange(open?null:task._previewKey)}}>{title}</button>}
+  </div>
+ </div>
+}
+
 function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWritable=false,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders,onNeonRequest,neonTripId,expensiveFuelPrice=1.8}) {
  const [section,setSection]=useState('summary');
  const [neonExpenseView,setNeonExpenseView]=useState(false);
@@ -1067,6 +1094,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  const [taskMessage,setTaskMessage]=useState('');
  const [taskName,setTaskName]=useState('');
  const [taskEditing,setTaskEditing]=useState(null);
+ const [taskSwipeOpen,setTaskSwipeOpen]=useState(null);
  const [taskEditText,setTaskEditText]=useState('');
  const [taskEditRevision,setTaskEditRevision]=useState('');
  const [taskEditOriginal,setTaskEditOriginal]=useState(null);
@@ -1537,10 +1565,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
   {p942Test&&!p942Data&&<p role="alert" className="muted">⚠️ Neon данните не са заредени. Записите са блокирани.</p>}
   <form className="task-preview-form" onSubmit={addPreviewTask}><input aria-label="Нова задача" value={taskName} maxLength={200} disabled={!taskEditable||taskBusy} onChange={e=>setTaskName(e.target.value)} placeholder="Нова задача…"/><button type="submit" className="task47-add" aria-label="Добави задача" title="Добави задача" disabled={!taskEditable||taskBusy||!taskName.trim()}>+</button></form>
   {previewTasks.length?([false,true].map(completed=><section className="task47-group" key={completed?'done':'open'} aria-label={completed?'Изпълнени задачи':'Оставащи задачи'}><div className="task47-group-head"><h4>{completed?'Изпълнени':'Оставащи'}</h4><span>{previewTasks.filter(t=>taskIsDone(t)===completed).length} задачи</span></div>
-  {previewTasks.filter(t=>taskIsDone(t)===completed).map(t=>{const complete=taskIsDone(t);const isEditing=taskEditing===t._previewKey;return <div key={t._previewKey} className={'task-visual-item task-preview-item'+(complete?' task-visual-done':'')}>
-   <button type="button" className="task-preview-check" disabled={!taskEditable||taskBusy} aria-label={complete?'Отбележи като предстояща':'Отбележи като готова'} onClick={()=>changeTask('toggle',t)}>{complete?'✓':'○'}</button>
-   {isEditing?<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())void changeTask('edit',t,taskEditText.trim())}}><input autoFocus value={taskEditText} maxLength={200} disabled={taskBusy} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit" disabled={taskBusy||!taskEditText.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>{setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null)}}>Отказ</button></form>:<><span className="task-preview-name">{t.title||'Задача'}</span>{taskEditable&&<><button type="button" className="task-preview-action" disabled={taskBusy} onClick={()=>void beginTaskEdit(t)} aria-label={'Редактирай '+(t.title||'задача')} title="Редактирай">✎</button><button type="button" className="task-preview-action task47-delete" disabled={taskBusy} aria-label="Изтрий задача" title="Изтрий" onClick={()=>{if(window.confirm('Изтриване на задача: '+t.title+'?'))void changeTask('delete',t)}}>×</button></>}</>}
-  </div>})}</section>)): <p className="muted">Няма задачи за това пътуване.</p>}
+  {previewTasks.filter(t=>taskIsDone(t)===completed).map(t=>{const complete=taskIsDone(t);const isEditing=taskEditing===t._previewKey;return <SwipeTaskRow key={t._previewKey} task={t} complete={complete} editing={isEditing} editable={taskEditable} busy={taskBusy} open={taskSwipeOpen===t._previewKey} onOpenChange={setTaskSwipeOpen} onToggle={item=>changeTask('toggle',item)} onEdit={beginTaskEdit} onDelete={item=>{if(window.confirm('Изтриване на задача: '+item.title+'?'))void changeTask('delete',item)}} editForm={<form className="task-preview-edit" onSubmit={e=>{e.preventDefault();if(taskEditText.trim())void changeTask('edit',t,taskEditText.trim())}}><input autoFocus value={taskEditText} maxLength={200} disabled={taskBusy} onChange={e=>setTaskEditText(e.target.value)}/><button type="submit" disabled={taskBusy||!taskEditText.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>{setTaskEditing(null);setTaskEditRevision('');setTaskEditOriginal(null)}}>Отказ</button></form>}/>})}</section>)): <p className="muted">Няма задачи за това пътуване.</p>}
   {taskBusy&&<p className="muted" role="status">Записвам…</p>}
   {taskMessage&&<p role="status" className="muted">{taskMessage}</p>}
  </div>
