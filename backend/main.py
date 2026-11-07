@@ -5229,12 +5229,13 @@ def _p9961_deleted_legacy_ids():
                 cur.execute('SELECT trip_id FROM pixelapp_deleted_legacy_trips')
                 ids.update(row[0] for row in cur.fetchall())
             if audit_table:
+                # P99.64: an explicitly approved historic test remains deleted
+                # once the successful delete event is recorded.  Older legacy
+                # import jobs can recreate a workspace record after deletion;
+                # requiring NOT EXISTS(workspaces) allowed the deleted test to
+                # reappear in /trips.  Limit this to the exact approved IDs.
                 cur.execute("""SELECT DISTINCT e.trip_id FROM pixelapp_trip_delete_events e
-                    WHERE e.trip_id = ANY(%s)
-                      AND NOT EXISTS (
-                          SELECT 1 FROM pixelapp_p932_workspaces w
-                          WHERE w.trip_id = e.trip_id
-                      )""", (list(_P9961_LEGACY_TEST_IDS),))
+                    WHERE e.trip_id = ANY(%s)""", (list(_P9961_LEGACY_TEST_IDS),))
                 ids.update(row[0] for row in cur.fetchall())
             return ids
 
