@@ -2126,3 +2126,77 @@ html[data-pixelapp-skin="blackgrey"] .task47-board .task48-swipe-shell,
 html[data-pixelapp-skin="obsidian"] .task47-board .task48-swipe-shell {
   border-color: #3c4854 !important;
 }
+
+/* P99.51 — Yellow Night. Visual-only, no data or calculation changes. */
+html[data-pixelapp-skin="yellow"]{
+ --skin-bg:#101113;--skin-bg2:#242421;--skin-surface:#202124;
+ --skin-surface2:#252627;--skin-tile:#292b2c;--skin-border:#4f4e44;
+ --skin-field:#191a1c;--skin-text:#faf8f0;--skin-muted:#d0cbb9;
+ --skin-accent:#ffc727;--skin-accent2:#ffe08b;--skin-glow:#e8aa2b26;
+ --skin-progress:linear-gradient(90deg,#ffb800,#ffe07a);
+ --skin-soft:#fff6d7;--skin-quiet:#c9c4b6;--skin-hover:#3d351d;--skin-outline:#f9c744;
+ color-scheme:dark;color:var(--skin-text);
+}
+html[data-pixelapp-skin="yellow"] body{
+ background:radial-gradient(ellipse 80% 50% at 70% -12%,#66501b42,transparent 75%),linear-gradient(160deg,#252629 0%,#17181a 42%,#0c0d0e 100%) fixed!important;
+ color:#f9f8f2!important;
+}
+html[data-pixelapp-skin="yellow"] .app{color:#f9f8f2!important}
+html[data-pixelapp-skin="yellow"] :is(.p40-countdown,.home-trip,.home-actions button,.panel,.summary,.trip,.dialog,.travel-hero,.travel-card,.home-extra,.home-places,.p38-latest,.p38-compare-launch,.p39-compare-section,.p38-comparison,.p36-budget,.p82-panel,.p82-shell,.p81-card,.task-showcase,.task-preview-panel,.p37-admin-content,.p9916-library .p9916-panel){
+ background:linear-gradient(150deg,#303032 0%,#212225 51%,#18191b 100%)!important;
+ color:#faf8f2!important;
+ border:1px solid #59554a!important;border-radius:19px!important;
+ box-shadow:inset 0 1px 0 #ffffff16,0 9px 22px #00000052!important;
+}
+html[data-pixelapp-skin="yellow"] :is(.home-stats>div,.travel-facts>div,.fuel-metrics>div,.budget-visual-row,.p9041-expense-card,.p29-expense-item,.task-preview-item,.p83-place){
+ background:#2a2b2d!important;border:1px solid #4e4c43!important;color:#faf8f2!important;
+ box-shadow:inset 0 1px 0 #ffffff0b!important;
+}
+html[data-pixelapp-skin="yellow"] :is(.brand span,.home-heading,.travel-hero h2){color:#fffdf6!important}
+html[data-pixelapp-skin="yellow"] :is(.home-stats strong,.travel-facts strong,.fuel-accent,.fuel-metrics b,.p40-countdown-number){color:#ffc727!important}
+html[data-pixelapp-skin="yellow"] :is(.home-trip .remaining,.travel-dates,.muted,.sub){color:#d0cbbb!important}
+html[data-pixelapp-skin="yellow"] :is(.home-trip .track>div,.travel-progress>div,.p40-countdown-progress span,.task-progress-track span,.task47-ring){background:linear-gradient(90deg,#f5ae00,#ffdf65)!important}
+html[data-pixelapp-skin="yellow"] :is(.p40-countdown-ring,.task47-ring){box-shadow:inset 0 0 0 1px #ffd96555,0 0 0 1px #ffbc242d!important}
+html[data-pixelapp-skin="yellow"] :is(.home-actions button,.travel-menu button.selected,.p82-tabs button.active){border-color:#b18e32!important;box-shadow:inset 0 1px 0 #fff2bc38,0 4px 14px #0005!important}
+html[data-pixelapp-skin="yellow"] :is(.home-actions button,.travel-menu button,.p82-tabs button,.p9916-refresh,.p9917-switch button,.p9918-scopes button){color:#ffefd0!important;background:linear-gradient(150deg,#33312b,#222326)!important;border-color:#575043!important}
+html[data-pixelapp-skin="yellow"] :is(.travel-menu button.selected,.p82-tabs button.active,.p9917-switch button.active,.p9918-scopes button.active){background:#50401c!important;color:#ffe08b!important;border-color:#ffc727!important;box-shadow:inset 0 -2px 0 #ffc727!important}
+html[data-pixelapp-skin="yellow"] :is(input,select,textarea){background:#1b1c1e!important;color:#fcf8ed!important;border-color:#6a5a3b!important}
+html[data-pixelapp-skin="yellow"] :is(input,select,textarea):focus-visible{outline:2px solid #ffc727!important;outline-offset:1px}
+html[data-pixelapp-skin="yellow"] .p9916-library{--places-bg:#222325;--places-sub:#292a2c;--places-tile:#292b2d;--places-line:#555044;--places-accent:#ffc727;--places-text:#fff8e8;--places-muted:#c8c0aa}
+html[data-pixelapp-skin="yellow"] .task47-board .task48-swipe-shell .task48-swipe-face{background:#2c2d2d!important;border-color:#575248!important;color:#fff8e8!important}
+html[data-pixelapp-skin="yellow"] .task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done{background:#322d20!important}
+html[data-pixelapp-skin="yellow"] .task47-board .task48-swipe-shell .task48-swipe-face button.task48-title{background:transparent!important;border:0!important;box-shadow:none!important;color:inherit!important}
+html[data-pixelapp-skin="yellow"] .leaflet-container{filter:none!important;backdrop-filter:none!important}
+
+/* P99.51 — library cards: pager drives navigation, swipe reveals protected actions. */
+.p9951-pager{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin:8px 0 2px;font-size:12px;color:var(--skin-muted,#c1d0dc)}
+.p9951-pager button{width:38px;min-width:38px;height:36px;padding:0!important;border-radius:10px!important;font-size:23px!important;line-height:1!important}
+.p9951-places-strip{overflow:visible!important;scroll-snap-type:none!important;display:block!important}
+.p9951-places-strip .p9951-swipe{width:100%;max-width:100%;}
+.p9951-places-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))!important}
+.p9951-swipe{position:relative;isolation:isolate;overflow:hidden;border-radius:15px;min-width:0;background:#1d2a35;touch-action:pan-y;}
+.p9951-actions{position:absolute;right:0;top:0;bottom:0;width:142px;display:flex;align-items:stretch;justify-content:flex-end;z-index:1}
+.p9951-actions button{width:71px!important;min-width:0!important;padding:6px 2px!important;border:0!important;border-radius:0!important;background:#286e79!important;color:white!important;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;font-size:19px!important}
+.p9951-actions button.p9951-danger{background:#923f50!important;color:#fff!important}
+.p9951-actions button small{font-size:10px;line-height:1.2}
+.p9951-card-face{position:relative;z-index:2;width:100%;transition:transform .22s ease;min-width:0;background:var(--places-tile,var(--skin-tile,#1a2b38));}
+.p9951-open .p9951-card-face{transform:translateX(-142px)}
+.p9951-swipe .p9917-card{width:100%!important;min-width:0!important;max-width:none!important;position:relative;box-sizing:border-box;border-radius:14px!important}
+.p9951-swipe .p9917-card-visual{height:76px}
+.p9951-swipe .p9917-card-info{gap:5px;min-height:70px}
+.p9951-more{position:absolute;top:6px;right:7px;z-index:3;width:30px;min-width:30px!important;height:30px;padding:0!important;border-radius:9px!important;background:#263844e8!important;color:#e3f3fc!important;font-size:18px!important;opacity:.8}
+.p9951-open .p9951-more{opacity:0;pointer-events:none}
+.p9951-editor{margin:10px 0;padding:14px;border:1px solid var(--skin-border,#385364);border-radius:14px;background:var(--skin-surface,#1b2a37)}
+.p9951-editor label{display:grid;gap:5px;font-size:12px;margin-top:10px}
+.p9951-editor input{box-sizing:border-box;width:100%;min-width:0}
+.p9951-coords{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.p9951-editor-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.p9951-editor-actions button{padding:10px 14px}
+@media(max-width:460px){.p9951-places-grid{grid-template-columns:1fr!important}.p9951-swipe .p9917-card-visual{height:64px}}
+@media(prefers-reduced-motion:reduce){.p9951-card-face{transition:none}}
+
+/* On phones, swipe is the only way to reveal place actions. Desktop keeps the small accessible overflow control. */
+@media(pointer:coarse){.p9951-more{display:none!important}}
+/* Theme buttons must not recolor the hidden action layer. */
+html[data-pixelapp-skin] .p9951-actions button{background:#286e79!important;color:#fff!important;border:0!important;box-shadow:none!important}
+html[data-pixelapp-skin] .p9951-actions button.p9951-danger{background:#923f50!important}
