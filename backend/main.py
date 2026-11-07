@@ -884,6 +884,20 @@ def list_trips():
                         if tid not in ids:
                             result.append({'id':tid,'name':tid.replace('_',' ').rsplit(' __ ',1)[0],
                                 'settings':setting,'budget':0,'spent':0})
+        # P99.60: the visible title can change without changing the stable trip_id.
+        # All linked rows, backups, gallery folders and legacy references keep their IDs.
+        with _neon_demo_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass('public.pixelapp_p970_cutovers')::text")
+                if cur.fetchone()[0] is not None:
+                    cur.execute("""SELECT r.trip_id,r.payload->>'display_name'
+                        FROM pixelapp_p932_rows r
+                        JOIN pixelapp_p970_cutovers c ON c.trip_id=r.trip_id AND c.status='active'
+                        WHERE r.dataset='settings' AND r.payload ? 'display_name'""")
+                    titles=dict(cur.fetchall())
+                    for trip in result:
+                        title=str(titles.get(trip['id']) or '').strip()
+                        if title:trip['name']=title
         return result
 
 
@@ -5187,6 +5201,138 @@ class P9941UnlockAction(BaseModel):
     expected_revision: int
     unlock: bool
     confirmation: str
+
+# P99.60: user-facing display name is NOT the immutable trip identifier.
+# Renaming an identifier would break gallery folders and historical Drive links.
+class P9960TripManage(BaseModel):
+    trip_id: str = Field(min_length=1, max_length=220)
+    expected_revision: int = Field(ge=1)
+    operation: str
+    display_name: str = ''
+    confirmation: str = ''
+
+
+def _p9960_title_valid(value):
+    title=re.sub(r'\s+', ' ', str(value or '')).strip()
+    if len(title)<2 or len(title)>80 or any(ord(c)<32 for c in title):
+        raise HTTPException(422,'Името трябва да е между 2 и 80 знака.')
+    return title
+
+
+@app.get('/safe/neon/trip-management', dependencies=[Depends(authorize)])
+def p9960_trip_management():
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+            cur.execute("""SELECT w.trip_id,w.revision,r.payload,
+                (n.trip_id IS NOT NULL) AS deletable,
+                b.archived_revision,b.archive_file,b.last_error
+                FROM pixelapp_p932_workspaces w
+                JOIN pixelapp_p970_cutovers c ON c.trip_id=w.trip_id AND c.status='active'
+                JOIN pixelapp_p932_rows r ON r.trip_id=w.trip_id AND r.dataset='settings'
+                LEFT JOIN pixelapp_neon_new_trips n ON n.trip_id=w.trip_id
+                LEFT JOIN pixelapp_p932_backup_state b ON b.trip_id=w.trip_id
+                ORDER BY w.trip_id""")
+            data=cur.fetchall()
+    return {'ok':True,'trips':[
+        {'trip_id':tid,'revision':int(rev),
+         'name':str(settings.get('display_name') or tid.replace('_',' ')).strip(),
+         'can_delete':bool(deletable),
+         'backup_current':bool(bfile and brev is not None and int(brev)>=int(rev) and not err)}
+        for tid,rev,settings,deletable,brev,bfile,err in data]}
+
+
+@app.post('/safe/neon/trip-management', dependencies=[Depends(authorize)])
+def p9960_trip_management_change(change:P9960TripManage,
+                                background_tasks:BackgroundTasks,
+                                actor:str=Depends(authorize)):
+    if change.operation not in ('rename','delete'):
+        raise HTTPException(422,'Невалидно действие.')
+    _p941_write_allowed(change.trip_id)
+    from psycopg.types.json import Jsonb
+    title=_p9960_title_valid(change.display_name) if change.operation=='rename' else ''
+    if change.operation=='delete':
+        if change.confirmation!='ИЗТРИЙ '+change.trip_id:
+            raise HTTPException(422,'Липсва изрично потвърждение за изтриване.')
+        # Refuse to orphan photos. No Drive files are modified by this endpoint.
+        try:
+            service=drive_service()
+            if service is None:raise HTTPException(503,'Не може да се провери галерията в Drive.')
+            folder=_gallery_folder(service,change.trip_id)
+            if _gallery_items(service,folder) or _legacy_gallery_items(service,change.trip_id):
+                raise HTTPException(409,'Пътуването има снимки. Първо ги прегледай и премахни отделно.')
+        except HTTPException:raise
+        except Exception as exc:
+            raise HTTPException(503,'Проверката на снимките е неуспешна; изтриването е отказано.') from exc
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
+            meta=cur.fetchone()
+            if not meta or int(meta[0])!=change.expected_revision:
+                raise HTTPException(409,'Пътуването е променено. Обнови списъка и опитай отново.')
+            cur.execute("SELECT 1 FROM pixelapp_p970_cutovers WHERE trip_id=%s AND status='active'",(change.trip_id,))
+            if not cur.fetchone():raise HTTPException(409,'Пътуването не е активно в Neon.')
+            cur.execute("SELECT row_id,payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings' FOR UPDATE",(change.trip_id,))
+            settings_rows=cur.fetchall()
+            if len(settings_rows)!=1:raise HTTPException(409,'Невалидни настройки на пътуването.')
+            row_id,settings=settings_rows[0]
+            cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s',(change.trip_id,))
+            backup=cur.fetchone()
+            if not backup or not backup[1] or backup[2] or int(backup[0] or 0)<int(meta[0]):
+                raise HTTPException(409,'Нужен е актуален проверен архив преди тази промяна.')
+            if change.operation=='rename':
+                # Block a confusing duplicate visible title across active trips.
+                cur.execute("""SELECT w.trip_id,coalesce(nullif(r.payload->>'display_name',''),replace(w.trip_id,'_',' '))
+                    FROM pixelapp_p932_workspaces w
+                    JOIN pixelapp_p970_cutovers c ON c.trip_id=w.trip_id AND c.status='active'
+                    JOIN pixelapp_p932_rows r ON r.trip_id=w.trip_id AND r.dataset='settings'""")
+                if any(tid!=change.trip_id and (name or '').strip().casefold()==title.casefold()
+                       for tid,name in cur.fetchall()):
+                    raise HTTPException(409,'Друго пътуване вече има това име.')
+                if str(settings.get('display_name') or change.trip_id.replace('_',' ')).strip()==title:
+                    raise HTTPException(409,'Името вече е същото.')
+                settings['display_name']=title
+                cur.execute('UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset=%s AND row_id=%s',
+                            (Jsonb(settings),change.trip_id,'settings',row_id))
+                cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+                revision=int(cur.fetchone()[0])
+                cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision)
+                    VALUES(%s,%s) ON CONFLICT(trip_id) DO UPDATE SET
+                    wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",
+                    (change.trip_id,revision))
+            else:
+                # Physical deletion is limited to Neon-created trips. Migrated trips
+                # still have immutable legacy Drive sources and must not be erased here.
+                cur.execute('SELECT 1 FROM pixelapp_neon_new_trips WHERE trip_id=%s',(change.trip_id,))
+                if not cur.fetchone():raise HTTPException(403,'Изтриването на мигрирани пътувания не е разрешено.')
+                # Do not delete rows of a currently unlocked completed trip.
+                if _p9941_finished(settings) and settings.get('temporary_unlocked') is True:
+                    raise HTTPException(409,'Заключи приключеното пътуване преди изтриване.')
+                cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_trip_delete_events (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    trip_id TEXT NOT NULL, actor TEXT NOT NULL,
+                    revision_before BIGINT NOT NULL, happened_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+                cur.execute('INSERT INTO pixelapp_trip_delete_events(trip_id,actor,revision_before) VALUES(%s,%s,%s)',
+                            (change.trip_id,actor,int(meta[0])))
+                cur.execute("SELECT to_regclass('public.pixelapp_finished_unlock_events')::text")
+                if cur.fetchone()[0] is not None:
+                    cur.execute('DELETE FROM pixelapp_finished_unlock_events WHERE trip_id=%s',(change.trip_id,))
+                cur.execute('DELETE FROM pixelapp_p932_rows WHERE trip_id=%s',(change.trip_id,))
+                # AFTER row deletions: the Neon activity trigger otherwise recreates orphan audit events.
+                cur.execute("SELECT to_regclass('public.pixelapp_neon_activity_events')::text")
+                if cur.fetchone()[0] is not None:
+                    cur.execute('DELETE FROM pixelapp_neon_activity_events WHERE trip_id=%s',(change.trip_id,))
+                cur.execute('DELETE FROM pixelapp_p932_backup_state WHERE trip_id=%s',(change.trip_id,))
+                cur.execute('DELETE FROM pixelapp_neon_new_trips WHERE trip_id=%s',(change.trip_id,))
+                cur.execute('DELETE FROM pixelapp_p970_cutovers WHERE trip_id=%s',(change.trip_id,))
+                cur.execute('DELETE FROM pixelapp_p932_workspaces WHERE trip_id=%s',(change.trip_id,))
+                revision=None
+        conn.commit()
+    if change.operation=='rename':
+        background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'trip_id':change.trip_id,'operation':change.operation,
+            'revision':revision,'backup_pending':change.operation=='rename'}
+
 
 @app.get('/safe/neon/finished-management', dependencies=[Depends(authorize)])
 def p9941_finished_management():
