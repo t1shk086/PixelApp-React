@@ -5202,11 +5202,12 @@ class P9941UnlockAction(BaseModel):
     unlock: bool
     confirmation: str
 
-# P99.61: narrowly scoped cleanup of three previously migrated TEST trips.
+# P99.62: narrowly scoped cleanup of four explicitly approved historic TEST trips.
 # Physical Neon deletion is allowed ONLY for these exact historic IDs, besides
 # ordinary Neon-created trips. Legacy Drive CSV/backups remain untouched.
 _P9961_LEGACY_TEST_IDS = frozenset({
     'ТЕСТ_67_PixelApp',
+    'ТЕСТ_-_PIxelAPP',
     'Тест',
     'ТЕСТ_НОВО_–_PixelApp',
 })
@@ -5323,7 +5324,7 @@ def p9960_trip_management_change(change:P9960TripManage,
                     wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",
                     (change.trip_id,revision))
             else:
-                # Physical deletion: Neon-created trips, or ONLY three explicitly
+                # Physical deletion: Neon-created trips, or ONLY four explicitly
                 # approved historical test IDs. No generic migrated-trip deletion.
                 cur.execute('SELECT 1 FROM pixelapp_neon_new_trips WHERE trip_id=%s',(change.trip_id,))
                 neon_created = cur.fetchone() is not None
