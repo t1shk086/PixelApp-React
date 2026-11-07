@@ -858,7 +858,7 @@ def list_trips():
     ensure_local_snapshot()
     with LOCK:
         settings=load_rows('settings'); expenses=load_rows('expenses'); budgets=load_rows('budgets')
-        deleted_legacy = _p9961_deleted_legacy_ids()
+        deleted_legacy = _p9961_deleted_legacy_ids() | _p9966_confirmed_ghost_ids()
         archived = _archived_trips() | deleted_legacy
         ids=list(dict.fromkeys([x.get('trip_id','') for group in (settings,budgets,expenses) for x in group
             if x.get('trip_id') and x.get('trip_id') not in archived
@@ -912,7 +912,7 @@ def home_places():
     import math
     with LOCK:
         settings=load_rows('settings')
-        deleted_legacy = _p9961_deleted_legacy_ids()
+        deleted_legacy = _p9961_deleted_legacy_ids() | _p9966_confirmed_ghost_ids()
         archived=_archived_trips() | deleted_legacy
         valid_ids={str(x.get('trip_id','')).strip() for x in settings
             if str(x.get('trip_id','')).strip() and str(x.get('trip_id','')).strip() not in archived
@@ -5262,6 +5262,26 @@ def _p9961_deleted_legacy_ids():
                     WHERE e.trip_id = ANY(%s)""", (list(_P9961_LEGACY_TEST_IDS),))
                 ids.update(row[0] for row in cur.fetchall())
             return ids
+
+
+# P99.66: the one user-confirmed deleted historic test is still returned from
+# legacy Drive CSV in /trips, even after prior deletion-marker reconciliation.
+# Hide the exact old CSV ID ONLY when there is no active Neon workspace for it.
+# This is read-only, never deletes source data, and fails closed on DB errors.
+_P9966_CONFIRMED_GHOST_ID = 'ТЕСТ_НОВО_–_PixelApp'
+
+
+def _p9966_confirmed_ghost_ids():
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT EXISTS (
+                SELECT 1 FROM pixelapp_p932_workspaces w
+                JOIN pixelapp_p970_cutovers c ON c.trip_id=w.trip_id
+                WHERE w.trip_id=%s AND c.status='active'
+            )""", (_P9966_CONFIRMED_GHOST_ID,))
+            active = bool(cur.fetchone()[0])
+    # A still-active Neon trip must NEVER be hidden by a display-only fix.
+    return set() if active else {_P9966_CONFIRMED_GHOST_ID}
 
 
 # P99.60: user-facing display name is NOT the immutable trip identifier.
