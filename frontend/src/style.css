@@ -2397,3 +2397,25 @@ html[data-pixelapp-skin="yellow"] .travel-detail .p36-kpis>div,
 html[data-pixelapp-skin="yellow"] .travel-detail .budget-visual-row{
  box-shadow:inset 0 1px 0 #ffffff0a,0 5px 14px #00000020!important;
 }
+
+/* P99.55 — Yellow Night: remaining expenses and vehicle card borders.
+   Paint-only selectors; no changes to layout, calculations, or data. */
+html[data-pixelapp-skin="yellow"] {
+  --vehicle-edge:#514c40;
+}
+html[data-pixelapp-skin="yellow"] .travel-detail :is(
+  .p29-expense-history,.p29-expense-heading,.p29-total-panel,
+  .p29-expense-filters,.p29-category-stack,.p29-category-card,
+  .p29-category-head,.p29-category-entries,.p29-timeline,.p29-expense-item,
+  .fuel-odometer>div,.visual-gauges>div,
+  .p35-fuel-summary>div,.p35-fuel-total,.p35-fuel-paid,
+  .fuel-history-card,.fuel-entry
+) {
+  border-color:#514c40!important;
+}
+html[data-pixelapp-skin="yellow"] .travel-detail .travel-card:has(> .fuel-odometer),
+html[data-pixelapp-skin="yellow"] .travel-detail .travel-card:has(> .visual-gauges),
+html[data-pixelapp-skin="yellow"] .travel-detail .travel-card:has(> .p35-fuel-summary),
+html[data-pixelapp-skin="yellow"] .travel-detail .travel-card:has(> .fuel-history-card) {
+  border-color:#514c40!important;
+}
