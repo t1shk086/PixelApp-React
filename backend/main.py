@@ -858,7 +858,7 @@ def list_trips():
     ensure_local_snapshot()
     with LOCK:
         settings=load_rows('settings'); expenses=load_rows('expenses'); budgets=load_rows('budgets')
-        archived = _archived_trips()
+        archived = _archived_trips() | _p9961_deleted_legacy_ids()
         ids=list(dict.fromkeys([x.get('trip_id','') for group in (settings,budgets,expenses) for x in group if x.get('trip_id') and x.get('trip_id') not in archived]))
         result=[]
         for tid in ids:
@@ -881,7 +881,7 @@ def list_trips():
                     cur.execute("""SELECT n.trip_id,r.payload FROM pixelapp_neon_new_trips n
                         JOIN pixelapp_p932_rows r ON r.trip_id=n.trip_id AND r.dataset='settings'""")
                     for tid, setting in cur.fetchall():
-                        if tid not in ids:
+                        if tid not in ids and tid not in archived:
                             result.append({'id':tid,'name':tid.replace('_',' ').rsplit(' __ ',1)[0],
                                 'settings':setting,'budget':0,'spent':0})
         # P99.60: the visible title can change without changing the stable trip_id.
@@ -909,7 +909,7 @@ def home_places():
     import math
     with LOCK:
         settings=load_rows('settings')
-        archived=_archived_trips()
+        archived=_archived_trips() | _p9961_deleted_legacy_ids()
         valid_ids={str(x.get('trip_id','')).strip() for x in settings if str(x.get('trip_id','')).strip() and str(x.get('trip_id','')).strip() not in archived}
         places=[]
         for point in load_rows('points'):
@@ -5202,6 +5202,28 @@ class P9941UnlockAction(BaseModel):
     unlock: bool
     confirmation: str
 
+# P99.61: narrowly scoped cleanup of three previously migrated TEST trips.
+# Physical Neon deletion is allowed ONLY for these exact historic IDs, besides
+# ordinary Neon-created trips. Legacy Drive CSV/backups remain untouched.
+_P9961_LEGACY_TEST_IDS = frozenset({
+    'ТЕСТ_67_PixelApp',
+    'Тест',
+    'ТЕСТ_НОВО_–_PixelApp',
+})
+
+
+def _p9961_deleted_legacy_ids():
+    # Permanent Neon tombstone: old Drive CSV rows must not reappear in /trips
+    # or the combined places library after the active Neon workspace is removed.
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pixelapp_deleted_legacy_trips')::text")
+            if cur.fetchone()[0] is None:
+                return set()
+            cur.execute('SELECT trip_id FROM pixelapp_deleted_legacy_trips')
+            return {row[0] for row in cur.fetchall()}
+
+
 # P99.60: user-facing display name is NOT the immutable trip identifier.
 # Renaming an identifier would break gallery folders and historical Drive links.
 class P9960TripManage(BaseModel):
@@ -5237,7 +5259,7 @@ def p9960_trip_management():
     return {'ok':True,'trips':[
         {'trip_id':tid,'revision':int(rev),
          'name':str(settings.get('display_name') or tid.replace('_',' ')).strip(),
-         'can_delete':bool(deletable),
+         'can_delete':bool(deletable) or tid in _P9961_LEGACY_TEST_IDS,
          'backup_current':bool(bfile and brev is not None and int(brev)>=int(rev) and not err)}
         for tid,rev,settings,deletable,brev,bfile,err in data]}
 
@@ -5301,10 +5323,13 @@ def p9960_trip_management_change(change:P9960TripManage,
                     wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",
                     (change.trip_id,revision))
             else:
-                # Physical deletion is limited to Neon-created trips. Migrated trips
-                # still have immutable legacy Drive sources and must not be erased here.
+                # Physical deletion: Neon-created trips, or ONLY three explicitly
+                # approved historical test IDs. No generic migrated-trip deletion.
                 cur.execute('SELECT 1 FROM pixelapp_neon_new_trips WHERE trip_id=%s',(change.trip_id,))
-                if not cur.fetchone():raise HTTPException(403,'Изтриването на мигрирани пътувания не е разрешено.')
+                neon_created = cur.fetchone() is not None
+                legacy_cleanup = not neon_created and change.trip_id in _P9961_LEGACY_TEST_IDS
+                if not neon_created and not legacy_cleanup:
+                    raise HTTPException(403,'Изтриването на други мигрирани пътувания е забранено.')
                 # Do not delete rows of a currently unlocked completed trip.
                 if _p9941_finished(settings) and settings.get('temporary_unlocked') is True:
                     raise HTTPException(409,'Заключи приключеното пътуване преди изтриване.')
@@ -5314,6 +5339,17 @@ def p9960_trip_management_change(change:P9960TripManage,
                     revision_before BIGINT NOT NULL, happened_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
                 cur.execute('INSERT INTO pixelapp_trip_delete_events(trip_id,actor,revision_before) VALUES(%s,%s,%s)',
                             (change.trip_id,actor,int(meta[0])))
+                if legacy_cleanup:
+                    # Keep this marker forever (until explicit restore). Old
+                    # shared Drive CSV rows are immutable and otherwise reappear
+                    # when /trips or /home/places joins legacy data.
+                    cur.execute('''CREATE TABLE IF NOT EXISTS pixelapp_deleted_legacy_trips (
+                        trip_id TEXT PRIMARY KEY,
+                        deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        deleted_by TEXT NOT NULL
+                    )''')
+                    cur.execute('INSERT INTO pixelapp_deleted_legacy_trips(trip_id,deleted_by) VALUES(%s,%s) ON CONFLICT(trip_id) DO NOTHING',
+                                (change.trip_id,actor))
                 cur.execute("SELECT to_regclass('public.pixelapp_finished_unlock_events')::text")
                 if cur.fetchone()[0] is not None:
                     cur.execute('DELETE FROM pixelapp_finished_unlock_events WHERE trip_id=%s',(change.trip_id,))
