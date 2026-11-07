@@ -2062,3 +2062,67 @@ html[data-pixelapp-skin="liquid"] .task47-board .task48-swipe-shell .task48-swip
 html[data-pixelapp-skin="liquid"] .task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done {
   background: #18445f !important;
 }
+
+/* P99.50 — Matte theme cleanup. Pure CSS; no task/event/data changes. */
+/* The task label is technically a button (desktop action access). Theme-wide
+   button backgrounds were painting a dark rectangle inside every task row.
+   Reset only that label, not the swipe edit/delete buttons or the check mark. */
+html[data-pixelapp-skin] .task47-board .task48-swipe-shell .task48-swipe-face button.task48-title,
+html[data-pixelapp-skin] .task47-board .task48-swipe-shell .task48-swipe-face button.task48-title:hover,
+html[data-pixelapp-skin] .task47-board .task48-swipe-shell .task48-swipe-face button.task48-title:focus {
+  appearance: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  padding: 4px 0 !important;
+  margin: 0 !important;
+  color: inherit !important;
+  opacity: 1;
+  min-height: 0;
+}
+/* Completed tasks remain opaque while the actual text alone is muted. */
+html[data-pixelapp-skin] .task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done {
+  opacity: 1 !important;
+}
+html[data-pixelapp-skin] .task47-board .task48-swipe-shell .task48-swipe-face.task-visual-done button.task48-title {
+  opacity: .65;
+}
+/* Keep a single uninterrupted face surface in all skins. */
+html[data-pixelapp-skin] .task47-board .task48-swipe-shell .task48-swipe-face .task-preview-name {
+  outline: 0;
+}
+
+/* Matte themes only: softer dark-grey outlines instead of bright metal lines. */
+html[data-pixelapp-skin="blackgrey"] {
+  --skin-border: #3a4651;
+  --skin-outline: #53616d;
+}
+html[data-pixelapp-skin="obsidian"] {
+  --skin-border: #38434e;
+  --contrast-line: #3b4753;
+  --skin-outline: #53616e;
+}
+html[data-pixelapp-skin="blackgrey"] :is(
+  .panel,.summary,.travel-card,.home-extra,.home-places,.p38-latest,
+  .p39-compare-section,.p38-comparison,.task-preview-panel,.task-showcase,
+  .p82-panel,.p82-shell,.p36-budget
+) { border-color: #3e4b57 !important; }
+html[data-pixelapp-skin="blackgrey"] :is(
+  .home-stats>div,.travel-facts>div,.fuel-metrics>div,
+  .budget-visual-row,.task-preview-item,.p81-card,.p83-place,
+  .p9041-expense-card,.p29-expense-item
+) { border-color: #45525e !important; }
+html[data-pixelapp-skin="obsidian"] :is(
+  .panel,.summary,.trip,.dialog,.travel-hero,.travel-card,
+  .home-extra,.home-places,.p38-latest,.task-preview-panel,.task-showcase
+) { border-color: #394550 !important; }
+html[data-pixelapp-skin="blackgrey"] .task47-board .task48-swipe-shell,
+html[data-pixelapp-skin="obsidian"] .task47-board .task48-swipe-shell {
+  border-color: #3c4854 !important;
+}
