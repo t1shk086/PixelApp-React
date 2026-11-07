@@ -858,8 +858,11 @@ def list_trips():
     ensure_local_snapshot()
     with LOCK:
         settings=load_rows('settings'); expenses=load_rows('expenses'); budgets=load_rows('budgets')
-        archived = _archived_trips() | _p9961_deleted_legacy_ids()
-        ids=list(dict.fromkeys([x.get('trip_id','') for group in (settings,budgets,expenses) for x in group if x.get('trip_id') and x.get('trip_id') not in archived]))
+        deleted_legacy = _p9961_deleted_legacy_ids()
+        archived = _archived_trips() | deleted_legacy
+        ids=list(dict.fromkeys([x.get('trip_id','') for group in (settings,budgets,expenses) for x in group
+            if x.get('trip_id') and x.get('trip_id') not in archived
+            and not _p9965_deleted_test_alias(x.get('trip_id'), deleted_legacy)]))
         result=[]
         for tid in ids:
             setting=next((s for s in settings if s.get('trip_id')==tid),{})
@@ -881,7 +884,7 @@ def list_trips():
                     cur.execute("""SELECT n.trip_id,r.payload FROM pixelapp_neon_new_trips n
                         JOIN pixelapp_p932_rows r ON r.trip_id=n.trip_id AND r.dataset='settings'""")
                     for tid, setting in cur.fetchall():
-                        if tid not in ids and tid not in archived:
+                        if tid not in ids and tid not in archived and not _p9965_deleted_test_alias(tid, deleted_legacy):
                             result.append({'id':tid,'name':tid.replace('_',' ').rsplit(' __ ',1)[0],
                                 'settings':setting,'budget':0,'spent':0})
         # P99.60: the visible title can change without changing the stable trip_id.
@@ -909,12 +912,15 @@ def home_places():
     import math
     with LOCK:
         settings=load_rows('settings')
-        archived=_archived_trips() | _p9961_deleted_legacy_ids()
-        valid_ids={str(x.get('trip_id','')).strip() for x in settings if str(x.get('trip_id','')).strip() and str(x.get('trip_id','')).strip() not in archived}
+        deleted_legacy = _p9961_deleted_legacy_ids()
+        archived=_archived_trips() | deleted_legacy
+        valid_ids={str(x.get('trip_id','')).strip() for x in settings
+            if str(x.get('trip_id','')).strip() and str(x.get('trip_id','')).strip() not in archived
+            and not _p9965_deleted_test_alias(x.get('trip_id'), deleted_legacy)}
         places=[]
         for point in load_rows('points'):
             tid=str(point.get('trip_id') or '').strip()
-            if not tid or tid in archived or (tid != FAVORITES_TRIP_ID and valid_ids and tid not in valid_ids):
+            if not tid or tid in archived or _p9965_deleted_test_alias(tid, deleted_legacy) or (tid != FAVORITES_TRIP_ID and valid_ids and tid not in valid_ids):
                 continue
             try:
                 lat=float(point.get('lat'))
@@ -5211,6 +5217,24 @@ _P9961_LEGACY_TEST_IDS = frozenset({
     'Тест',
     'ТЕСТ_НОВО_–_PixelApp',
 })
+
+
+def _p9965_deleted_test_alias(trip_id, deleted_ids):
+    """Match only confirmed deletions of explicitly approved historic TEST trips.
+
+    Older Drive CSVs may encode the same title with different Unicode dash,
+    whitespace or underscore characters.  Do not normalize other trips or
+    infer deletion merely from a TEST-looking name.
+    """
+    import unicodedata
+    def key(value):
+        value = unicodedata.normalize('NFKC', str(value or '')).casefold()
+        return re.sub(r'[\W_]+', '', value, flags=re.UNICODE)
+    if trip_id in deleted_ids:
+        return True
+    approved_deleted = (item for item in deleted_ids if item in _P9961_LEGACY_TEST_IDS)
+    candidate = key(trip_id)
+    return bool(candidate) and any(candidate == key(item) for item in approved_deleted)
 
 
 def _p9961_deleted_legacy_ids():
