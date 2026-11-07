@@ -2419,3 +2419,59 @@ html[data-pixelapp-skin="yellow"] .travel-detail .travel-card:has(> .p35-fuel-su
 html[data-pixelapp-skin="yellow"] .travel-detail .travel-card:has(> .fuel-history-card) {
   border-color:#514c40!important;
 }
+
+/* P99.58 — Subtle outlines for the two requested skins only.
+   Black & Grey · Matte and Liquid Glass. Purely visual; keep focus and active tabs visible. */
+html[data-pixelapp-skin="blackgrey"] {
+  --skin-border:#3c4751;
+}
+html[data-pixelapp-skin="liquid"] {
+  --skin-border:#5d91aa88;
+}
+/* Outer cards and common module surfaces. Keep the three-layer contrast intact. */
+html[data-pixelapp-skin="blackgrey"] :is(
+ .panel,.summary,.trip,.dialog,.travel-hero,.travel-card,
+ .home-trip,.p915-swipe>.home-trip,.home-extra,.home-places,.p38-latest,
+ .p39-compare-section,.p38-comparison,.p38-compare-launch,
+ .p36-budget,.p36-panel,.p82-shell,.p82-panel,.p81-card,.p83-place,
+ .route82-shell,.route78-stop,.route76-wrap,.task47-board,.task48-swipe-shell,
+ .p29-expense-history,.p29-total-panel,.p29-category-card,.fuel-history-card,
+ .p9916-library .p9916-panel
+) { border-color:#3d4852!important; }
+html[data-pixelapp-skin="blackgrey"] :is(
+ .home-stats>div,.travel-facts>div,.fuel-metrics>div,.visual-gauges>div,
+ .budget-visual-row,.p36-kpis>div,.p36-budget-categories,
+ .p9041-expense-card,.p29-expense-item,.p29-expense-group,
+ .task-preview-item,.task48-swipe-face,.route78-stop,
+ .visual-category,.fuel-odometer>div,.p35-fuel-summary>div
+) { border-color:#46525d!important; }
+/* For glass, translucent cyan-blue edges instead of opaque near-white strokes. */
+html[data-pixelapp-skin="liquid"] :is(
+ .panel,.summary,.trip,.dialog,.travel-hero,.travel-card,
+ .home-trip,.p915-swipe>.home-trip,.home-extra,.home-places,.p38-latest,
+ .p39-compare-section,.p38-comparison,.p38-compare-launch,
+ .p36-budget,.p36-panel,.p82-shell,.p82-panel,.p81-card,.p83-place,
+ .route82-shell,.route78-stop,.route76-wrap,.task47-board,.task48-swipe-shell,
+ .p29-expense-history,.p29-total-panel,.p29-category-card,.fuel-history-card,
+ .p9916-library .p9916-panel
+) { border-color:#75b5d080!important; }
+html[data-pixelapp-skin="liquid"] :is(
+ .home-stats>div,.travel-facts>div,.fuel-metrics>div,.visual-gauges>div,
+ .budget-visual-row,.p36-kpis>div,.p36-budget-categories,
+ .p9041-expense-card,.p29-expense-item,.p29-expense-group,
+ .task-preview-item,.task48-swipe-face,.route78-stop,
+ .visual-category,.fuel-odometer>div,.p35-fuel-summary>div
+) { border-color:#88c9df70!important; }
+/* Tone down glass button outlines, but preserve selected navigation and focus rings. */
+html[data-pixelapp-skin="liquid"] :is(
+ .app>nav button,.home-actions button,.travel-menu button,.p82-tabs button,
+ .p25-tabs button,.route82-shell button
+):not(.active):not(.selected):not(:focus-visible):not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out) {
+ border-color:#81bfd18c!important;
+}
+html[data-pixelapp-skin="blackgrey"] :is(
+ .app>nav button,.home-actions button,.travel-menu button,.p82-tabs button,
+ .p25-tabs button,.route82-shell button
+):not(.active):not(.selected):not(:focus-visible):not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out) {
+ border-color:#46545f!important;
+}
