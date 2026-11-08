@@ -52,6 +52,7 @@ async function writeFastCache(secret,snapshot){
 
 const categories=['Храна и напитки','Транспорт','Куче','Други','Нощувки/Хотел','Депозит/Резервация'];
 const money=n=>new Intl.NumberFormat('bg-BG',{style:'currency',currency:'EUR'}).format(Number(n||0));
+const paymentCategory=r=>String(r?.type||'')==='deposit'&&(!r?.category||r.category==='Депозит/Резервация')?'Нощувки/Хотел':(r?.category||'Други');
 
 const asDate=s=>{if(!s||String(s).toLowerCase()==='nan')return null;const m=String(s).match(/^(\d{2})\.(\d{2})\.(\d{4})$/);if(!m)return null;const d=new Date(Number(m[3]),Number(m[2])-1,Number(m[1]));return Number.isNaN(d.getTime())?null:d};
 const isoDay=d=>{const x=new Date(d);x.setHours(0,0,0,0);return x};
@@ -99,9 +100,9 @@ function ExpenseHistory({rows,onExpenseAction,onAddExpense,addExpenseDisabled=fa
  const [expanded,setExpanded]=useState({});
  const amount=r=>{const n=Number(r.amount);return Number.isFinite(n)?n:0};
  const isPayment=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
- const categoryName=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
+ const categoryName=paymentCategory;
  const all=rows.filter(isPayment);
- const canChange=r=>onExpenseAction&&((r._neonRowId&&Number(r._neonVersion)>0&&String(r.type)==='expense'&&!/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i.test(String(r.description||'')))||(!r._neonRowId&&r._original!==false&&!r._temporary&&!r._temporaryEdited&&String(r.type)==='expense'&&String(r.description||'').startsWith('[P62] ')&&['0','0.0','0.00',''].includes(String(r.liters??''))&&['0','0.0','0.00',''].includes(String(r.current_km??''))));
+ const canChange=r=>onExpenseAction&&((r._neonRowId&&Number(r._neonVersion)>0&&['expense','deposit'].includes(String(r.type))&&!/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i.test(String(r.description||'')))||(!r._neonRowId&&r._original!==false&&!r._temporary&&!r._temporaryEdited&&String(r.type)==='expense'&&String(r.description||'').startsWith('[P62] ')&&['0','0.0','0.00',''].includes(String(r.liters??''))&&['0','0.0','0.00',''].includes(String(r.current_km??''))));
  const options=Array.from(new Set(all.map(categoryName))).sort((a,b)=>a.localeCompare(b,'bg'));
  const visible=all.filter(r=>{
   if(category!=='all'&&categoryName(r)!==category)return false;
@@ -312,7 +313,9 @@ function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,bu
  const hotelSpend=spendRows.filter(r=>r.type==='expense'&&r.category==='Нощувки/Хотел').reduce((sum,r)=>sum+Number(r.amount||0),0);
  const deposits=spendRows.filter(r=>r.type==='deposit').reduce((sum,r)=>sum+Number(r.amount||0),0);
  const hotelBudget=budgetEntries.find(b=>b.category==='Нощувки/Хотел');
- const dailyPool=globalBudget>0?Math.max(0,budgetTotal-hotelSpend-deposits):Math.max(0,budgetTotal-Number(hotelBudget?.budget||0));
+ const nonHotelDeposits=spendRows.filter(r=>r.type==='deposit'&&paymentCategory(r)!=='Нощувки/Хотел'&&(globalBudget>0||budgetEntries.some(b=>b.category===paymentCategory(r)))).reduce((sum,r)=>sum+Number(r.amount||0),0);
+ const dailyPool=globalBudget>0?Math.max(0,budgetTotal-hotelSpend-deposits):Math.max(0,budgetTotal-Number(hotelBudget?.budget||0)-nonHotelDeposits);
+ const upcoming=calendarOk&&today<start;
  const dailyTarget=dailyPool/totalDays,actualDaily=dailySpent/elapsedDays,forecast=actualDaily*totalDays,diff=actualDaily-dailyTarget;
  const paceRatio=dailyTarget>0?actualDaily/dailyTarget:0;
  const mood=paceRatio<=.8?'🟢 БЮДЖЕТЪТ ВЪРВИ ДОБРЕ':paceRatio<=1?'🟡 ХАРЧИШ БЛИЗО ДО ПЛАНА':'🔴 ХАРЧИШ ПРЕКАЛЕНО БЪРЗО';
@@ -334,7 +337,7 @@ function BudgetInsights({rows,settings,budgetTotal,globalBudget,budgetEntries,bu
   <div className="p36-panels">
    <section className="p36-panel"><h4>📈 РАЗХОДИ ПО ДНИ</h4>{days.length?<div className="p36-bars">{days.map(({day,amount})=><div key={day} className="p36-bar-column"><span>{Math.round(amount)} €</span><div className="p36-bar-space"><i style={{height:Math.max(7,amount/maxDay*100)+'%'}}/></div><small>{day.slice(8,10)}.{day.slice(5,7)}</small></div>)}</div>:<p className="muted">Няма достатъчно данни за дневна графика.</p>}<small className="p36-panel-note">Последните до 7 дни със записани разходи</small></section>
    <section className="p36-panel"><h4>📊 ПО КАТЕГОРИЯ</h4>{cats.length?cats.map(([name,value],i)=><div className="p36-category" key={name}><div><span>{name}</span><b>{money(value)}</b></div><div className="p36-cat-track"><i style={{width:(catTotal>0?value/catTotal*100:0)+'%',background:['#36ce83','#4eb6ef','#9f71ff','#ed955a','#f3c962','#67d6ba'][i%6]}}/></div></div>):<p className="muted">Няма разходи по категории.</p>}</section>
-   <section className="p36-panel p36-pace"><h4>📅 ДНЕВЕН ТЕМП</h4>{hasBudget&&calendarOk?<><strong>{money(dailyTarget)}</strong><small>планирано на ден</small><div className="p36-pace-details"><div>Реално: <b>{money(actualDaily)}/ден</b></div><div>Прогноза: <b>{money(forecast)}</b></div></div><div className="p36-pace-state"><b>{mood}</b><span>{diff<0?`Под плана си с ${money(-diff)}/ден`:diff>0?`Над плана си с ${money(diff)}/ден`:'Точно по плана си'}</span><span>Остават: {money(dailyPool-dailySpent)}</span></div><small className="p36-panel-note">Темпото не включва хотелски разходи и депозити.</small></>:<p className="muted">За дневен план са нужни бюджет и начална/крайна дата.</p>}</section>
+   <section className="p36-panel p36-pace"><h4>📅 ДНЕВЕН ТЕМП</h4>{hasBudget&&calendarOk?<><strong>{money(dailyTarget)}</strong><small>планирано на ден</small><div className="p36-pace-details">{upcoming?<div>⏳ Предстоящо пътуване</div>:<><div>Реално: <b>{money(actualDaily)}/ден</b></div><div>Прогноза: <b>{money(forecast)}</b></div></>}<div>Ежедневни разходи: <b>{money(dailySpent)}</b></div><div>Хотел: <b>{money(hotelSpend+spendRows.filter(r=>r.type==='deposit'&&paymentCategory(r)==='Нощувки/Хотел').reduce((sum,r)=>sum+Number(r.amount||0),0))}</b></div><div>Депозити: <b>{money(deposits)}</b></div></div>{upcoming?<div className="p36-pace-state"><b>⏳ ПЪТУВАНЕТО ПРЕДСТОИ</b><span>Дневният темп и прогнозата ще се включат от началната дата.</span><span>Остават за дневни разходи: {money(dailyPool-dailySpent)}</span></div>:<div className="p36-pace-state"><b>{mood}</b><span>{diff<0?`Под плана си с ${money(-diff)}/ден`:diff>0?`Над плана си с ${money(diff)}/ден`:'Точно по плана си'}</span><span>Остават: {money(dailyPool-dailySpent)}</span></div>}<small className="p36-panel-note">Хотелите и депозитите се отчитат в общия бюджет, но са извън дневния темп.</small></>:<p className="muted">За дневен план са нужни бюджет и начална/крайна дата.</p>}</section>
   </div>
  </section>;
 }
@@ -972,6 +975,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  const [p942Amount,setP942Amount]=useState('');
  const [p942Category,setP942Category]=useState('Други');
  const [p942Description,setP942Description]=useState('');
+ const [p9968Deposit,setP9968Deposit]=useState(false);
  const [p943Editing,setP943Editing]=useState(null);
  const [p943Liters,setP943Liters]=useState('');
  const [p943Km,setP943Km]=useState('');
@@ -997,7 +1001,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
   if(/\[(?:ПРОПУСНАТО\s+ГОРИВО|ГОРИВО\s+БЕЗ\s+СТОЙНОСТ)\]/i.test(String(record.description||''))){setP942Error('Пропуснатите литри се управляват от настройките на автомобила.');return;}
   if(action==='edit'){
    const raw=String(record.description||'');
-   setP943Editing(record);setP942Amount(String(record.amount??''));setP942Category(String(record.category||'Други'));
+   setP943Editing(record);setP942Amount(String(record.amount??''));setP942Category(String(record.category||'Други'));setP9968Deposit(record.type==='deposit');
    setP942Description(isFuelExpense(record)?raw.replace(fuelPrefix,''):raw);
    setP943Liters(String(record.liters??''));setP943Km(String(record.current_km??''));
    setP943FuelKind(/^\[(?:ПЪЛНО|ПЪЛЕН)\s+ЗАРЕЖДАНЕ\]/i.test(raw)?'full':/^\[ЧАСТИЧНО\s+ЗАРЕЖДАНЕ\]/i.test(raw)?'partial':'untagged');
@@ -1039,11 +1043,11 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
    }
    const editing=p943Editing;
    const kindLabel=p943FuelKind==='full'?'[ПЪЛНО ЗАРЕЖДАНЕ] ':p943FuelKind==='partial'?'[ЧАСТИЧНО ЗАРЕЖДАНЕ] ':'';
-   const row=editing?{trip_id:neonTripId,date:String(editing.date),amount:String(amount),category:fuelEdit?'Транспорт':p942Category,description:fuelEdit?kindLabel+p942Description.trim():p942Description.trim(),type:String(editing.type),liters:fuelEdit?String(p943Liters).trim().replace(',','.'):String(editing.liters??''),current_km:fuelEdit?String(p943Km).trim():String(editing.current_km??'')}:
-    {trip_id:neonTripId,date:new Date().toLocaleDateString('bg-BG'),amount:String(amount),category:p942Category,description:p942Description.trim(),type:'expense',liters:'',current_km:''};
+   const row=editing?{trip_id:neonTripId,date:String(editing.date),amount:String(amount),category:fuelEdit?'Транспорт':p942Category,description:fuelEdit?kindLabel+p942Description.trim():p942Description.trim(),type:fuelEdit?'expense':p9968Deposit?'deposit':'expense',liters:fuelEdit?String(p943Liters).trim().replace(',','.'):String(editing.liters??''),current_km:fuelEdit?String(p943Km).trim():String(editing.current_km??'')}:
+    {trip_id:neonTripId,date:new Date().toLocaleDateString('bg-BG'),amount:String(amount),category:p942Category,description:p942Description.trim(),type:p9968Deposit?'deposit':'expense',liters:'',current_km:''};
    await onNeonRequest('/safe/neon/expense','POST',{trip_id:neonTripId,dataset:'expenses',operation:editing?'edit':'add',
     ...(editing?{row_id:editing._neonRowId,expected_version:editing._neonVersion}:{}),row});
-   setP942Form(false);setP943Editing(null);setP942Amount('');setP942Description('');await p942Reload();
+   setP942Form(false);setP943Editing(null);setP942Amount('');setP942Description('');setP9968Deposit(false);await p942Reload();
   }catch(err){await p942Reload();setP942Error(String(err.message||err));}finally{setP942Saving(false);}
  };
  const [p931StageMode,setP931StageMode]=useState(false);
@@ -1313,7 +1317,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  );
  const number=x=>Number.isFinite(Number(x))?Number(x):0;
  const allCosts=rows.filter(r=>['expense','deposit'].includes(r.type)).reduce((a,r)=>a+number(r.amount),0);
- const byCat={};rows.filter(paymentRow).forEach(r=>{const category=r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');byCat[category]=(byCat[category]||0)+number(r.amount)});
+ const byCat={};rows.filter(paymentRow).forEach(r=>{const category=paymentCategory(r);byCat[category]=(byCat[category]||0)+number(r.amount)});
  const budgetEntries=budgets.filter(r=>r.category!=='__GLOBAL__'&&number(r.budget)>0);
  const globalBudget=budgets.filter(r=>r.category==='__GLOBAL__').reduce((a,r)=>a+number(r.budget),0);
  const budgetTotal=globalBudget>0?globalBudget:budgetEntries.reduce((a,r)=>a+number(r.budget),0);
@@ -1335,7 +1339,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  const budgetCats=new Set(budgetEntries.map(b=>b.category));
  const budgetScopedCosts=globalBudget>0||!budgetCats.size?allCosts:rows.reduce((sum,r)=>{
    if(r.type==='expense'&&budgetCats.has(r.category))return sum+number(r.amount);
-   if(r.type==='deposit'&&budgetCats.has('Нощувки/Хотел'))return sum+number(r.amount);
+   if(r.type==='deposit'&&budgetCats.has(paymentCategory(r)))return sum+number(r.amount);
    return sum;
  },0);
  const serverSpent=number(trip?.spent),serverBudget=number(trip?.budget);
@@ -1554,9 +1558,9 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  {isNeonExpenseTest&&!p942Test&&!isP934Canary&&!p931Active&&!p932Mode&&<NeonExpenseWorkspace key={neonTripId} tripId={neonTripId} request={onNeonRequest} onWorkspaceChange={setNeonExpenseWorkspace} compact={neonActive}/>}
  <style>{`.p9913-overlay{position:fixed;inset:0;z-index:9999;background:rgba(3,9,18,.78);display:flex;justify-content:center;align-items:center;padding:16px;box-sizing:border-box;overscroll-behavior:contain}.p9913-dialog{width:min(480px,100%);max-height:calc(100dvh - 32px);min-height:0;overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;border:1px solid rgba(117,167,197,.45);border-radius:20px;background:var(--card,#152532);color:var(--text,#f1f6fc);box-shadow:0 24px 75px rgba(0,0,0,.55)}.p9913-expense-form{padding:20px!important;margin:0!important;border:0!important;box-shadow:none!important;background:transparent!important;display:grid;gap:14px}.p9913-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid rgba(144,176,201,.2)}.p9913-head h3{margin:0!important;font-size:18px!important;font-weight:750!important;line-height:1.35!important}.p9913-close{border:0!important;background:transparent!important;color:inherit!important;font-size:27px!important;min-width:40px!important;min-height:40px!important;padding:0!important;line-height:1!important;box-shadow:none!important;cursor:pointer}.p9913-close:focus-visible{outline:2px solid #67d4f5;outline-offset:2px}.p9913-expense-form label{display:grid;gap:6px;margin:0!important}.p9913-expense-form label input,.p9913-expense-form label select{width:100%;box-sizing:border-box}.p9913-expense-form .p9043-expense-actions{margin-top:4px;display:flex;gap:10px;align-items:center}.p9913-expense-form .p9043-expense-actions button{flex:1;min-height:43px}.p9913-expense-form p.muted,.p9913-expense-form small.muted{margin:0}@media(max-width:550px){.p9913-overlay{padding:10px;align-items:center}.p9913-dialog{width:100%;max-height:calc(100dvh - 20px);border-radius:17px}.p9913-expense-form{padding:16px!important}}`}</style>
  {p942Test&&!p942Form&&p942Error&&<p role="alert" className="error">⚠️ Не може да се работи с Neon: {p942Error}</p>}
- {p942Test&&p942Form&&createPortal(<div className="p9913-overlay" onMouseDown={event=>{if(event.target===event.currentTarget&&!p942Saving){setP942Form(false);setP943Editing(null)}}}><div className="p9913-dialog" role="dialog" aria-modal="true" aria-labelledby="p9913-expense-title"><form className="quick-demo-form p9913-expense-form" onSubmit={p942Add}><div className="p9913-head"><h3 id="p9913-expense-title">{p943Editing?'✏️ Редактирай разход':'💳 Добави разход'}</h3><button type="button" className="p9913-close" aria-label="Затвори" title="Затвори" disabled={p942Saving} onClick={()=>{setP942Form(false);setP943Editing(null)}}>×</button></div>{p942Error&&<p role="alert" className="error">⚠️ {p942Error}</p>}<label>Сума (€)<input type="number" min={p943Editing&&isFuelExpense(p943Editing)?'0':'0.01'} step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} disabled={!!p943Editing&&isFuelExpense(p943Editing)} onChange={e=>setP942Category(e.target.value)}>{[...new Set([...(p943Editing?[p943Editing.category]:[]),...categories.filter(c=>c!=='Депозит/Резервация'),...(p942Data?.records?.categories||[]).map(r=>r.data?.category).filter(Boolean),...rows.map(r=>r.category).filter(Boolean).filter(c=>c!=='Депозит/Резервация')])].map(c=><option key={c}>{c}</option>)}</select></label>{fuelFieldsVisible&&<><p className="muted">⛽ Разпознато зареждане — въведи литри, вид и километраж.</p><label>Тип зареждане<select value={p943FuelKind} onChange={e=>setP943FuelKind(e.target.value)}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option>{p943Editing&&p943FuelKind==='untagged'&&<option value="untagged">Без отбелязан тип (запази)</option>}</select></label><label>Литри<input type="number" min="0.01" max="200" step="0.01" inputMode="decimal" value={p943Liters} onChange={e=>setP943Liters(e.target.value)} required/></label><label>Километраж<input type="number" min="1" step="1" inputMode="numeric" value={p943Km} onChange={e=>setP943Km(e.target.value)} required={p943FuelKind!=='untagged'}/></label><small className="muted">При промяна на литри, километраж или тип всички показатели за разход се преизчисляват от историята. Проверявай внимателно показанията.</small></>}<label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label><div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div></form></div></div>,document.body)}
+ {p942Test&&p942Form&&createPortal(<div className="p9913-overlay" onMouseDown={event=>{if(event.target===event.currentTarget&&!p942Saving){setP942Form(false);setP943Editing(null)}}}><div className="p9913-dialog" role="dialog" aria-modal="true" aria-labelledby="p9913-expense-title"><form className="quick-demo-form p9913-expense-form" onSubmit={p942Add}><div className="p9913-head"><h3 id="p9913-expense-title">{p943Editing?'✏️ Редактирай разход':'💳 Добави разход'}</h3><button type="button" className="p9913-close" aria-label="Затвори" title="Затвори" disabled={p942Saving} onClick={()=>{setP942Form(false);setP943Editing(null)}}>×</button></div>{p942Error&&<p role="alert" className="error">⚠️ {p942Error}</p>}<label>Сума (€)<input type="number" min={p943Editing&&isFuelExpense(p943Editing)?'0':'0.01'} step="0.01" inputMode="decimal" value={p942Amount} onChange={e=>setP942Amount(e.target.value)} required/></label><label>Категория<select value={p942Category} disabled={!!p943Editing&&isFuelExpense(p943Editing)} onChange={e=>setP942Category(e.target.value)}>{[...new Set([...(p943Editing?[p943Editing.category]:[]),...categories.filter(c=>c!=='Депозит/Резервация'),...(p942Data?.records?.categories||[]).map(r=>r.data?.category).filter(Boolean),...rows.map(r=>r.category).filter(Boolean).filter(c=>c!=='Депозит/Резервация')])].map(c=><option key={c}>{c}</option>)}</select></label>{fuelFieldsVisible&&<><p className="muted">⛽ Разпознато зареждане — въведи литри, вид и километраж.</p><label>Тип зареждане<select value={p943FuelKind} onChange={e=>setP943FuelKind(e.target.value)}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option>{p943Editing&&p943FuelKind==='untagged'&&<option value="untagged">Без отбелязан тип (запази)</option>}</select></label><label>Литри<input type="number" min="0.01" max="200" step="0.01" inputMode="decimal" value={p943Liters} onChange={e=>setP943Liters(e.target.value)} required/></label><label>Километраж<input type="number" min="1" step="1" inputMode="numeric" value={p943Km} onChange={e=>setP943Km(e.target.value)} required={p943FuelKind!=='untagged'}/></label><small className="muted">При промяна на литри, километраж или тип всички показатели за разход се преизчисляват от историята. Проверявай внимателно показанията.</small></>}<label>Описание<input value={p942Description} onChange={e=>setP942Description(e.target.value)}/></label>{!fuelFieldsVisible&&<label className="p9968-deposit-option"><span><b>Предварително плащане / депозит</b><small>Отчита се в бюджета, но не в дневния темп.</small></span><input type="checkbox" checked={p9968Deposit} onChange={e=>setP9968Deposit(e.target.checked)} disabled={p942Saving}/></label>}{p9968Deposit&&!fuelFieldsVisible&&<small className="muted">При доплащане записвай само остатъка, за да няма двойно отчитане.</small>}<div className="p9043-expense-actions"><button type="submit" disabled={p942Saving||!p942Data}>{p942Saving?'Записвам…':p943Editing?'Запази редакцията':'Запази'}</button><button type="button" className="ghost" onClick={()=>{setP942Form(false);setP943Editing(null)}}>Отказ</button></div></form></div></div>,document.body)}
  <ExpenseHistory rows={rows}
-  onAddExpense={p942Test?()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP943Liters('');setP943Km('');setP943FuelKind('full');setP942Error('');setP942Form(true)}:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&!previewReadOnly?()=>onOpenPreview('quick-demo'):null}
+  onAddExpense={p942Test?()=>{setP943Editing(null);setP942Amount('');setP942Category('Други');setP942Description('');setP9968Deposit(false);setP943Liters('');setP943Km('');setP943FuelKind('full');setP942Error('');setP942Form(true)}:!p934Active&&!neonActive&&!p931Active&&!p932Mode&&!previewReadOnly?()=>onOpenPreview('quick-demo'):null}
   addExpenseDisabled={p942Test&&(!p942Data||p942Saving||p953Finished)}
   onExpenseAction={p942Test?(p953Finished?null:p943Action):!p942Test&&!p934Active&&!neonActive&&!p931Active&&!p932Mode&&financeOwned?onExpenseAction:null}/>
  </>}
@@ -1702,7 +1706,7 @@ function FuelEntryPreview({trips,loadTrip,onClose,initialTripId}){
  const budgetCats=budgets.filter(b=>b.category!=='__GLOBAL__'&&num(b.budget)>0);
  const budgetTotal=globalBudget>0?globalBudget:budgetCats.reduce((sum,b)=>sum+num(b.budget),0);
  const transportInBudget=globalBudget>0||!budgetCats.length||budgetCats.some(b=>b.category==='Транспорт');
- const actualScope=(detail?.expenses||[]).filter(r=>['expense','deposit'].includes(String(r.type))&&(globalBudget>0||!budgetCats.length||budgetCats.some(b=>b.category===(r.type==='deposit'?'Нощувки/Хотел':r.category)))).reduce((sum,r)=>sum+num(r.amount),0);
+ const actualScope=(detail?.expenses||[]).filter(r=>['expense','deposit'].includes(String(r.type))&&(globalBudget>0||!budgetCats.length||budgetCats.some(b=>b.category===paymentCategory(r)))).reduce((sum,r)=>sum+num(r.amount),0);
  const mockTotal=mock.reduce((sum,r)=>sum+num(r.amount),0);
  const recordedEnd=num(settings.end_km);
  const trialEndKm=endKmTest.trim()?num(endKmTest):null;
@@ -1801,7 +1805,7 @@ function QuickExpensePreview({trips,loadTrip,onClose,initialTripId,expenseDrafts
  },[tripId]);
  const val=v=>{const n=Number(String(v??0).replace(',','.'));return Number.isFinite(n)?n:0};
  const isExpense=r=>['expense','deposit'].includes(String(r.type||'').toLowerCase());
- const expenseCategory=r=>r.type==='deposit'?'Нощувки/Хотел':(r.category||'Други');
+ const expenseCategory=paymentCategory;
  const isFuel=r=>r.type==='expense'&&r.category==='Транспорт'&&(val(r.liters)>0||/гориво|зареждане|бензин|дизел|газ/i.test(String(r.description||'')));
  const original=(details?.expenses||[]).filter(isExpense).map((r,i)=>({...r,_key:`old-${i}`,_original:true}));
  const effectiveOld=original.filter(r=>!deleted.includes(r._key)).map(r=>({...r,...(edits[r._key]||{})}));
@@ -2210,7 +2214,7 @@ function comparisonMetrics(trip,detail,draft){
  const num=x=>{const v=Number(x);return Number.isFinite(v)?v:0};
  const payments=rows.filter(r=>['expense','deposit'].includes(String(r.type)));
  const total=payments.reduce((a,r)=>a+num(r.amount),0);
- const hotel=payments.filter(r=>['Нощувки/Хотел','Депозит/Резервация'].includes(String(r.category||''))||r.type==='deposit').reduce((a,r)=>a+num(r.amount),0);
+ const hotel=payments.filter(r=>paymentCategory(r)==='Нощувки/Хотел').reduce((a,r)=>a+num(r.amount),0);
  const other=payments.filter(r=>r.category==='Други').reduce((a,r)=>a+num(r.amount),0);
  const fuel=payments.filter(r=>r.category==='Транспорт'&&(num(r.liters)>0||/газ|гориво|зареждане|бензин|дизел/i.test(String(r.description||''))));
  const fuelCost=fuel.reduce((a,r)=>a+num(r.amount),0),fuelLiters=fuel.reduce((a,r)=>a+num(r.liters),0);
@@ -2619,6 +2623,7 @@ function NeonQuickExpense({trip,request,onClose,onSaved,tripSelector}){
  const [amount,setAmount]=useState('');
  const [category,setCategory]=useState('Други');
  const [description,setDescription]=useState('');
+ const [isDeposit,setIsDeposit]=useState(false);
  const [fuelKind,setFuelKind]=useState('full');
  const [fuelLiters,setFuelLiters]=useState('');
  const [fuelKm,setFuelKm]=useState('');
@@ -2671,7 +2676,7 @@ function NeonQuickExpense({trip,request,onClose,onSaved,tripSelector}){
     });
    }else{
     const row={trip_id:trip.id,date:new Date().toLocaleDateString('bg-BG'),amount:String(value),
-     category,description:description.trim(),type:'expense',liters:'',current_km:''};
+     category,description:description.trim(),type:isDeposit?'deposit':'expense',liters:'',current_km:''};
     result=await request('/safe/neon/expense','POST',{
      trip_id:trip.id,dataset:'expenses',operation:'add',row
     });
@@ -2694,6 +2699,7 @@ function NeonQuickExpense({trip,request,onClose,onSaved,tripSelector}){
    <label>Сума (€)<input type="number" min="0.01" max="100000" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy||loading} required/></label>
    <label>Категория<select value={category} onChange={e=>setCategory(e.target.value)} disabled={busy||loading}>{categoryChoices.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
    <label>Описание<input maxLength="250" value={description} onChange={e=>setDescription(e.target.value)} disabled={busy||loading}/></label>
+   {!fuelRecognized&&<label className="p9968-deposit-option"><span><b>Предварително плащане / депозит</b><small>В общия бюджет, извън дневния темп.</small></span><input type="checkbox" checked={isDeposit} onChange={e=>setIsDeposit(e.target.checked)} disabled={busy||loading}/></label>}{isDeposit&&!fuelRecognized&&<small className="muted">При доплащане въведи само остатъка.</small>}
    {fuelRecognized&&<><p className="muted">⛽ Разпознато зареждане — попълни литри и километраж.</p>
     <label>Тип зареждане<select value={fuelKind} onChange={e=>setFuelKind(e.target.value)} disabled={busy||loading}><option value="full">Пълно зареждане</option><option value="partial">Частично зареждане</option></select></label>
     <label>Литри<input type="number" min="0.01" max="200" step="0.01" inputMode="decimal" value={fuelLiters} onChange={e=>setFuelLiters(e.target.value)} disabled={busy||loading} required/></label>

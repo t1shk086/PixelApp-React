@@ -2579,3 +2579,7 @@ html .gallery-p91-viewer :is(.gallery-p91-close,.gallery-p91-viewer-nav button) 
 html .gallery-p91-viewer-bottom .gallery-p91-delete {
   background:transparent!important;border-color:var(--gv-control-border)!important;
 }
+
+/* P99.68: optional deposit flag in the Neon expense forms. */
+.p9968-deposit-option{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:space-between;gap:14px;padding:12px 14px;border:1px solid var(--border,rgba(140,150,160,.25));border-radius:12px;background:var(--surface-2,rgba(140,150,160,.08));cursor:pointer}
+.p9968-deposit-option span{display:grid;gap:3px;min-width:0;flex:1}.p9968-deposit-option b{font-size:.91rem}.p9968-deposit-option small{font-size:.77rem;opacity:.8;line-height:1.35}.p9968-deposit-option input[type=checkbox]{width:20px;height:20px;min-width:20px;accent-color:var(--accent,#5d91e5);margin:0;cursor:pointer}
