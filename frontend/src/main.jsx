@@ -967,6 +967,7 @@ function PackingList({tripId,request,enabled}){
  const [title,setTitle]=useState('');
  const [category,setCategory]=useState('Дрехи');
  const [newCategory,setNewCategory]=useState('');
+ const [categoryDialogOpen,setCategoryDialogOpen]=useState(false);
  const [expanded,setExpanded]=useState(P9971_CATEGORIES);
  const [editing,setEditing]=useState(null);
  const [editTitle,setEditTitle]=useState('');
@@ -991,7 +992,7 @@ function PackingList({tripId,request,enabled}){
        trip_id:tripId,operation,expected_revision:snapshot.revision,
        ...(item?{item_id:item.item_id,expected_version:item.version}:{}),...fields});
      setSnapshot(old=>({...old,revision:response.revision,items:response.items,categories:response.categories||old?.categories}));
-     if(operation==='add_category'){setCategory(fields.title);setExpanded(old=>old.includes(fields.title)?old:[...old,fields.title]);setNewCategory('');}
+     if(operation==='add_category'){setCategory(fields.title);setExpanded(old=>old.includes(fields.title)?old:[...old,fields.title]);setNewCategory('');setCategoryDialogOpen(false);}
      setEditing(null);setTitle('');setCopyOpen(false);
    }catch(e){setError(String(e.message||e));await refresh().catch(()=>{});}
    finally{setBusy(false);}
@@ -1007,7 +1008,7 @@ function PackingList({tripId,request,enabled}){
  const locked=!!snapshot?.locked;
  return <div className="packing71">
    <div className="travel-card packing71-hero">
-    <div className="packing71-head"><div><h3>Багаж</h3><p>Всичко необходимо за пътуването</p></div><strong>{pct}%</strong></div>
+    <div className="packing71-head"><div><h3 className="p997-section-title">Багаж</h3><p>Всичко необходимо за пътуването</p></div><strong>{pct}%</strong></div>
     <div className="packing71-track"><span style={{width:pct+'%'}}/></div>
     <div className="packing71-meta"><span>{packed} от {items.length} приготвени</span><button type="button" className="ghost" disabled={busy} onClick={()=>void refresh()} title="Обнови списъка">↻ Обнови</button></div>
    </div>
@@ -1016,15 +1017,14 @@ function PackingList({tripId,request,enabled}){
     !snapshot?<div className="travel-card">Зареждам багажа…</div>:<>
     {locked&&<div className="travel-card muted">🔒 Това пътуване е приключено. За промени го отключи временно от настройките.</div>}
     {!locked&&<div className="travel-card packing71-add">
-      <form onSubmit={e=>{e.preventDefault();if(title.trim())void change('add',null,{title:title.trim(),category})}}>
+      <form id="packing73-add-form" onSubmit={e=>{e.preventDefault();if(title.trim())void change('add',null,{title:title.trim(),category})}}>
        <input aria-label="Нова вещ" maxLength={160} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Какво да вземем?" disabled={busy}/>
        <select aria-label="Категория на вещта" value={category} onChange={e=>setCategory(e.target.value)} disabled={busy}>{categoryChoices.map(g=><option key={g}>{g}</option>)}</select>
-       <button type="submit" disabled={busy||!title.trim()}>+ Добави</button>
       </form>
-      <form className="packing72-category-form" onSubmit={e=>{e.preventDefault();if(newCategory.trim())void change('add_category',null,{title:newCategory.trim()})}}>
-       <input aria-label="Нова категория за багаж" maxLength={50} value={newCategory} onChange={e=>setNewCategory(e.target.value)} placeholder="Нова категория (напр. Аптечка)" disabled={busy}/>
-       <button type="submit" disabled={busy||!newCategory.trim()}>+ Категория</button>
-      </form>
+      <div className="packing73-buttons">
+       <button type="submit" form="packing73-add-form" disabled={busy||!title.trim()}>+ Добави</button>
+       <button type="button" disabled={busy} onClick={()=>{setNewCategory('');setCategoryDialogOpen(true)}}>+ Категория</button>
+      </div>
       <button type="button" className="packing71-copy-toggle ghost" onClick={()=>void fetchSources()} disabled={busy}>Копирай списък от друго пътуване</button>
       {copyOpen&&<div className="packing71-copy"><select aria-label="Източник на списъка" value={source} onChange={e=>setSource(e.target.value)}><option value="">Избери пътуване</option>{sources.map(it=><option value={it.trip_id} key={it.trip_id}>{it.name} ({it.count})</option>)}</select><button type="button" disabled={busy||!source} onClick={()=>{if(window.confirm('Да копирам вещите с празни отметки? Наличните вещи ще се запазят.'))void change('copy',null,{source_trip_id:source});}}>Копирай</button>{!sources.length&&<small>Няма друго пътуване със списък за багаж.</small>}</div>}
     </div>}
@@ -1039,6 +1039,16 @@ function PackingList({tripId,request,enabled}){
        </div>})}
     {!items.length&&<div className="travel-card packing71-empty">Списъкът е празен. Добави първата вещ или копирай от друго пътуване.</div>}
    </>}
+   {categoryDialogOpen&&createPortal(<div className="packing73-overlay" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setCategoryDialogOpen(false)}}>
+     <div className="packing73-dialog" role="dialog" aria-modal="true" aria-labelledby="packing73-dialog-title">
+      <div className="packing73-dialog-head"><h3 id="packing73-dialog-title">Нова категория</h3><button type="button" className="ghost" aria-label="Затвори" disabled={busy} onClick={()=>setCategoryDialogOpen(false)}>×</button></div>
+      <form onSubmit={e=>{e.preventDefault();if(newCategory.trim())void change('add_category',null,{title:newCategory.trim()})}}>
+       <input autoFocus aria-label="Име на категория" maxLength={50} placeholder="Например Аптечка" value={newCategory} onChange={e=>setNewCategory(e.target.value)} disabled={busy}/>
+       <div className="packing73-dialog-buttons"><button type="button" className="ghost" disabled={busy} onClick={()=>setCategoryDialogOpen(false)}>Отказ</button><button type="submit" disabled={busy||!newCategory.trim()}>Добави</button></div>
+      </form>
+      {error&&<p role="alert" className="packing73-dialog-error">{error}</p>}
+     </div>
+    </div>,document.body)}
  </div>
 }
 
@@ -1560,7 +1570,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
    await onRouteSaved();setRouteName('');setRouteLat('');setRouteLon('');setRouteDetailsOpen(false);setRouteMessage('✅ Записано и проверено в Google Drive.');
   }catch(e){if(p942Test)await p942Reload();setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
  };
- const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['packing','🧳 Багаж'],['map','Карта'],['gallery','Галерия']];
+ const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['packing','Багаж'],['map','Карта'],['gallery','Галерия']];
  // P99.56: Optional mobile page swipe. Dialogs and interactive widgets take precedence.
  const pageSwipeStart=useRef(null);
  const pageMenuRef=useRef(null);

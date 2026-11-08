@@ -2630,3 +2630,19 @@ html .gallery-p91-viewer-bottom .gallery-p91-delete {
 .packing71-add .packing72-category-form input{flex:1;min-width:0}
 .packing71-add .packing72-category-form button{flex-shrink:0;white-space:nowrap;padding:10px;border-radius:9px}
 @media(max-width:370px){.packing71-add .packing72-category-form{flex-wrap:wrap}.packing71-add .packing72-category-form button{margin-left:auto}}
+
+/* P99.73: packing header follows other module headings; compact actions and category dialog */
+.packing71-head h3.p997-section-title{font-size:19px!important;font-weight:800!important;line-height:1.25!important;letter-spacing:0!important;text-transform:none!important;border:0!important;padding:0!important;margin:0!important}
+.packing71-add form#packing73-add-form{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.packing71-add form#packing73-add-form input,.packing71-add form#packing73-add-form select{grid-column:auto;grid-row:auto}
+.packing73-buttons{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
+.packing73-buttons button{min-width:0;white-space:nowrap;padding:10px 8px;border-radius:9px;font-size:13px}
+.packing73-overlay{position:fixed;inset:0;z-index:10020;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.68)}
+.packing73-dialog{width:min(100%,380px);box-sizing:border-box;padding:18px;border-radius:18px;border:1px solid var(--border,rgba(135,155,170,.32));background:var(--card,#162433);color:var(--text,#eaf3fb);box-shadow:0 20px 70px rgba(0,0,0,.48)}
+.packing73-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.packing73-dialog-head h3{margin:0;font-size:18px;color:inherit}
+.packing73-dialog-head button{font-size:24px;padding:2px 9px}
+.packing73-dialog input{width:100%;box-sizing:border-box;border:1px solid var(--border,rgba(135,155,170,.32));border-radius:10px;padding:12px;background:var(--surface-2,#10202a);color:var(--text,#eaf3fb);font:inherit}
+.packing73-dialog-buttons{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+.packing73-dialog-buttons button{border-radius:10px;padding:10px 16px}
+.packing73-dialog-error{color:var(--danger,#f58c8c);font-size:13px;overflow-wrap:anywhere}
