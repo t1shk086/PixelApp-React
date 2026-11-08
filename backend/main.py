@@ -4012,8 +4012,13 @@ def _p932_backup_document(trip_id):
             cur.execute("SELECT to_regclass('public.pixelapp_p9971_packing')::text")
             has_packing=bool(cur.fetchone()[0])
             packing=_p9971_snapshot(cur,trip_id) if has_packing else []
+            cur.execute("SELECT to_regclass('public.pixelapp_p9972_packing_categories')::text")
+            packing_categories=[]
+            if cur.fetchone()[0]:
+                cur.execute('SELECT category FROM pixelapp_p9972_packing_categories WHERE trip_id=%s ORDER BY category',(trip_id,))
+                packing_categories=[r[0] for r in cur.fetchall()]
     return {'format':'pixelapp-p932-test-workspace','schema_version':1,'trip_id':trip_id,
-            'source_digest':meta[0],'revision':meta[1],'records':records,'packing':packing}
+            'source_digest':meta[0],'revision':meta[1],'records':records,'packing':packing,'packing_categories':packing_categories}
 
 def _p932_backup_worker(trip_id):
     # Errors are recorded; writes to Neon are already committed.
@@ -5449,6 +5454,22 @@ def _p9971_table(cur):
         done BOOLEAN NOT NULL DEFAULT FALSE, row_order BIGINT NOT NULL,
         version BIGINT NOT NULL DEFAULT 1, PRIMARY KEY(trip_id,item_id))""")
 
+def _p9972_category_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p9972_packing_categories (
+        trip_id TEXT NOT NULL REFERENCES pixelapp_p932_workspaces(trip_id) ON DELETE CASCADE,
+        category TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY(trip_id, category))""")
+
+
+def _p9972_categories(cur, tid):
+    # Includes legacy item categories, even if not explicitly created in P99.72.
+    _p9972_category_table(cur)
+    cur.execute("""SELECT category FROM pixelapp_p9972_packing_categories WHERE trip_id=%s
+        UNION SELECT DISTINCT category FROM pixelapp_p9971_packing WHERE trip_id=%s""", (tid, tid))
+    custom = sorted([r[0] for r in cur.fetchall() if r[0] not in _P9971_GROUPS], key=str.casefold)
+    return list(_P9971_GROUPS) + custom
+
+
 def _p9971_snapshot(cur, tid):
     cur.execute("SELECT item_id,title,category,done,row_order,version FROM pixelapp_p9971_packing WHERE trip_id=%s ORDER BY row_order,item_id",(tid,))
     return [{'item_id':r[0],'title':r[1],'category':r[2],'done':r[3], 'row_order':r[4],'version':r[5]} for r in cur.fetchall()]
@@ -5473,13 +5494,14 @@ def p9971_read_packing(trip_id: str):
             if not meta: raise HTTPException(404,'Пътуването не е намерено.')
             _p9971_table(cur)
             items=_p9971_snapshot(cur,trip_id)
+            categories=_p9972_categories(cur,trip_id)
             cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",(trip_id,))
             row=cur.fetchone()
             if not row: raise HTTPException(409,'Липсват настройки на пътуването.')
             settings=row[0]
         conn.commit()
     locked=_p9941_finished(settings) and settings.get('temporary_unlocked') is not True
-    return {'ok':True,'trip_id':trip_id,'revision':int(meta[0]),'items':items,'locked':locked}
+    return {'ok':True,'trip_id':trip_id,'revision':int(meta[0]),'items':items,'categories':categories,'locked':locked}
 
 @app.get('/safe/neon/packing-sources/{trip_id}',dependencies=[Depends(authorize)])
 def p9971_packing_sources(trip_id: str):
@@ -5501,13 +5523,13 @@ def p9971_packing_sources(trip_id: str):
 @app.post('/safe/neon/packing',dependencies=[Depends(authorize)])
 def p9971_change_packing(change:P9971PackingChange,background_tasks:BackgroundTasks):
     _p941_write_allowed(change.trip_id)
-    if change.operation not in ('add','toggle','edit','delete','copy'):
+    if change.operation not in ('add','toggle','edit','delete','copy','add_category'):
         raise HTTPException(422,'Невалидно действие.')
     title=change.title.strip()
     if change.operation in ('add','edit') and (not title or len(title)>160):
         raise HTTPException(422,'Името трябва да е между 1 и 160 символа.')
-    if change.operation in ('add','edit') and change.category not in _P9971_GROUPS:
-        raise HTTPException(422,'Избери категория от списъка.')
+    if change.operation=='add_category' and (not title or len(title)>50):
+        raise HTTPException(422,'Категорията трябва да е между 1 и 50 символа.')
     with _neon_demo_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
@@ -5519,7 +5541,16 @@ def p9971_change_packing(change:P9971PackingChange,background_tasks:BackgroundTa
             if not settings_row or (_p9941_finished(settings_row[0]) and settings_row[0].get('temporary_unlocked') is not True):
                 raise HTTPException(409,'Пътуването е приключено и заключено.')
             _p9971_table(cur)
-            if change.operation=='add':
+            categories=_p9972_categories(cur,change.trip_id)
+            if change.operation in ('add','edit') and change.category not in categories:
+                raise HTTPException(422,'Избери съществуваща категория.')
+            if change.operation=='add_category':
+                if any(name.casefold()==title.casefold() for name in categories):
+                    raise HTTPException(409,'Тази категория вече съществува.')
+                if len(categories)>=40:
+                    raise HTTPException(409,'Достигнат е лимитът на категориите.')
+                cur.execute('INSERT INTO pixelapp_p9972_packing_categories(trip_id,category) VALUES(%s,%s)',(change.trip_id,title))
+            elif change.operation=='add':
                 cur.execute('SELECT count(*),coalesce(max(row_order),-1) FROM pixelapp_p9971_packing WHERE trip_id=%s',(change.trip_id,))
                 count,ord=cur.fetchone()
                 if count>=300:raise HTTPException(409,'Списъкът може да съдържа до 300 вещи.')
@@ -5560,9 +5591,10 @@ def p9971_change_packing(change:P9971PackingChange,background_tasks:BackgroundTa
             cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s)
                 ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",(change.trip_id,revision))
             items=_p9971_snapshot(cur,change.trip_id)
+            categories=_p9972_categories(cur,change.trip_id)
         conn.commit()
     background_tasks.add_task(_p932_backup_worker,change.trip_id)
-    return {'ok':True,'revision':revision,'items':items,'backup_queued':True}
+    return {'ok':True,'revision':revision,'items':items,'categories':categories,'backup_queued':True}
 
 
 # P99.69 — edit only dates, preserving immutable trip ID and all financial data.
