@@ -2586,3 +2586,41 @@ html .gallery-p91-viewer-bottom .gallery-p91-delete {
 
 /* P99.69 date editor: follow selected skin variables */
 .p9969-date-editor{display:grid;gap:9px;margin:10px 0;padding:12px;border:1px solid var(--border,rgba(130,160,190,.25));border-radius:12px}.p9969-date-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.p9969-date-fields label{display:grid;min-width:0;gap:5px;font-size:.85rem}.p9969-date-fields input{width:100%;box-sizing:border-box;min-width:0;color:inherit;background:var(--card,transparent);border:1px solid var(--border,rgba(130,160,190,.3));border-radius:8px;padding:9px 6px;color-scheme:dark}@media(max-width:340px){.p9969-date-fields{grid-template-columns:1fr}}
+
+/* P99.71 — compact, theme-aware packing checklist */
+.packing71{display:grid;gap:12px;min-width:0}
+.packing71 .travel-card{margin:0}
+.packing71-hero,.packing71-add,.packing71-group{padding:16px}
+.packing71-head,.packing71-meta,.packing71-group-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.packing71-head h3{font-size:19px;margin:0;color:var(--text,#eaf3fb)}
+.packing71-head p{font-size:12px;margin:3px 0;color:var(--muted,#93a7b8)}
+.packing71-head strong{font-size:23px;font-variant-numeric:tabular-nums;color:var(--text,#eaf3fb)}
+.packing71-track{height:9px;border-radius:99px;background:var(--surface-2,rgba(128,148,160,.2));overflow:hidden;margin:14px 0 8px}
+.packing71-track>span{display:block;height:100%;border-radius:99px;background:var(--accent,#4fbfa9);transition:width .2s}
+.packing71-meta{font-size:12px;color:var(--muted,#93a7b8)}
+.packing71-meta button,.packing71-copy-toggle{font-size:12px;padding:6px 10px}
+.packing71-add form{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,.55fr) auto;gap:8px;align-items:center}
+.packing71 input:not([type=checkbox]),.packing71 select{min-width:0;width:100%;box-sizing:border-box;max-width:100%;border:1px solid var(--border,rgba(135,155,170,.3));border-radius:9px;background:var(--card,#162433);color:var(--text,#eaf3fb);padding:10px;font:inherit}
+.packing71 input::placeholder{color:var(--muted,#93a7b8)}
+.packing71-add button[type=submit],.packing71-copy button,.packing71-edit button[type=submit]{white-space:nowrap;border-radius:9px;padding:10px}
+.packing71-copy-toggle{margin-top:11px}
+.packing71-copy{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.packing71-copy select{flex:1;min-width:160px}
+.packing71-copy small{width:100%;color:var(--muted,#93a7b8)}
+.packing71-group-head{width:100%;padding:0;border:0;background:transparent;box-shadow:none;color:var(--text,#eaf3fb);font-size:15px;font-weight:700;text-align:left;cursor:pointer}
+.packing71-group-head>span:last-child{font-size:13px;color:var(--muted,#93a7b8);white-space:nowrap}
+.packing71-items{display:grid;gap:3px;margin-top:12px;padding-top:8px;border-top:1px solid var(--border,rgba(135,155,170,.18))}
+.packing71-item{display:flex;align-items:center;gap:8px;justify-content:space-between;min-height:42px;padding:4px 2px}
+.packing71-item+.packing71-item{border-top:1px solid var(--border,rgba(135,155,170,.10))}
+.packing71-check{display:flex;align-items:center;gap:11px;min-width:0;flex:1;cursor:pointer;color:var(--text,#eaf3fb);font-size:14px}
+.packing71-check input{accent-color:var(--accent,#4fbfa9);width:20px;height:20px;flex:0 0 20px}
+.packing71-check span{overflow-wrap:anywhere}
+.packing71-item.is-done .packing71-check span{opacity:.56;text-decoration:line-through}
+.packing71-actions{display:flex;gap:4px;flex-shrink:0}
+.packing71-actions button{background:transparent;border:0;color:var(--muted,#93a7b8);font-size:19px;min-width:33px;min-height:36px;cursor:pointer}
+.packing71-actions button:hover{color:var(--text,#eaf3fb)}
+.packing71-edit{display:grid;gap:7px;width:100%}
+.packing71-edit div{display:flex;gap:8px}
+.packing71-error{color:var(--text,#eaf3fb);border-color:var(--danger,#b96565)}
+.packing71-empty{text-align:center;color:var(--muted,#93a7b8);font-size:14px}
+@media(max-width:600px){.packing71-add form{grid-template-columns:minmax(0,1fr) auto}.packing71-add form select{grid-column:1/3;grid-row:2}.packing71-add form input{grid-column:1/3;grid-row:1}.packing71-add form button{grid-column:2;grid-row:3}.packing71-hero,.packing71-add,.packing71-group{padding:13px}}

@@ -958,6 +958,84 @@ function SwipeTaskRow({task,complete,editing,editable,busy,open,onOpenChange,onT
  </div>
 }
 
+// P99.71: per-trip packing list; independent of tasks, expenses and gallery.
+const P9971_CATEGORIES=['Документи','Дрехи','Техника','Тоалетни принадлежности','Оборудване','Други'];
+const P9971_ICONS={'Документи':'🪪','Дрехи':'👕','Техника':'🔌','Тоалетни принадлежности':'🧴','Оборудване':'🎿','Други':'🧳'};
+function PackingList({tripId,request,enabled}){
+ const [snapshot,setSnapshot]=useState(null);
+ const [busy,setBusy]=useState(false);
+ const [error,setError]=useState('');
+ const [title,setTitle]=useState('');
+ const [category,setCategory]=useState('Дрехи');
+ const [expanded,setExpanded]=useState(P9971_CATEGORIES);
+ const [editing,setEditing]=useState(null);
+ const [editTitle,setEditTitle]=useState('');
+ const [editCategory,setEditCategory]=useState('Други');
+ const [sources,setSources]=useState([]);
+ const [source,setSource]=useState('');
+ const [copyOpen,setCopyOpen]=useState(false);
+ const latest=useRef(0);
+ const refresh=async()=>{
+   if(!request||!enabled)return;
+   const token=++latest.current;
+   try{const data=await request('/safe/neon/packing/'+encodeURIComponent(tripId));if(token===latest.current){setSnapshot(data);setError('');}}
+   catch(e){if(token===latest.current)setError(String(e.message||e));}
+ };
+ useEffect(()=>{setSnapshot(null);setEditing(null);setSource('');setError('');void refresh();return()=>{latest.current++;}},[tripId,enabled]);
+ useEffect(()=>{const onFocus=()=>{if(document.visibilityState==='visible'&&!busy)void refresh()};window.addEventListener('focus',onFocus);return()=>window.removeEventListener('focus',onFocus)},[tripId,enabled,busy]);
+ const change=async(operation,item=null,fields={})=>{
+   if(!snapshot||busy||snapshot.locked)return;
+   setBusy(true);setError('');
+   try{
+     const response=await request('/safe/neon/packing','POST',{
+       trip_id:tripId,operation,expected_revision:snapshot.revision,
+       ...(item?{item_id:item.item_id,expected_version:item.version}:{}),...fields});
+     setSnapshot(old=>({...old,revision:response.revision,items:response.items}));
+     setEditing(null);setTitle('');setCopyOpen(false);
+   }catch(e){setError(String(e.message||e));await refresh().catch(()=>{});}
+   finally{setBusy(false);}
+ };
+ const fetchSources=async()=>{
+   setCopyOpen(v=>!v);
+   if(!copyOpen){try{const data=await request('/safe/neon/packing-sources/'+encodeURIComponent(tripId));setSources(data.sources||[]);}catch(e){setError(String(e.message||e));}}
+ };
+ const items=snapshot?.items||[];
+ const packed=items.filter(x=>x.done).length;
+ const pct=items.length?Math.round(100*packed/items.length):0;
+ const locked=!!snapshot?.locked;
+ return <div className="packing71">
+   <div className="travel-card packing71-hero">
+    <div className="packing71-head"><div><h3>🧳 Багаж</h3><p>Всичко необходимо за пътуването</p></div><strong>{pct}%</strong></div>
+    <div className="packing71-track"><span style={{width:pct+'%'}}/></div>
+    <div className="packing71-meta"><span>{packed} от {items.length} приготвени</span><button type="button" className="ghost" disabled={busy} onClick={()=>void refresh()} title="Обнови списъка">↻ Обнови</button></div>
+   </div>
+   {error&&<div className="travel-card packing71-error" role="alert">⚠️ {error}</div>}
+   {!enabled?<div className="travel-card">Списъкът се зарежда от Neon само за активните пътувания.</div>:
+    !snapshot?<div className="travel-card">Зареждам багажа…</div>:<>
+    {locked&&<div className="travel-card muted">🔒 Това пътуване е приключено. За промени го отключи временно от настройките.</div>}
+    {!locked&&<div className="travel-card packing71-add">
+      <form onSubmit={e=>{e.preventDefault();if(title.trim())void change('add',null,{title:title.trim(),category})}}>
+       <input aria-label="Нова вещ" maxLength={160} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Какво да вземем?" disabled={busy}/>
+       <select aria-label="Категория на вещта" value={category} onChange={e=>setCategory(e.target.value)} disabled={busy}>{P9971_CATEGORIES.map(g=><option key={g}>{g}</option>)}</select>
+       <button type="submit" disabled={busy||!title.trim()}>+ Добави</button>
+      </form>
+      <button type="button" className="packing71-copy-toggle ghost" onClick={()=>void fetchSources()} disabled={busy}>📋 Копирай списък от друго пътуване</button>
+      {copyOpen&&<div className="packing71-copy"><select aria-label="Източник на списъка" value={source} onChange={e=>setSource(e.target.value)}><option value="">Избери пътуване</option>{sources.map(it=><option value={it.trip_id} key={it.trip_id}>{it.name} ({it.count})</option>)}</select><button type="button" disabled={busy||!source} onClick={()=>{if(window.confirm('Да копирам вещите с празни отметки? Наличните вещи ще се запазят.'))void change('copy',null,{source_trip_id:source});}}>Копирай</button>{!sources.length&&<small>Няма друго пътуване със списък за багаж.</small>}</div>}
+    </div>}
+    {P9971_CATEGORIES.filter(g=>items.some(x=>x.category===g)).map(g=>{
+       const group=items.filter(it=>it.category===g),count=group.filter(it=>it.done).length,open=expanded.includes(g);
+       return <div className="travel-card packing71-group" key={g}>
+         <button type="button" className="packing71-group-head" aria-expanded={open} onClick={()=>setExpanded(old=>open?old.filter(x=>x!==g):[...old,g])}><span>{P9971_ICONS[g]} {g}</span><span>{count}/{group.length} {open?'⌃':'⌄'}</span></button>
+         {open&&<div className="packing71-items">{group.map(it=><div key={it.item_id} className={'packing71-item'+(it.done?' is-done':'')}>
+         {editing===it.item_id?<form className="packing71-edit" onSubmit={e=>{e.preventDefault();if(editTitle.trim())void change('edit',it,{title:editTitle.trim(),category:editCategory})}}><input value={editTitle} maxLength={160} onChange={e=>setEditTitle(e.target.value)} disabled={busy} aria-label="Промени името"/><select value={editCategory} onChange={e=>setEditCategory(e.target.value)} disabled={busy}>{P9971_CATEGORIES.map(k=><option key={k}>{k}</option>)}</select><div><button type="submit" disabled={busy||!editTitle.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>:
+         <><label className="packing71-check"><input type="checkbox" checked={!!it.done} disabled={busy||locked} onChange={()=>void change('toggle',it)}/><span>{it.title}</span></label>{!locked&&<div className="packing71-actions"><button type="button" disabled={busy} aria-label={'Редактирай '+it.title} onClick={()=>{setEditing(it.item_id);setEditTitle(it.title);setEditCategory(it.category)}}>✎</button><button type="button" disabled={busy} aria-label={'Изтрий '+it.title} onClick={()=>{if(window.confirm('Да изтрия „'+it.title+'“ от багажа?'))void change('delete',it);}}>×</button></div>}</>}
+         </div>)}</div>}
+       </div>})}
+    {!items.length&&<div className="travel-card packing71-empty">🧳 Списъкът е празен. Добави първата вещ или копирай от друго пътуване.</div>}
+   </>}
+ </div>
+}
+
 function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWritable=false,onTripFinished,onOpenPreview,onExpenseAction,expenseDraft,financeOwned=false,onTaskPreflight,onTaskChange,onTasksSaved,onRoutePreflight,onRouteChange,onRouteSaved,onFavoritesLoad,onFavoriteChange,galleryAuthHeaders,onNeonRequest,neonTripId,expensiveFuelPrice=1.8}) {
  const [section,setSection]=useState('summary');
  const [neonExpenseView,setNeonExpenseView]=useState(false);
@@ -1476,7 +1554,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
    await onRouteSaved();setRouteName('');setRouteLat('');setRouteLon('');setRouteDetailsOpen(false);setRouteMessage('✅ Записано и проверено в Google Drive.');
   }catch(e){if(p942Test)await p942Reload();setRouteMessage('⚠️ '+String(e.message||e))}finally{setRouteBusy(false)}
  };
- const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['map','Карта'],['gallery','Галерия']];
+ const sections=[['summary','Обзор'],['expenses','Разходи'],['fuel','Автомобил'],['budget','Бюджети'],['tasks','Задачи'],['packing','🧳 Багаж'],['map','Карта'],['gallery','Галерия']];
  // P99.56: Optional mobile page swipe. Dialogs and interactive widgets take precedence.
  const pageSwipeStart=useRef(null);
  const pageMenuRef=useRef(null);
@@ -1587,6 +1665,7 @@ function TripDetails({trip,detail,readOnly,previewReadOnly=false,neonPrimaryWrit
  <div className="travel-card budget-showcase"><h3>🎯 Бюджет на пътуването</h3><div className="budget-showcase-total"><small>ОСТАВАЩ БЮДЖЕТ</small><strong className={budgetTotal>0&&allCosts>budgetTotal?'negative':''}>{budgetTotal?money(budgetTotal-allCosts):'—'}</strong></div><div className="budget-showcase-grid"><div><small>Планирано</small><b>{budgetTotal?money(budgetTotal):'—'}</b></div><div><small>Изразходвано</small><b>{money(allCosts)}</b></div></div>{budgetTotal>0&&<><div className="budget-showcase-progress"><span style={{width:Math.min(100,allCosts/budgetTotal*100)+'%'}}/></div><div className="budget-showcase-caption"><span>{Math.round(allCosts/budgetTotal*100)}% използвани</span><span>{allCosts>budgetTotal?'Над бюджета':'Остатък'}</span></div></>}</div>
  {budgetEntries.length>0&&<div className="travel-card"><h3>🗂️ Бюджети по категории</h3>{budgetEntries.map((b,i)=>{const spent=number(byCat[b.category]),limit=number(b.budget),percent=limit>0?Math.min(100,spent/limit*100):0;return <div className="budget-visual-row" key={b.category}><div className="budget-visual-head"><strong><span className={'visual-category-dot visual-palette-'+i%5}/>{b.category}</strong><b>{money(spent)} <span>/ {money(limit)}</span></b></div><div className="budget-visual-track"><span style={{width:percent+'%',background:spent>limit?'linear-gradient(90deg,#ee866a,#fd4e77)':'linear-gradient(90deg,#45d0ff,#725cff)'}}/></div><div className="budget-visual-foot"><small>{Math.round(limit>0?spent/limit*100:0)}% от бюджета</small><small>{spent>limit?'Над бюджета: '+money(spent-limit):'Остават: '+money(limit-spent)}</small></div></div>})}</div>}
  </>}
+ {section==='packing'&&<PackingList key={neonTripId} tripId={neonTripId} enabled={p942Test} request={onNeonRequest}/> }
  {section==='tasks'&&<>
   {!neonTaskMode&&<div className="travel-card task-showcase task47-progress"><div className="task47-topline"><div><h3 className="p997-section-title">План и задачи</h3></div><span className="task47-headicon" aria-hidden="true">☑</span></div><div className="task47-overview"><div><small>Изпълнени задачи</small><strong>{previewTasks.length?Math.round(done/previewTasks.length*100):0}<em>%</em></strong><span>{done} от {previewTasks.length} изпълнени</span></div><div className="task47-ring" style={{'--task47-progress':(previewTasks.length?Math.round(done/previewTasks.length*100):0)+'%'}} aria-label={`${done} от ${previewTasks.length} задачи изпълнени`}><span>{done}/{previewTasks.length}</span></div></div><div className="task-progress-track"><span style={{width:(previewTasks.length?done/previewTasks.length*100:0)+'%'}}/></div></div>}
  {(!p942Test&&onNeonRequest&&/(тест|test)/i.test(String(neonTripId||'')))&&<div className="travel-card task-preview-panel" style={{padding:12,marginBottom:12}}>
