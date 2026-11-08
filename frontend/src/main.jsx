@@ -958,6 +958,27 @@ function SwipeTaskRow({task,complete,editing,editable,busy,open,onOpenChange,onT
  </div>
 }
 
+// P99.75 — compact packing rows: tap the name or swipe left to reveal actions.
+function PackingSwipeRow({item,locked,busy,open,onOpenChange,onToggle,onEdit,onDelete}){
+ const start=useRef(null);
+ const swallowClick=useRef(false);
+ const onDown=e=>{if(locked||busy||e.button!==0)return;start.current={x:e.clientX,y:e.clientY};swallowClick.current=false};
+ const onUp=e=>{const from=start.current;start.current=null;if(!from||locked||busy)return;
+  const dx=e.clientX-from.x,dy=e.clientY-from.y;
+  if(Math.abs(dx)>35&&Math.abs(dx)>Math.abs(dy)*1.25){swallowClick.current=true;onOpenChange(dx<0?item.item_id:null)}
+ };
+ return <div className={'packing75-swipe'+(open?' is-open':'')+(item.done?' is-done':'')}>
+   {!locked&&<div className="packing75-actions" aria-hidden={!open}>
+     <button type="button" tabIndex={open?0:-1} disabled={busy} onClick={()=>{onOpenChange(null);onEdit()}} aria-label={'Редактирай '+item.title}>✎<small>Редакция</small></button>
+     <button type="button" tabIndex={open?0:-1} disabled={busy} onClick={()=>{onOpenChange(null);onDelete()}} aria-label={'Изтрий '+item.title}>×<small>Изтриване</small></button>
+   </div>}
+   <div className="packing75-face packing71-item" onPointerDown={onDown} onPointerUp={onUp} onPointerCancel={()=>{start.current=null}}>
+    <label className="packing75-checkbox"><input type="checkbox" checked={!!item.done} disabled={busy||locked} aria-label={'Приготвено: '+item.title} onChange={()=>{onOpenChange(null);onToggle()}}/></label>
+    <button type="button" className="packing75-title" disabled={busy||locked} aria-expanded={open} title="Натисни за действия или плъзни наляво" onClick={()=>{if(swallowClick.current){swallowClick.current=false;return}onOpenChange(open?null:item.item_id)}}>{item.title}</button>
+   </div>
+ </div>
+}
+
 // P99.71: per-trip packing list; independent of tasks, expenses and gallery.
 const P9971_CATEGORIES=['Документи','Дрехи','Техника','Тоалетни принадлежности','Оборудване','Други'];
 function PackingList({tripId,request,enabled}){
@@ -970,6 +991,7 @@ function PackingList({tripId,request,enabled}){
  const [categoryDialogOpen,setCategoryDialogOpen]=useState(false);
  const [expanded,setExpanded]=useState(P9971_CATEGORIES);
  const [editing,setEditing]=useState(null);
+ const [openPackingItem,setOpenPackingItem]=useState(null);
  const [editTitle,setEditTitle]=useState('');
  const [editCategory,setEditCategory]=useState('Други');
  const [sources,setSources]=useState([]);
@@ -982,7 +1004,7 @@ function PackingList({tripId,request,enabled}){
    try{const data=await request('/safe/neon/packing/'+encodeURIComponent(tripId));if(token===latest.current){setSnapshot(data);setError('');}}
    catch(e){if(token===latest.current)setError(String(e.message||e));}
  };
- useEffect(()=>{setSnapshot(null);setEditing(null);setSource('');setError('');void refresh();return()=>{latest.current++;}},[tripId,enabled]);
+ useEffect(()=>{setSnapshot(null);setEditing(null);setOpenPackingItem(null);setSource('');setError('');void refresh();return()=>{latest.current++;}},[tripId,enabled]);
  useEffect(()=>{const onFocus=()=>{if(document.visibilityState==='visible'&&!busy)void refresh()};window.addEventListener('focus',onFocus);return()=>window.removeEventListener('focus',onFocus)},[tripId,enabled,busy]);
  const change=async(operation,item=null,fields={})=>{
    if(!snapshot||busy||snapshot.locked)return;
@@ -993,7 +1015,7 @@ function PackingList({tripId,request,enabled}){
        ...(item?{item_id:item.item_id,expected_version:item.version}:{}),...fields});
      setSnapshot(old=>({...old,revision:response.revision,items:response.items,categories:response.categories||old?.categories}));
      if(operation==='add_category'){setCategory(fields.title);setExpanded(old=>old.includes(fields.title)?old:[...old,fields.title]);setNewCategory('');setCategoryDialogOpen(false);}
-     setEditing(null);setTitle('');setCopyOpen(false);
+     setEditing(null);setOpenPackingItem(null);setTitle('');setCopyOpen(false);
    }catch(e){setError(String(e.message||e));await refresh().catch(()=>{});}
    finally{setBusy(false);}
  };
@@ -1032,10 +1054,12 @@ function PackingList({tripId,request,enabled}){
        const group=items.filter(it=>it.category===g),count=group.filter(it=>it.done).length,open=expanded.includes(g);
        return <div className="travel-card packing71-group" key={g}>
          <button type="button" className="packing71-group-head" aria-expanded={open} onClick={()=>setExpanded(old=>open?old.filter(x=>x!==g):[...old,g])}><span>{g}</span><span>{count}/{group.length} {open?'⌃':'⌄'}</span></button>
-         {open&&<div className="packing71-items">{group.map(it=><div key={it.item_id} className={'packing71-item'+(it.done?' is-done':'')}>
-         {editing===it.item_id?<form className="packing71-edit" onSubmit={e=>{e.preventDefault();if(editTitle.trim())void change('edit',it,{title:editTitle.trim(),category:editCategory})}}><input value={editTitle} maxLength={160} onChange={e=>setEditTitle(e.target.value)} disabled={busy} aria-label="Промени името"/><select value={editCategory} onChange={e=>setEditCategory(e.target.value)} disabled={busy}>{categoryChoices.map(k=><option key={k}>{k}</option>)}</select><div><button type="submit" disabled={busy||!editTitle.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>:
-         <><label className="packing71-check"><input type="checkbox" checked={!!it.done} disabled={busy||locked} onChange={()=>void change('toggle',it)}/><span>{it.title}</span></label>{!locked&&<div className="packing71-actions"><button type="button" disabled={busy} aria-label={'Редактирай '+it.title} onClick={()=>{setEditing(it.item_id);setEditTitle(it.title);setEditCategory(it.category)}}>✎</button><button type="button" disabled={busy} aria-label={'Изтрий '+it.title} onClick={()=>{if(window.confirm('Да изтрия „'+it.title+'“ от багажа?'))void change('delete',it);}}>×</button></div>}</>}
-         </div>)}</div>}
+         {open&&<div className="packing71-items">{group.map(it=>
+          <div key={it.item_id}>
+           {editing===it.item_id?<form className="packing71-edit" onSubmit={e=>{e.preventDefault();if(editTitle.trim())void change('edit',it,{title:editTitle.trim(),category:editCategory})}}><input value={editTitle} maxLength={160} onChange={e=>setEditTitle(e.target.value)} disabled={busy} aria-label="Промени името"/><select value={editCategory} onChange={e=>setEditCategory(e.target.value)} disabled={busy}>{categoryChoices.map(k=><option key={k}>{k}</option>)}</select><div><button type="submit" disabled={busy||!editTitle.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>:
+           <PackingSwipeRow item={it} locked={locked} busy={busy} open={openPackingItem===it.item_id} onOpenChange={setOpenPackingItem} onToggle={()=>void change('toggle',it)} onEdit={()=>{setEditing(it.item_id);setEditTitle(it.title);setEditCategory(it.category)}} onDelete={()=>{if(window.confirm('Да изтрия „'+it.title+'“ от багажа?'))void change('delete',it)}}/>}
+          </div>)}
+         </div>}
        </div>})}
     {!items.length&&<div className="travel-card packing71-empty">Списъкът е празен. Добави първата вещ или копирай от друго пътуване.</div>}
    </>}

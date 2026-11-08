@@ -2646,3 +2646,91 @@ html .gallery-p91-viewer-bottom .gallery-p91-delete {
 .packing73-dialog-buttons{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
 .packing73-dialog-buttons button{border-radius:10px;padding:10px 16px}
 .packing73-dialog-error{color:var(--danger,#f58c8c);font-size:13px;overflow-wrap:anywhere}
+
+/* P99.74 — shared theme palette for the packing-category dialog and trip comparison.
+   Both surfaces used fixed blue defaults that ignored some PixelApp skins.
+   Keep all interaction and data code untouched. */
+html .packing73-overlay,
+html .p38-comparison {
+  --p74-bg:var(--skin-surface,#192a37);
+  --p74-sub:var(--skin-surface2,#11232f);
+  --p74-field:var(--skin-field,#0e1c29);
+  --p74-border:var(--skin-border,#36566a);
+  --p74-text:var(--skin-text,#e9f4fb);
+  --p74-muted:var(--skin-muted,#b2c6d4);
+  --p74-accent:var(--skin-accent,#72c9eb);
+  --p74-progress:var(--skin-progress,linear-gradient(90deg,#48aafb,#14f2fa));
+  color:var(--p74-text);
+}
+/* Dialog is portaled to body, so its colors must be resolved from html, not from the trip card. */
+html .packing73-dialog {
+  background:linear-gradient(150deg,var(--p74-bg),var(--p74-sub))!important;
+  border:1px solid var(--p74-border)!important;
+  color:var(--p74-text)!important;
+}
+html .packing73-dialog :is(h3,label) {color:var(--p74-text)!important}
+html .packing73-dialog input {
+  background:var(--p74-field)!important;
+  border:1px solid var(--p74-border)!important;
+  color:var(--p74-text)!important;
+  color-scheme:inherit;
+}
+html .packing73-dialog input::placeholder {color:var(--p74-muted)!important;opacity:.85}
+html .packing73-dialog input:focus-visible {outline:2px solid var(--p74-accent);outline-offset:1px}
+html .packing73-dialog :is(.ghost,button[type="submit"]) {
+  background:var(--p74-sub)!important;
+  color:var(--p74-text)!important;
+  border:1px solid var(--p74-border)!important;
+  box-shadow:none!important;
+}
+html .packing73-dialog button[type="submit"] {border-color:var(--p74-accent)!important}
+html .packing73-dialog button:focus-visible {outline:2px solid var(--p74-accent);outline-offset:2px}
+/* All comparison subpanels, controls, bars and helper text follow the same palette. */
+html .p38-comparison {
+  background:linear-gradient(150deg,var(--p74-bg),var(--p74-sub))!important;
+  border:1px solid var(--p74-border)!important;
+  color:var(--p74-text)!important;
+}
+html .p38-comparison :is(.p38-comparison-head h2,.p38-compare-row-head span,.p38-compare-result) {color:var(--p74-text)!important}
+html .p38-comparison :is(.p38-comparison-head small,.p38-compare-row-head strong) {color:var(--p74-accent)!important}
+html .p38-comparison :is(.p38-hint,.p38-compare-note,.p38-comparison-head p,.p38-metric,.p38-pair label) {color:var(--p74-muted)!important}
+html .p38-comparison :is(.p38-toggle,.p38-compare-row,.p38-compare-result) {
+  background:var(--p74-sub)!important;
+  border:1px solid var(--p74-border)!important;
+  box-shadow:none!important;
+}
+html .p38-comparison .p38-compare-track {background:var(--p74-field)!important;border:1px solid var(--p74-border)!important}
+html .p38-comparison .p38-compare-track span {background:var(--p74-progress)!important}
+html .p38-comparison :is(select,.p38-toggle button,.p38-comparison-head .ghost) {
+  background:var(--p74-field)!important;
+  border:1px solid var(--p74-border)!important;
+  color:var(--p74-text)!important;
+  box-shadow:none!important;
+}
+html .p38-comparison .p38-toggle button.active {
+  background:var(--p74-bg)!important;
+  border-color:var(--p74-accent)!important;
+  color:var(--p74-accent)!important;
+  box-shadow:inset 0 0 0 1px var(--p74-accent)!important;
+}
+html .p38-comparison :is(select,button):focus-visible {outline:2px solid var(--p74-accent);outline-offset:2px}
+
+/* P99.75 — hide packing edit/delete until name tap or left swipe. */
+.packing71-items{gap:0}
+.packing71-items>div+div{border-top:1px solid var(--border,rgba(135,155,170,.12))}
+.packing75-swipe{position:relative;overflow:hidden;border-radius:9px;min-width:0;margin:3px 0;isolation:isolate}
+.packing75-actions{position:absolute;inset:0 0 0 auto;display:flex;width:136px;align-items:stretch;justify-content:stretch;z-index:0}
+.packing75-actions button{width:68px;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:18px;font-weight:700;color:#fff;cursor:pointer}
+.packing75-actions button:first-child{background:#276e78}
+.packing75-actions button:last-child{background:#a3424d}
+.packing75-actions small{font-size:10px;font-weight:500}
+.packing75-face.packing71-item{position:relative;z-index:1;display:flex;justify-content:flex-start;gap:10px;min-height:46px;padding:6px 3px;width:100%;box-sizing:border-box;background:var(--skin-card,var(--card,#162433));transform:translateX(0);transition:transform .18s ease;touch-action:pan-y}
+.packing75-swipe.is-open .packing75-face{transform:translateX(-136px)}
+.packing75-checkbox{display:flex;align-items:center;flex:none;cursor:pointer}
+.packing75-checkbox input{accent-color:var(--accent,#4fbfa9);width:20px;height:20px;margin:0}
+.packing75-title{flex:1;min-width:0;text-align:left;font:inherit;font-size:14px;font-weight:500;line-height:1.5;color:var(--text,#eaf3fb);border:0;padding:0 3px;background:transparent;box-shadow:none;overflow-wrap:anywhere;cursor:pointer}
+.packing75-title:disabled{opacity:1;cursor:default}
+.packing75-swipe.is-done .packing75-title{opacity:.56;text-decoration:line-through}
+.packing75-face .packing75-title:hover,.packing75-face .packing75-title:focus{background:transparent;box-shadow:none;color:var(--text,#eaf3fb)}
+.packing75-title:focus-visible,.packing75-actions button:focus-visible{outline:2px solid var(--accent,#4fbfa9);outline-offset:-2px}
+@media(prefers-reduced-motion:reduce){.packing75-face.packing71-item{transition:none}}
