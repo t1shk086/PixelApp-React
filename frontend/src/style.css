@@ -2816,3 +2816,42 @@ html .packing71 .packing71-items .packing75-swipe:not(.is-open) .packing75-face.
   background:transparent!important;
   background-image:none!important;
 }
+
+/* P99.79 — Tasks: match the clean packing checklist's hidden-action behavior.
+   Style only; no task operations or persistent state are changed. */
+html .task47-board .task48-swipe-shell {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border-color: var(--skin-border, rgba(136,171,200,.18)) !important;
+}
+html .task47-board .task48-swipe-shell .task48-actions {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+html .task47-board .task48-swipe-shell.task48-is-open .task48-actions {
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+html .task47-board .task48-swipe-shell:not(.task48-is-open) .task48-swipe-face,
+html .task47-board .task48-swipe-shell:not(.task48-is-open) .task48-swipe-face.task-visual-done {
+  background: transparent !important;
+  background-image: none !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+html .task47-board .task48-swipe-shell.task48-is-open .task48-swipe-face,
+html .task47-board .task48-swipe-shell.task48-is-open .task48-swipe-face.task-visual-done {
+  background: var(--skin-card, var(--card, #203246)) !important;
+  background-image: none !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+html .task47-board .task48-swipe-shell .task48-title {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  text-align: left !important;
+}
