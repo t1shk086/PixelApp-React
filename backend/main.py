@@ -5320,6 +5320,9 @@ def p9960_trip_management():
         {'trip_id':tid,'revision':int(rev),
          'name':str(settings.get('display_name') or tid.replace('_',' ')).strip(),
          'can_delete':bool(deletable) or tid in _P9961_LEGACY_TEST_IDS,
+         'start_date':str(settings.get('start_date') or ''),
+         'end_date':str(settings.get('end_date') or ''),
+         'dates_locked':_p9941_locked(settings),
          'backup_current':bool(bfile and brev is not None and int(brev)>=int(rev) and not err)}
         for tid,rev,settings,deletable,brev,bfile,err in data]}
 
@@ -5430,6 +5433,78 @@ def p9960_trip_management_change(change:P9960TripManage,
     return {'ok':True,'trip_id':change.trip_id,'operation':change.operation,
             'revision':revision,'backup_pending':change.operation=='rename'}
 
+
+
+
+# P99.69 — edit only dates, preserving immutable trip ID and all financial data.
+class P9969TripDates(BaseModel):
+    trip_id: str = Field(min_length=1, max_length=220)
+    expected_revision: int = Field(ge=1)
+    start_date: str
+    end_date: str
+    confirmation: str
+
+
+def _p9969_valid_date(value):
+    if not re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', value or ''):
+        raise HTTPException(422, 'Невалидна дата. Използвай ДД.ММ.ГГГГ.')
+    try:
+        parsed = datetime.strptime(value, '%d.%m.%Y').date()
+    except ValueError:
+        raise HTTPException(422, 'Несъществуваща календарна дата.')
+    if parsed.year < 2000 or parsed.year > 2100:
+        raise HTTPException(422, 'Датата трябва да е между 2000 и 2100 г.')
+    return parsed
+
+
+@app.post('/safe/neon/trip-dates', dependencies=[Depends(authorize)])
+def p9969_change_trip_dates(change: P9969TripDates, background_tasks: BackgroundTasks,
+                           actor: str = Depends(authorize)):
+    _p941_write_allowed(change.trip_id)
+    first = _p9969_valid_date(change.start_date)
+    last = _p9969_valid_date(change.end_date)
+    if first > last:
+        raise HTTPException(422, 'Крайната дата не може да бъде преди началната.')
+    if (last-first).days > 366:
+        raise HTTPException(422, 'Периодът е прекалено дълъг. Максимум 367 дни включително.')
+    if change.confirmation != 'ПРОМЕНИ ДАТИТЕ':
+        raise HTTPException(422, 'Липсва потвърждение за промяна на датите.')
+    from psycopg.types.json import Jsonb
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
+            meta=cur.fetchone()
+            if not meta or int(meta[0]) != change.expected_revision:
+                raise HTTPException(409, 'Пътуването е променено от друг профил. Обнови списъка.')
+            cur.execute("SELECT 1 FROM pixelapp_p970_cutovers WHERE trip_id=%s AND status='active'",(change.trip_id,))
+            if not cur.fetchone():
+                raise HTTPException(409, 'Пътуването не е активно в Neon.')
+            cur.execute("SELECT row_id,payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings' FOR UPDATE",(change.trip_id,))
+            rows=cur.fetchall()
+            if len(rows) != 1:
+                raise HTTPException(409, 'Невалидни настройки на пътуването.')
+            row_id,settings=rows[0]
+            if _p9941_locked(settings):
+                raise HTTPException(409, 'Приключеното пътуване е заключено. Първо го отключи временно.')
+            cur.execute('SELECT archived_revision,archive_file,last_error FROM pixelapp_p932_backup_state WHERE trip_id=%s',(change.trip_id,))
+            backup=cur.fetchone()
+            if not backup or not backup[1] or backup[2] or int(backup[0] or 0)<int(meta[0]):
+                raise HTTPException(409, 'Нужен е актуален проверен архив преди промяна на датите.')
+            if settings.get('start_date') == change.start_date and settings.get('end_date') == change.end_date:
+                raise HTTPException(409, 'Датите вече са същите.')
+            settings['start_date']=change.start_date
+            settings['end_date']=change.end_date
+            cur.execute('UPDATE pixelapp_p932_rows SET payload=%s,version=version+1 WHERE trip_id=%s AND dataset=%s AND row_id=%s',(Jsonb(settings),change.trip_id,'settings',row_id))
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=int(cur.fetchone()[0])
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision)
+                VALUES(%s,%s) ON CONFLICT(trip_id) DO UPDATE SET
+                wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",(change.trip_id,revision))
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker, change.trip_id)
+    return {'ok':True,'trip_id':change.trip_id,'revision':revision,'backup_pending':True,
+            'start_date':change.start_date,'end_date':change.end_date}
 
 @app.get('/safe/neon/finished-management', dependencies=[Depends(authorize)])
 def p9941_finished_management():
