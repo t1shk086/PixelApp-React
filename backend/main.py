@@ -4009,8 +4009,11 @@ def _p932_backup_document(trip_id):
             if meta is None:raise HTTPException(404,'Няма P93.2 копие.')
             cur.execute('SELECT dataset,row_id,row_order,payload,version FROM pixelapp_p932_rows WHERE trip_id=%s ORDER BY dataset,row_order,row_id',(trip_id,))
             records=[{'dataset':k,'row_id':rid,'row_order':ord,'payload':p,'version':v} for k,rid,ord,p,v in cur.fetchall()]
+            cur.execute("SELECT to_regclass('public.pixelapp_p9971_packing')::text")
+            has_packing=bool(cur.fetchone()[0])
+            packing=_p9971_snapshot(cur,trip_id) if has_packing else []
     return {'format':'pixelapp-p932-test-workspace','schema_version':1,'trip_id':trip_id,
-            'source_digest':meta[0],'revision':meta[1],'records':records}
+            'source_digest':meta[0],'revision':meta[1],'records':records,'packing':packing}
 
 def _p932_backup_worker(trip_id):
     # Errors are recorded; writes to Neon are already committed.
@@ -5434,6 +5437,132 @@ def p9960_trip_management_change(change:P9960TripManage,
             'revision':revision,'backup_pending':change.operation=='rename'}
 
 
+
+
+# P99.71 — packing checklist; independent Neon table, same trip revision and backup queue.
+_P9971_GROUPS = ('Документи', 'Дрехи', 'Техника', 'Тоалетни принадлежности', 'Оборудване', 'Други')
+
+def _p9971_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS pixelapp_p9971_packing (
+        trip_id TEXT NOT NULL REFERENCES pixelapp_p932_workspaces(trip_id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL, title TEXT NOT NULL, category TEXT NOT NULL,
+        done BOOLEAN NOT NULL DEFAULT FALSE, row_order BIGINT NOT NULL,
+        version BIGINT NOT NULL DEFAULT 1, PRIMARY KEY(trip_id,item_id))""")
+
+def _p9971_snapshot(cur, tid):
+    cur.execute("SELECT item_id,title,category,done,row_order,version FROM pixelapp_p9971_packing WHERE trip_id=%s ORDER BY row_order,item_id",(tid,))
+    return [{'item_id':r[0],'title':r[1],'category':r[2],'done':r[3], 'row_order':r[4],'version':r[5]} for r in cur.fetchall()]
+
+class P9971PackingChange(BaseModel):
+    trip_id: str = Field(min_length=1,max_length=220)
+    operation: str
+    expected_revision: int = Field(ge=1)
+    item_id: str = ''
+    expected_version: int = 0
+    title: str = ''
+    category: str = 'Други'
+    source_trip_id: str = ''
+
+@app.get('/safe/neon/packing/{trip_id}',dependencies=[Depends(authorize)])
+def p9971_read_packing(trip_id: str):
+    _p941_write_allowed(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s',(trip_id,))
+            meta=cur.fetchone()
+            if not meta: raise HTTPException(404,'Пътуването не е намерено.')
+            _p9971_table(cur)
+            items=_p9971_snapshot(cur,trip_id)
+            cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",(trip_id,))
+            row=cur.fetchone()
+            if not row: raise HTTPException(409,'Липсват настройки на пътуването.')
+            settings=row[0]
+        conn.commit()
+    locked=_p9941_finished(settings) and settings.get('temporary_unlocked') is not True
+    return {'ok':True,'trip_id':trip_id,'revision':int(meta[0]),'items':items,'locked':locked}
+
+@app.get('/safe/neon/packing-sources/{trip_id}',dependencies=[Depends(authorize)])
+def p9971_packing_sources(trip_id: str):
+    _p941_write_allowed(trip_id)
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            _p9971_table(cur)
+            cur.execute("""SELECT w.trip_id,coalesce(nullif(r.payload->>'display_name',''),replace(w.trip_id,'_',' ')),count(p.item_id)
+                FROM pixelapp_p932_workspaces w
+                JOIN pixelapp_p970_cutovers c ON c.trip_id=w.trip_id AND c.status='active'
+                JOIN pixelapp_p932_rows r ON r.trip_id=w.trip_id AND r.dataset='settings'
+                JOIN pixelapp_p9971_packing p ON p.trip_id=w.trip_id
+                WHERE w.trip_id<>%s
+                GROUP BY w.trip_id,r.payload ORDER BY 2 LIMIT 60""",(trip_id,))
+            sources=[{'trip_id':tid,'name':name,'count':int(n)} for tid,name,n in cur.fetchall()]
+        conn.commit()
+    return {'ok':True,'sources':sources}
+
+@app.post('/safe/neon/packing',dependencies=[Depends(authorize)])
+def p9971_change_packing(change:P9971PackingChange,background_tasks:BackgroundTasks):
+    _p941_write_allowed(change.trip_id)
+    if change.operation not in ('add','toggle','edit','delete','copy'):
+        raise HTTPException(422,'Невалидно действие.')
+    title=change.title.strip()
+    if change.operation in ('add','edit') and (not title or len(title)>160):
+        raise HTTPException(422,'Името трябва да е между 1 и 160 символа.')
+    if change.operation in ('add','edit') and change.category not in _P9971_GROUPS:
+        raise HTTPException(422,'Избери категория от списъка.')
+    with _neon_demo_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT revision FROM pixelapp_p932_workspaces WHERE trip_id=%s FOR UPDATE',(change.trip_id,))
+            meta=cur.fetchone()
+            if not meta or int(meta[0])!=change.expected_revision:
+                raise HTTPException(409,'Списъкът е променен от другия профил. Обнови и опитай отново.')
+            cur.execute("SELECT payload FROM pixelapp_p932_rows WHERE trip_id=%s AND dataset='settings'",(change.trip_id,))
+            settings_row=cur.fetchone()
+            if not settings_row or (_p9941_finished(settings_row[0]) and settings_row[0].get('temporary_unlocked') is not True):
+                raise HTTPException(409,'Пътуването е приключено и заключено.')
+            _p9971_table(cur)
+            if change.operation=='add':
+                cur.execute('SELECT count(*),coalesce(max(row_order),-1) FROM pixelapp_p9971_packing WHERE trip_id=%s',(change.trip_id,))
+                count,ord=cur.fetchone()
+                if count>=300:raise HTTPException(409,'Списъкът може да съдържа до 300 вещи.')
+                cur.execute('INSERT INTO pixelapp_p9971_packing(trip_id,item_id,title,category,row_order) VALUES(%s,%s,%s,%s,%s)',(change.trip_id,uuid.uuid4().hex,title,change.category,int(ord)+1))
+            elif change.operation in ('toggle','edit','delete'):
+                cur.execute('SELECT version FROM pixelapp_p9971_packing WHERE trip_id=%s AND item_id=%s FOR UPDATE',(change.trip_id,change.item_id))
+                row=cur.fetchone()
+                if not row or row[0]!=change.expected_version:
+                    raise HTTPException(409,'Вещта вече е променена. Обнови списъка.')
+                if change.operation=='toggle':
+                    cur.execute('UPDATE pixelapp_p9971_packing SET done=NOT done,version=version+1 WHERE trip_id=%s AND item_id=%s',(change.trip_id,change.item_id))
+                elif change.operation=='edit':
+                    cur.execute('UPDATE pixelapp_p9971_packing SET title=%s,category=%s,version=version+1 WHERE trip_id=%s AND item_id=%s',(title,change.category,change.trip_id,change.item_id))
+                else:
+                    cur.execute('DELETE FROM pixelapp_p9971_packing WHERE trip_id=%s AND item_id=%s',(change.trip_id,change.item_id))
+            elif change.operation=='copy':
+                if not change.source_trip_id or change.source_trip_id==change.trip_id:
+                    raise HTTPException(422,'Избери друго пътуване.')
+                cur.execute("SELECT 1 FROM pixelapp_p970_cutovers WHERE trip_id=%s AND status='active'",(change.source_trip_id,))
+                if not cur.fetchone():raise HTTPException(404,'Източникът не е наличен.')
+                cur.execute('SELECT title,category FROM pixelapp_p9971_packing WHERE trip_id=%s ORDER BY row_order,item_id',(change.source_trip_id,))
+                source=cur.fetchall()
+                if not source:raise HTTPException(409,'Избраното пътуване няма списък.')
+                cur.execute('SELECT count(*),coalesce(max(row_order),-1) FROM pixelapp_p9971_packing WHERE trip_id=%s',(change.trip_id,))
+                count,ord=cur.fetchone()
+                if count+len(source)>300:raise HTTPException(409,'Твърде много вещи за копиране.')
+                # Keep existing items, avoid duplicate names in same category; never copy checkmarks.
+                cur.execute('SELECT lower(trim(title)),category FROM pixelapp_p9971_packing WHERE trip_id=%s',(change.trip_id,))
+                existing=set(cur.fetchall())
+                for original,group in source:
+                    key=(original.strip().lower(),group)
+                    if key in existing:continue
+                    ord+=1;existing.add(key)
+                    cur.execute('INSERT INTO pixelapp_p9971_packing(trip_id,item_id,title,category,done,row_order) VALUES(%s,%s,%s,%s,FALSE,%s)',(change.trip_id,uuid.uuid4().hex,original,group,ord))
+            cur.execute('UPDATE pixelapp_p932_workspaces SET revision=revision+1,updated_at=now() WHERE trip_id=%s RETURNING revision',(change.trip_id,))
+            revision=int(cur.fetchone()[0])
+            _p932_backup_schema(cur)
+            cur.execute("""INSERT INTO pixelapp_p932_backup_state(trip_id,wanted_revision) VALUES(%s,%s)
+                ON CONFLICT(trip_id) DO UPDATE SET wanted_revision=GREATEST(pixelapp_p932_backup_state.wanted_revision,excluded.wanted_revision),last_error=NULL""",(change.trip_id,revision))
+            items=_p9971_snapshot(cur,change.trip_id)
+        conn.commit()
+    background_tasks.add_task(_p932_backup_worker,change.trip_id)
+    return {'ok':True,'revision':revision,'items':items,'backup_queued':True}
 
 
 # P99.69 — edit only dates, preserving immutable trip ID and all financial data.
