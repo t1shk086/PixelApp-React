@@ -2734,3 +2734,45 @@ html .p38-comparison :is(select,button):focus-visible {outline:2px solid var(--p
 .packing75-face .packing75-title:hover,.packing75-face .packing75-title:focus{background:transparent;box-shadow:none;color:var(--text,#eaf3fb)}
 .packing75-title:focus-visible,.packing75-actions button:focus-visible{outline:2px solid var(--accent,#4fbfa9);outline-offset:-2px}
 @media(prefers-reduced-motion:reduce){.packing75-face.packing71-item{transition:none}}
+
+/* P99.76 — packing checklist rows: plain left-aligned labels across ALL skins.
+   No global button/theme decoration on item names; retain swipe actions. */
+html .packing71-items .packing75-swipe {
+  background:transparent!important;
+  border-radius:0;
+  margin:0;
+  box-shadow:none!important;
+}
+html .packing71-items .packing75-face.packing71-item {
+  display:flex!important;align-items:center!important;justify-content:flex-start!important;
+  padding:10px 2px!important;gap:12px!important;min-height:51px;
+  background:var(--skin-card,var(--card,#162433))!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;
+}
+html .packing71-items .packing75-checkbox {
+  display:flex;align-items:center;justify-content:center;
+  margin:0;flex:0 0 23px;min-width:23px;width:23px;
+  border:0!important;background:transparent!important;box-shadow:none!important;
+}
+html .packing71-items .packing75-checkbox input {
+  flex:0 0 20px;width:20px;height:20px;margin:0!important;padding:0!important;
+}
+html .packing71-items .packing75-title {
+  display:block!important;flex:1 1 auto;min-width:0;width:auto;
+  margin:0!important;padding:0!important;
+  text-align:left!important;align-self:center;
+  background:none!important;background-image:none!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;
+  color:var(--skin-text,var(--text,#eaf3fb))!important;
+  font-size:14px;font-weight:500;line-height:1.45;letter-spacing:normal!important;
+  text-transform:none!important;text-decoration:none;
+  overflow-wrap:anywhere;cursor:pointer;
+}
+html .packing71-items .packing75-title::before,
+html .packing71-items .packing75-title::after {content:none!important}
+html .packing71-items .packing75-swipe.is-done .packing75-title {
+  opacity:.58;text-decoration:line-through!important;
+}
+html .packing71-items .packing75-title:focus-visible {
+  outline:2px solid var(--skin-accent,var(--accent,#4fbfa9));outline-offset:3px;
+}

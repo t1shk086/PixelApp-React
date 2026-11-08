@@ -974,7 +974,7 @@ function PackingSwipeRow({item,locked,busy,open,onOpenChange,onToggle,onEdit,onD
    </div>}
    <div className="packing75-face packing71-item" onPointerDown={onDown} onPointerUp={onUp} onPointerCancel={()=>{start.current=null}}>
     <label className="packing75-checkbox"><input type="checkbox" checked={!!item.done} disabled={busy||locked} aria-label={'Приготвено: '+item.title} onChange={()=>{onOpenChange(null);onToggle()}}/></label>
-    <button type="button" className="packing75-title" disabled={busy||locked} aria-expanded={open} title="Натисни за действия или плъзни наляво" onClick={()=>{if(swallowClick.current){swallowClick.current=false;return}onOpenChange(open?null:item.item_id)}}>{item.title}</button>
+    <span className="packing75-title" role={locked?'text':'button'} tabIndex={busy||locked?-1:0} aria-expanded={locked?undefined:open} title={locked?item.title:'Натисни за действия или плъзни наляво'} onKeyDown={e=>{if((e.key==='Enter'||e.key===' ')&&!busy&&!locked){e.preventDefault();onOpenChange(open?null:item.item_id)}}} onClick={()=>{if(busy||locked)return;if(swallowClick.current){swallowClick.current=false;return}onOpenChange(open?null:item.item_id)}}>{item.title}</span>
    </div>
  </div>
 }
