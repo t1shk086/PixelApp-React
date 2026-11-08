@@ -2793,3 +2793,26 @@ html .packing71 .packing71-items .packing75-title {
   background-color:transparent!important;
   background-image:none!important;
 }
+
+
+/* P99.78 — keep edit/delete fully hidden before swipe, without dark row tiles.
+   The closed item shares its parent theme surface; only an opened item uses
+   an opaque themed face so action buttons cannot bleed through its text. */
+html .packing71 .packing71-items .packing75-swipe .packing75-actions {
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
+}
+html .packing71 .packing71-items .packing75-swipe.is-open .packing75-actions {
+  visibility:visible!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+}
+html .packing71 .packing71-items .packing75-swipe.is-open .packing75-face.packing71-item {
+  background:var(--skin-card,var(--card,#162433))!important;
+  background-image:none!important;
+}
+html .packing71 .packing71-items .packing75-swipe:not(.is-open) .packing75-face.packing71-item {
+  background:transparent!important;
+  background-image:none!important;
+}
