@@ -2776,3 +2776,20 @@ html .packing71-items .packing75-swipe.is-done .packing75-title {
 html .packing71-items .packing75-title:focus-visible {
   outline:2px solid var(--skin-accent,var(--accent,#4fbfa9));outline-offset:3px;
 }
+
+/* P99.77 — no filled backdrop behind packing items; inherit the group card surface. */
+html .packing71 .packing71-items .packing75-face.packing71-item,
+html .packing71 .packing71-items .packing75-swipe:not(.is-open) .packing75-face.packing71-item {
+  background:transparent!important;
+  background-color:transparent!important;
+  background-image:none!important;
+}
+html .packing71 .packing71-items .packing75-swipe {
+  background:transparent!important;
+  background-image:none!important;
+}
+html .packing71 .packing71-items .packing75-title {
+  background:transparent!important;
+  background-color:transparent!important;
+  background-image:none!important;
+}
