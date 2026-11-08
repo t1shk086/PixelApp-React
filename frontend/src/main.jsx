@@ -960,13 +960,13 @@ function SwipeTaskRow({task,complete,editing,editable,busy,open,onOpenChange,onT
 
 // P99.71: per-trip packing list; independent of tasks, expenses and gallery.
 const P9971_CATEGORIES=['Документи','Дрехи','Техника','Тоалетни принадлежности','Оборудване','Други'];
-const P9971_ICONS={'Документи':'🪪','Дрехи':'👕','Техника':'🔌','Тоалетни принадлежности':'🧴','Оборудване':'🎿','Други':'🧳'};
 function PackingList({tripId,request,enabled}){
  const [snapshot,setSnapshot]=useState(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [title,setTitle]=useState('');
  const [category,setCategory]=useState('Дрехи');
+ const [newCategory,setNewCategory]=useState('');
  const [expanded,setExpanded]=useState(P9971_CATEGORIES);
  const [editing,setEditing]=useState(null);
  const [editTitle,setEditTitle]=useState('');
@@ -990,7 +990,8 @@ function PackingList({tripId,request,enabled}){
      const response=await request('/safe/neon/packing','POST',{
        trip_id:tripId,operation,expected_revision:snapshot.revision,
        ...(item?{item_id:item.item_id,expected_version:item.version}:{}),...fields});
-     setSnapshot(old=>({...old,revision:response.revision,items:response.items}));
+     setSnapshot(old=>({...old,revision:response.revision,items:response.items,categories:response.categories||old?.categories}));
+     if(operation==='add_category'){setCategory(fields.title);setExpanded(old=>old.includes(fields.title)?old:[...old,fields.title]);setNewCategory('');}
      setEditing(null);setTitle('');setCopyOpen(false);
    }catch(e){setError(String(e.message||e));await refresh().catch(()=>{});}
    finally{setBusy(false);}
@@ -1000,12 +1001,13 @@ function PackingList({tripId,request,enabled}){
    if(!copyOpen){try{const data=await request('/safe/neon/packing-sources/'+encodeURIComponent(tripId));setSources(data.sources||[]);}catch(e){setError(String(e.message||e));}}
  };
  const items=snapshot?.items||[];
+ const categoryChoices=[...new Set([...(snapshot?.categories||P9971_CATEGORIES),...items.map(it=>it.category)])];
  const packed=items.filter(x=>x.done).length;
  const pct=items.length?Math.round(100*packed/items.length):0;
  const locked=!!snapshot?.locked;
  return <div className="packing71">
    <div className="travel-card packing71-hero">
-    <div className="packing71-head"><div><h3>🧳 Багаж</h3><p>Всичко необходимо за пътуването</p></div><strong>{pct}%</strong></div>
+    <div className="packing71-head"><div><h3>Багаж</h3><p>Всичко необходимо за пътуването</p></div><strong>{pct}%</strong></div>
     <div className="packing71-track"><span style={{width:pct+'%'}}/></div>
     <div className="packing71-meta"><span>{packed} от {items.length} приготвени</span><button type="button" className="ghost" disabled={busy} onClick={()=>void refresh()} title="Обнови списъка">↻ Обнови</button></div>
    </div>
@@ -1016,22 +1018,26 @@ function PackingList({tripId,request,enabled}){
     {!locked&&<div className="travel-card packing71-add">
       <form onSubmit={e=>{e.preventDefault();if(title.trim())void change('add',null,{title:title.trim(),category})}}>
        <input aria-label="Нова вещ" maxLength={160} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Какво да вземем?" disabled={busy}/>
-       <select aria-label="Категория на вещта" value={category} onChange={e=>setCategory(e.target.value)} disabled={busy}>{P9971_CATEGORIES.map(g=><option key={g}>{g}</option>)}</select>
+       <select aria-label="Категория на вещта" value={category} onChange={e=>setCategory(e.target.value)} disabled={busy}>{categoryChoices.map(g=><option key={g}>{g}</option>)}</select>
        <button type="submit" disabled={busy||!title.trim()}>+ Добави</button>
       </form>
-      <button type="button" className="packing71-copy-toggle ghost" onClick={()=>void fetchSources()} disabled={busy}>📋 Копирай списък от друго пътуване</button>
+      <form className="packing72-category-form" onSubmit={e=>{e.preventDefault();if(newCategory.trim())void change('add_category',null,{title:newCategory.trim()})}}>
+       <input aria-label="Нова категория за багаж" maxLength={50} value={newCategory} onChange={e=>setNewCategory(e.target.value)} placeholder="Нова категория (напр. Аптечка)" disabled={busy}/>
+       <button type="submit" disabled={busy||!newCategory.trim()}>+ Категория</button>
+      </form>
+      <button type="button" className="packing71-copy-toggle ghost" onClick={()=>void fetchSources()} disabled={busy}>Копирай списък от друго пътуване</button>
       {copyOpen&&<div className="packing71-copy"><select aria-label="Източник на списъка" value={source} onChange={e=>setSource(e.target.value)}><option value="">Избери пътуване</option>{sources.map(it=><option value={it.trip_id} key={it.trip_id}>{it.name} ({it.count})</option>)}</select><button type="button" disabled={busy||!source} onClick={()=>{if(window.confirm('Да копирам вещите с празни отметки? Наличните вещи ще се запазят.'))void change('copy',null,{source_trip_id:source});}}>Копирай</button>{!sources.length&&<small>Няма друго пътуване със списък за багаж.</small>}</div>}
     </div>}
-    {P9971_CATEGORIES.filter(g=>items.some(x=>x.category===g)).map(g=>{
+    {categoryChoices.filter(g=>items.some(x=>x.category===g)||!P9971_CATEGORIES.includes(g)).map(g=>{
        const group=items.filter(it=>it.category===g),count=group.filter(it=>it.done).length,open=expanded.includes(g);
        return <div className="travel-card packing71-group" key={g}>
-         <button type="button" className="packing71-group-head" aria-expanded={open} onClick={()=>setExpanded(old=>open?old.filter(x=>x!==g):[...old,g])}><span>{P9971_ICONS[g]} {g}</span><span>{count}/{group.length} {open?'⌃':'⌄'}</span></button>
+         <button type="button" className="packing71-group-head" aria-expanded={open} onClick={()=>setExpanded(old=>open?old.filter(x=>x!==g):[...old,g])}><span>{g}</span><span>{count}/{group.length} {open?'⌃':'⌄'}</span></button>
          {open&&<div className="packing71-items">{group.map(it=><div key={it.item_id} className={'packing71-item'+(it.done?' is-done':'')}>
-         {editing===it.item_id?<form className="packing71-edit" onSubmit={e=>{e.preventDefault();if(editTitle.trim())void change('edit',it,{title:editTitle.trim(),category:editCategory})}}><input value={editTitle} maxLength={160} onChange={e=>setEditTitle(e.target.value)} disabled={busy} aria-label="Промени името"/><select value={editCategory} onChange={e=>setEditCategory(e.target.value)} disabled={busy}>{P9971_CATEGORIES.map(k=><option key={k}>{k}</option>)}</select><div><button type="submit" disabled={busy||!editTitle.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>:
+         {editing===it.item_id?<form className="packing71-edit" onSubmit={e=>{e.preventDefault();if(editTitle.trim())void change('edit',it,{title:editTitle.trim(),category:editCategory})}}><input value={editTitle} maxLength={160} onChange={e=>setEditTitle(e.target.value)} disabled={busy} aria-label="Промени името"/><select value={editCategory} onChange={e=>setEditCategory(e.target.value)} disabled={busy}>{categoryChoices.map(k=><option key={k}>{k}</option>)}</select><div><button type="submit" disabled={busy||!editTitle.trim()}>Запази</button><button type="button" className="ghost" onClick={()=>setEditing(null)}>Отказ</button></div></form>:
          <><label className="packing71-check"><input type="checkbox" checked={!!it.done} disabled={busy||locked} onChange={()=>void change('toggle',it)}/><span>{it.title}</span></label>{!locked&&<div className="packing71-actions"><button type="button" disabled={busy} aria-label={'Редактирай '+it.title} onClick={()=>{setEditing(it.item_id);setEditTitle(it.title);setEditCategory(it.category)}}>✎</button><button type="button" disabled={busy} aria-label={'Изтрий '+it.title} onClick={()=>{if(window.confirm('Да изтрия „'+it.title+'“ от багажа?'))void change('delete',it);}}>×</button></div>}</>}
          </div>)}</div>}
        </div>})}
-    {!items.length&&<div className="travel-card packing71-empty">🧳 Списъкът е празен. Добави първата вещ или копирай от друго пътуване.</div>}
+    {!items.length&&<div className="travel-card packing71-empty">Списъкът е празен. Добави първата вещ или копирай от друго пътуване.</div>}
    </>}
  </div>
 }

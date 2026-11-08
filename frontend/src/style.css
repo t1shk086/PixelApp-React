@@ -2624,3 +2624,9 @@ html .gallery-p91-viewer-bottom .gallery-p91-delete {
 .packing71-error{color:var(--text,#eaf3fb);border-color:var(--danger,#b96565)}
 .packing71-empty{text-align:center;color:var(--muted,#93a7b8);font-size:14px}
 @media(max-width:600px){.packing71-add form{grid-template-columns:minmax(0,1fr) auto}.packing71-add form select{grid-column:1/3;grid-row:2}.packing71-add form input{grid-column:1/3;grid-row:1}.packing71-add form button{grid-column:2;grid-row:3}.packing71-hero,.packing71-add,.packing71-group{padding:13px}}
+
+/* P99.72 — personal packing categories */
+.packing71-add .packing72-category-form{display:flex;align-items:center;gap:8px;margin-top:10px}
+.packing71-add .packing72-category-form input{flex:1;min-width:0}
+.packing71-add .packing72-category-form button{flex-shrink:0;white-space:nowrap;padding:10px;border-radius:9px}
+@media(max-width:370px){.packing71-add .packing72-category-form{flex-wrap:wrap}.packing71-add .packing72-category-form button{margin-left:auto}}
