@@ -2878,6 +2878,6 @@ html .task47-board .task48-swipe-shell .task48-title {
 @media(max-width:380px){.travel-detail .p9980-filter-toggle{min-width:78px;padding:8px}.travel-detail .p9980-summary{padding:15px}.travel-detail .p9980-filter-details{gap:7px;padding:9px}}
 
 /* P99.81 — Header logo only: the favicon, manifest and PWA/bookmark icons stay unchanged. */
-.brand:has(> .pixelapp-header-dog){display:flex;align-items:center;justify-content:center;gap:9px}
-.brand > .pixelapp-header-dog{width:42px;height:42px;object-fit:contain;flex:none;display:block;filter:drop-shadow(0 2px 5px rgba(0,0,0,.18))}
-@media (max-width:420px){.brand > .pixelapp-header-dog{width:38px;height:38px}}
+.brand:has(> .pixelapp-header-car){display:flex;align-items:center;justify-content:center;gap:9px}
+.brand > .pixelapp-header-car{width:42px;height:42px;object-fit:contain;flex:none;display:block;filter:drop-shadow(0 2px 5px rgba(0,0,0,.18))}
+@media (max-width:420px){.brand > .pixelapp-header-car{width:38px;height:38px}}
