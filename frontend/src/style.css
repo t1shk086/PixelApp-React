@@ -2882,3 +2882,71 @@ html .task47-board .task48-swipe-shell .task48-title {
 /* P99.84 — car icon visually matches both brand text lines; only its display dimensions change. */
 .brand > .pixelapp-header-car{width:82px;height:82px;object-fit:contain;flex:none;display:block;filter:drop-shadow(0 2px 5px rgba(0,0,0,.18))}
 @media (max-width:420px){.brand > .pixelapp-header-car{width:76px;height:76px}}
+
+
+/* P99.85: Keep both brand lines together; the car never changes their alignment. */
+.auth .p9985-brand-lockup,
+.app > header .p9985-brand-lockup {
+  display: inline-flex!important;
+  flex-direction: row!important;
+  align-items: center!important;
+  justify-content: center!important;
+  gap: 10px!important;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.p9985-brand-copy {
+  display: flex!important;
+  flex-direction: column!important;
+  align-items: flex-start!important;
+  justify-content: center!important;
+  min-width: 0;
+  text-align: left!important;
+}
+.p9985-brand-copy .brand {
+  display:block!important;
+  margin:0!important;
+  padding:0!important;
+  line-height:1.08!important;
+  white-space:nowrap;
+}
+.p9985-brand-copy .sub {
+  display:block!important;
+  margin-top:3px!important;
+  padding:0!important;
+  line-height:1.3!important;
+  white-space:nowrap;
+  text-align:left!important;
+}
+.p9985-brand-lockup > .pixelapp-header-car {
+  display:block!important;
+  width:80px!important;
+  height:80px!important;
+  flex:0 0 80px!important;
+  object-fit:contain!important;
+  background:transparent!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+  filter:none!important;
+}
+@media (max-width:480px) {
+  .p9985-brand-lockup > .pixelapp-header-car {
+    width:67px!important;height:67px!important;flex-basis:67px!important;
+  }
+  .app > header .p9985-brand-lockup {gap:7px!important}
+}
+/* In the compact in-trip header, keep text and icon together without extra height. */
+.app > header.p9911-compact-trip-header .p9985-brand-lockup > .pixelapp-header-car {
+  width:44px!important;height:44px!important;flex-basis:44px!important;
+}
+.app > header.p9911-compact-trip-header .p9985-brand-copy .brand {
+  font-size:clamp(21px,5vw,28px)!important;
+}
+.app > header.p9911-compact-trip-header .p9985-brand-copy .sub {
+  font-size:10px!important;margin-top:1px!important;
+}
+@media(max-width:370px){
+ .app > header.p9911-compact-trip-header .p9985-brand-lockup{gap:5px!important}
+ .app > header.p9911-compact-trip-header .p9985-brand-lockup > .pixelapp-header-car{width:35px!important;height:35px!important;flex-basis:35px!important}
+}
