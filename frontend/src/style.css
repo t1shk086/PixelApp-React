@@ -2879,5 +2879,6 @@ html .task47-board .task48-swipe-shell .task48-title {
 
 /* P99.81 — Header logo only: the favicon, manifest and PWA/bookmark icons stay unchanged. */
 .brand:has(> .pixelapp-header-car){display:flex;align-items:center;justify-content:center;gap:9px}
-.brand > .pixelapp-header-car{width:42px;height:42px;object-fit:contain;flex:none;display:block;filter:drop-shadow(0 2px 5px rgba(0,0,0,.18))}
-@media (max-width:420px){.brand > .pixelapp-header-car{width:38px;height:38px}}
+/* P99.84 — car icon visually matches both brand text lines; only its display dimensions change. */
+.brand > .pixelapp-header-car{width:82px;height:82px;object-fit:contain;flex:none;display:block;filter:drop-shadow(0 2px 5px rgba(0,0,0,.18))}
+@media (max-width:420px){.brand > .pixelapp-header-car{width:76px;height:76px}}
