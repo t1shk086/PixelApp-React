@@ -2950,3 +2950,12 @@ html .task47-board .task48-swipe-shell .task48-title {
  .app > header.p9911-compact-trip-header .p9985-brand-lockup{gap:5px!important}
  .app > header.p9911-compact-trip-header .p9985-brand-lockup > .pixelapp-header-car{width:35px!important;height:35px!important;flex-basis:35px!important}
 }
+
+/* P99.87 — standard blue skin only: darken the OUTER car-section panels.
+   Keep all internal metric cards, gauges, borders and other skins unchanged. */
+html[data-pixelapp-skin="standard"] .travel-card:has(> .fuel-odometer),
+html[data-pixelapp-skin="standard"] .travel-card:has(> .visual-gauges),
+html[data-pixelapp-skin="standard"] .travel-card:has(> .p35-fuel-summary),
+html[data-pixelapp-skin="standard"] .travel-card:has(> .fuel-history-card) {
+  background:linear-gradient(150deg,#142633,#0e1c29)!important;
+}
